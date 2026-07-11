@@ -211,7 +211,10 @@ async function setStatus(req: Request, res: Response, status: "BLOCKED" | "ACTIV
   });
 
   if (status === "BLOCKED" || status === "LOST") {
-    notifyCompanyAdmins(existing.companyId, {
+    // Awaited so the notification is guaranteed to exist by the time this
+    // request resolves (callers reasonably check /notifications right after);
+    // still caught so a notification failure never fails the card update.
+    await notifyCompanyAdmins(existing.companyId, {
       type: status === "LOST" ? "CARD_LOST" : "CARD_BLOCKED",
       title: status === "LOST" ? "Card reported lost" : "Card blocked",
       message: `${card.label ?? card.uid} was marked ${status.toLowerCase()}.`,
