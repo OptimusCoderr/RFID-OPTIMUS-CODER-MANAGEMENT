@@ -42,6 +42,12 @@ Prisma), and **Socket.IO** for live encode/read operations.
   a card or card holder from anywhere in the app.
 - **Dark mode**, a self-service profile page, and a company settings page for
   company admins.
+- **Session management** — see every device signed in to your account (with a
+  best-effort browser/OS + IP summary) and revoke any of them remotely.
+- **Card holder and encoder detail pages** — full history and management for
+  an individual holder or encoder, not just the list view.
+- **Bulk card actions** — select multiple cards to block/unblock together or
+  export just the selection to CSV.
 
 ## Architecture
 
@@ -136,6 +142,25 @@ AGENT_SERVER_URL=http://localhost:4000 AGENT_KEY=<from Encoders page> npm run ag
 
 Register the encoder from the dashboard's **Encoders** page first — it
 generates the `agentKey` shown exactly once.
+
+## Testing
+
+```bash
+cd server
+npm test          # unit tests + an integration suite against a real Postgres
+```
+
+The integration suite (`server/tests/api.test.ts`) runs the actual Express
+app through `supertest` against a dedicated `rfid_management_test` database
+(auto-migrated by `server/tests/globalSetup.ts`) and covers the core
+happy path — company/user provisioning, card registration, lifecycle
+actions, notification generation, and cross-company RBAC isolation. Unit
+tests cover the pure-function pieces (encryption round-trips, JWT signing,
+CSV escaping, RBAC scoping helpers) with no DB required.
+
+CI (`.github/workflows/ci.yml`) runs both on every push/PR: the server job
+spins up a Postgres service container and runs typecheck + build + the full
+test suite; the client job typechecks and builds the Vite app.
 
 ## Full stack
 

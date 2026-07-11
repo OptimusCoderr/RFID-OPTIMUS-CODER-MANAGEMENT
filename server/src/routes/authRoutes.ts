@@ -4,6 +4,7 @@ import * as authController from "../controllers/authController";
 import { authenticate } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { loginBody, refreshBody, forgotPasswordBody, resetPasswordBody, updateProfileBody } from "../validators/auth";
+import { idParams } from "../validators/common";
 
 const router = Router();
 
@@ -28,5 +29,7 @@ router.get("/me", authenticate, authController.me);
 router.patch("/me", authenticate, validate({ body: updateProfileBody }), authController.updateProfile);
 router.post("/forgot-password", resetLimiter, validate({ body: forgotPasswordBody }), authController.forgotPassword);
 router.post("/reset-password", resetLimiter, validate({ body: resetPasswordBody }), authController.resetPassword);
+router.get("/sessions", authenticate, authController.listSessions);
+router.delete("/sessions/:id", authenticate, validate({ params: idParams }), authController.revokeSession);
 
 export default router;

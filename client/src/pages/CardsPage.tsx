@@ -1,10 +1,11 @@
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Plus, Search, Download, Upload } from "lucide-react";
+import { Plus, Search, Download, Upload, ShieldOff, ShieldCheck, X } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage, downloadCsv } from "@/lib/api";
 import { parseCsv } from "@/lib/csv";
+import { toCsv, downloadCsvString } from "@/lib/toCsv";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Modal } from "@/components/ui/Modal";
 import { FullPageSpinner, Spinner } from "@/components/ui/Spinner";
@@ -40,6 +41,7 @@ export default function CardsPage() {
   const [importRows, setImportRows] = useState<Record<string, string>[]>([]);
   const [importResult, setImportResult] = useState<BulkImportResult | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data, isLoading, isFetching } = useQuery({
@@ -57,6 +59,11 @@ export default function CardsPage() {
     queryKey: ["templates"],
     queryFn: async () => (await api.get<CardTemplate[]>("/templates")).data,
   });
+
+  // Selection is page/filter scoped — drop it whenever the visible set changes.
+  useEffect(() => {
+    setSelected(new Set());
+  }, [page, status, cardType, search]);
 
   const registerCard = useMutation({
     mutationFn: async (payload: RegisterFormState) =>
@@ -124,6 +131,50 @@ export default function CardsPage() {
     } finally {
       setExporting(false);
     }
+  }
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllOnPage() {
+    const pageIds = data?.data.map((c) => c.id) ?? [];
+    const allSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+    setSelected(allSelected ? new Set() : new Set(pageIds));
+  }
+
+  const bulkSetStatus = useMutation({
+    mutationFn: async (action: "block" | "unblock") => {
+      const ids = Array.from(selected);
+      const results = await Promise.allSettled(ids.map((id) => api.post(`/cards/${id}/${action}`)));
+      const failed = results.filter((r) => r.status === "rejected").length;
+      return { total: ids.length, failed };
+    },
+    onSuccess: ({ total, failed }, action) => {
+      const succeeded = total - failed;
+      if (succeeded > 0) toast.success(`${succeeded} card${succeeded === 1 ? "" : "s"} ${action}ed`);
+      if (failed > 0) toast.error(`${failed} card${failed === 1 ? "" : "s"} failed to update`);
+      setSelected(new Set());
+      queryClient.invalidateQueries({ queryKey: ["cards"] });
+    },
+    onError: () => toast.error("Bulk update failed"),
+  });
+
+  function handleExportSelected() {
+    const rows = data?.data.filter((c) => selected.has(c.id)) ?? [];
+    const csv = toCsv(rows, [
+      { header: "UID", value: (c: Card) => c.uid },
+      { header: "Card Type", value: (c: Card) => c.cardType },
+      { header: "Status", value: (c: Card) => c.status },
+      { header: "Label", value: (c: Card) => c.label },
+      { header: "Holder", value: (c: Card) => c.holder?.fullName },
+    ]);
+    downloadCsvString(csv, `selected-cards-${new Date().toISOString().slice(0, 10)}.csv`);
   }
 
   const availableTemplates = templates?.filter((t) => t.cardType === form.cardType) ?? [];
@@ -194,6 +245,24 @@ export default function CardsPage() {
         {isFetching && <Spinner className="h-4 w-4" />}
       </div>
 
+      {selected.size > 0 && (
+        <div className="mb-4 flex items-center gap-3 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2.5 text-sm dark:border-brand-900 dark:bg-brand-900/20">
+          <span className="font-medium">{selected.size} selected</span>
+          <button className="btn-secondary" onClick={() => bulkSetStatus.mutate("block")} disabled={bulkSetStatus.isPending}>
+            <ShieldOff size={14} /> Block
+          </button>
+          <button className="btn-secondary" onClick={() => bulkSetStatus.mutate("unblock")} disabled={bulkSetStatus.isPending}>
+            <ShieldCheck size={14} /> Unblock
+          </button>
+          <button className="btn-secondary" onClick={handleExportSelected}>
+            <Download size={14} /> Export selected
+          </button>
+          <button className="ml-auto text-slate-400 hover:text-slate-700 dark:hover:text-slate-200" onClick={() => setSelected(new Set())}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {isLoading ? (
         <FullPageSpinner />
       ) : (
@@ -201,6 +270,13 @@ export default function CardsPage() {
           <table className="w-full text-sm">
             <thead className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">
               <tr>
+                <th className="w-10 px-4 py-3">
+                  <input
+                    type="checkbox"
+                    checked={(data?.data.length ?? 0) > 0 && data!.data.every((c) => selected.has(c.id))}
+                    onChange={toggleSelectAllOnPage}
+                  />
+                </th>
                 <th className="px-4 py-3">UID</th>
                 <th className="px-4 py-3">Label</th>
                 <th className="px-4 py-3">Type</th>
@@ -211,6 +287,9 @@ export default function CardsPage() {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {data?.data.map((card) => (
                 <tr key={card.id} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" checked={selected.has(card.id)} onChange={() => toggleSelected(card.id)} />
+                  </td>
                   <td className="px-4 py-3">
                     <Link to={`/cards/${card.id}`} className="font-mono font-medium text-brand-600 hover:underline dark:text-brand-400">
                       {card.uid}
@@ -226,7 +305,7 @@ export default function CardsPage() {
               ))}
               {data?.data.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
                     No cards match these filters.
                   </td>
                 </tr>
