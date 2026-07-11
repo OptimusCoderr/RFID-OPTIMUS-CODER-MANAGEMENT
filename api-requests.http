@@ -1,0 +1,83 @@
+### RFID Manager — manual API smoke test
+### Open this file with the "REST Client" VS Code extension (humao.rest-client)
+### and click "Send Request" above each block. Run the server first
+### (see .vscode/tasks.json: "Server: dev", or F5 > "Server: Debug (tsx)"),
+### then seed it once with `npm run prisma:seed` inside server/.
+
+@baseUrl = http://localhost:4000/api
+
+### Health check (no auth)
+GET http://localhost:4000/health
+
+### Log in as the seeded company admin — captures the token for later requests
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@acme-logistics.example",
+  "password": "ChangeMe123!"
+}
+
+### Who am I
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### Dashboard stats
+GET {{baseUrl}}/dashboard/stats
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### List cards
+GET {{baseUrl}}/cards?pageSize=10
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### Register a new card
+# @name registerCard
+POST {{baseUrl}}/cards
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{
+  "uid": "04AABBCCEE",
+  "cardType": "NTAG213",
+  "label": "REST Client test card"
+}
+
+### Block the card just created
+POST {{baseUrl}}/cards/{{registerCard.response.body.id}}/block
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### List notifications (the block above should have generated one)
+GET {{baseUrl}}/notifications
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### List card holders
+GET {{baseUrl}}/holders
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### List encoders
+GET {{baseUrl}}/encoders
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### Audit log
+GET {{baseUrl}}/logs?pageSize=20
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### Active sessions for the current user
+GET {{baseUrl}}/auth/sessions
+Authorization: Bearer {{login.response.body.accessToken}}
+
+### --- Super admin flow ---
+
+# @name superLogin
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@rfidmanager.local",
+  "password": "ChangeMe123!"
+}
+
+### List every company (super admin only)
+GET {{baseUrl}}/companies
+Authorization: Bearer {{superLogin.response.body.accessToken}}

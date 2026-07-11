@@ -25,7 +25,6 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     }
   }
 
-  // eslint-disable-next-line no-console
   console.error(err);
   const message = err instanceof Error ? err.message : "Internal server error";
   return res.status(500).json({ error: process.env.NODE_ENV === "production" ? "Internal server error" : message });

@@ -7,7 +7,6 @@ build/
 npm-debug.log*
 .DS_Store
 coverage/
-.vscode/
 .idea/
 server/prisma/dev.db
 server/generated/

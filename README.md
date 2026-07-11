@@ -143,6 +143,41 @@ AGENT_SERVER_URL=http://localhost:4000 AGENT_KEY=<from Encoders page> npm run ag
 Register the encoder from the dashboard's **Encoders** page first — it
 generates the `agentKey` shown exactly once.
 
+## Running it in VS Code
+
+The repo ships a `.vscode/` folder so this mostly works out of the box:
+
+1. **Open the repo root** in VS Code (not the `server/` or `client/`
+   subfolder — the workspace config assumes the root).
+2. VS Code will prompt you to install the recommended extensions
+   (`.vscode/extensions.json`): Prisma, ESLint, Tailwind CSS IntelliSense,
+   DotENV, REST Client, and the Vitest explorer. Accept it.
+3. Create `server/.env` from `server/.env.example` and fill in real secrets
+   (see step 2 above) — VS Code doesn't do this for you.
+4. Open the **Run and Debug** panel (`Ctrl+Shift+D` / `Cmd+Shift+D`) and pick
+   a configuration from `.vscode/launch.json`:
+   - **"Server: Debug (tsx)"** — runs the API with breakpoints, auto-restarts
+     on file changes.
+   - **"Client: Launch Chrome"** — starts the Vite dev server (via its
+     `preLaunchTask`) and opens it in a debuggable Chrome instance.
+   - **"Full stack: server + client"** — a compound launch that starts both
+     at once. This is the fastest way to get the whole app running with
+     breakpoints on either side.
+   - **"Server: Debug tests (vitest)"** — runs the test suite under the
+     debugger.
+5. Alternatively, use **Terminal → Run Task** (`.vscode/tasks.json`) for
+   non-debug runs: `Server: install`, `Server: migrate`, `Server: seed`,
+   `Server: dev`, `Server: test`, `Client: install`, `Client: dev`, or the
+   combined `Dev: server + client`.
+6. To poke at the API directly without the UI, open **`api-requests.http`**
+   at the repo root with the REST Client extension and click "Send Request"
+   above each block — it logs in as the seeded company admin, captures the
+   token, and chains it into the rest of the calls (list cards, register a
+   card, block it, check the notification it generated, etc).
+7. Set breakpoints in `server/src/**` or `client/src/**` as usual — both
+   debug configs use source maps, so they land on your TypeScript/TSX, not
+   compiled output.
+
 ## Testing
 
 ```bash

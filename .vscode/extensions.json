@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "prisma.prisma",
+    "dbaeumer.vscode-eslint",
+    "bradlc.vscode-tailwindcss",
+    "mikestead.dotenv",
+    "humao.rest-client",
+    "vitest.explorer"
+  ]
+}
