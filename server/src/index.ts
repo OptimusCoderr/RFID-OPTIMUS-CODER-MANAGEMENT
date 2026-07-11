@@ -10,7 +10,6 @@ const httpServer = createServer(app);
 initWebsocket(httpServer);
 
 httpServer.listen(env.port, () => {
-  // eslint-disable-next-line no-console
   console.log(`RFID Management API listening on port ${env.port} [${env.nodeEnv}]`);
 });
 

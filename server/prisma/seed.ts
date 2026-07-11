@@ -59,7 +59,7 @@ async function main() {
   });
   console.log(`Operator ready: ${operator.email}`);
 
-  const [alice, bob] = await Promise.all([
+  const [alice, _bob] = await Promise.all([
     prisma.cardHolder.create({
       data: { companyId: company.id, fullName: "Alice Nwosu", department: "Warehouse", employeeId: "EMP-001" },
     }),

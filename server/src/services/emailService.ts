@@ -33,7 +33,6 @@ export async function sendEmail(input: SendEmailInput): Promise<void> {
   const client = getTransporter();
 
   if (!client) {
-    // eslint-disable-next-line no-console
     console.log(`\n[email:dev-fallback] To: ${input.to}\nSubject: ${input.subject}\n\n${input.text}\n`);
     return;
   }

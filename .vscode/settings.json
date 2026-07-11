@@ -1,0 +1,14 @@
+{
+  "eslint.workingDirectories": [{ "directory": "server" }, { "directory": "client" }],
+  "typescript.tsdk": "client/node_modules/typescript/lib",
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  "files.associations": {
+    ".env.example": "dotenv"
+  },
+  "search.exclude": {
+    "**/dist": true,
+    "**/node_modules": true
+  }
+}

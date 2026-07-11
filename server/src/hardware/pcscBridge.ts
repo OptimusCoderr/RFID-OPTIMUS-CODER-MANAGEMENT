@@ -34,7 +34,6 @@ export class PcscBridge {
   start() {
     let NFC: any;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       ({ NFC } = require("nfc-pcsc"));
     } catch {
       throw new Error(
