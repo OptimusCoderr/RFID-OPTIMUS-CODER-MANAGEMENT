@@ -1,0 +1,352 @@
+// RFID / NFC Management System — Prisma schema
+// Multi-tenant: every operational record hangs off a Company.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  SUPER_ADMIN   // platform owner, sees all companies
+  COMPANY_ADMIN // full control within their own company
+  MANAGER       // manage cards/holders/encoders, no user management
+  OPERATOR      // day-to-day encode/scan operations
+  VIEWER        // read-only
+}
+
+enum CardType {
+  MIFARE_CLASSIC_1K
+  MIFARE_CLASSIC_4K
+  MIFARE_CLASSIC_MINI
+  MIFARE_ULTRALIGHT
+  MIFARE_ULTRALIGHT_C
+  MIFARE_DESFIRE_EV1
+  MIFARE_DESFIRE_EV2
+  MIFARE_DESFIRE_EV3
+  MIFARE_PLUS
+  NTAG213
+  NTAG215
+  NTAG216
+  EM4100_125KHZ
+  HID_PROX_125KHZ
+  T5577_125KHZ
+  GENERIC_ISO14443A
+  GENERIC_ISO15693
+  OTHER
+}
+
+enum CardStatus {
+  UNASSIGNED
+  ACTIVE
+  ASSIGNED
+  BLOCKED
+  LOST
+  EXPIRED
+  RETIRED
+}
+
+enum EncoderType {
+  ACR122U
+  ACR1252U
+  ACR1281U
+  PN532
+  OMNIKEY_5022
+  OMNIKEY_5427
+  GENERIC_PCSC
+  SERIAL_125KHZ
+  OTHER
+}
+
+enum EncoderConnectionType {
+  USB
+  SERIAL
+  NETWORK
+  BLUETOOTH
+}
+
+enum EncoderStatus {
+  ONLINE
+  OFFLINE
+  BUSY
+  ERROR
+}
+
+enum OperationType {
+  READ
+  WRITE
+  FORMAT
+  LOCK
+  KEY_CHANGE
+  ASSIGN
+  UNASSIGN
+  BLOCK
+  UNBLOCK
+  CLONE
+  REGISTER
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+}
+
+enum OperationStatus {
+  SUCCESS
+  FAILED
+  PENDING
+}
+
+// ---------------------------------------------------------------------------
+// Core tenancy
+// ---------------------------------------------------------------------------
+
+model Company {
+  id            String   @id @default(uuid())
+  name          String
+  slug          String   @unique
+  contactEmail  String?
+  contactPhone  String?
+  address       String?
+  logoUrl       String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  users         User[]
+  holders       CardHolder[]
+  encoders      Encoder[]
+  cards         Card[]
+  templates     CardTemplate[]
+  accessZones   AccessZone[]
+  operationLogs OperationLog[]
+
+  @@map("companies")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String
+  fullName      String
+  role          Role
+  isActive      Boolean   @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  companyId     String?
+  company       Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  operationLogs OperationLog[]
+  refreshTokens RefreshToken[]
+
+  @@index([companyId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id          String   @id @default(uuid())
+  tokenHash   String   @unique
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// People cards get assigned to
+// ---------------------------------------------------------------------------
+
+model CardHolder {
+  id          String   @id @default(uuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  fullName    String
+  email       String?
+  phone       String?
+  employeeId  String?
+  department  String?
+  photoUrl    String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  cards       Card[]
+
+  @@index([companyId])
+  @@map("card_holders")
+}
+
+// ---------------------------------------------------------------------------
+// Encoders / readers / writers
+// ---------------------------------------------------------------------------
+
+model Encoder {
+  id               String                @id @default(uuid())
+  companyId        String
+  company          Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  name             String
+  type             EncoderType
+  connectionType   EncoderConnectionType @default(USB)
+  serialNumber     String?
+  location         String?
+  firmwareVersion  String?
+  agentKey         String                @unique // key the local agent process authenticates with
+  status           EncoderStatus         @default(OFFLINE)
+  lastSeenAt       DateTime?
+  isActive         Boolean               @default(true)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  cardsRegistered  Card[]                @relation("RegisteredByEncoder")
+  operationLogs    OperationLog[]
+
+  @@index([companyId])
+  @@map("encoders")
+}
+
+// ---------------------------------------------------------------------------
+// Card templates — define the memory layout / key set applied when encoding
+// ---------------------------------------------------------------------------
+
+model CardTemplate {
+  id           String   @id @default(uuid())
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  name         String
+  cardType     CardType
+  description  String?
+  // MIFARE Classic: per-sector Key A / Key B + access bits.
+  // NTAG/Ultralight: page map (start page, page count, purpose).
+  // Stored as JSON so the layout stays flexible per card family.
+  layout       Json
+  isDefault    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  cards        Card[]
+
+  @@index([companyId])
+  @@map("card_templates")
+}
+
+// ---------------------------------------------------------------------------
+// Physical cards / tags
+// ---------------------------------------------------------------------------
+
+model Card {
+  id                String     @id @default(uuid())
+  companyId         String
+  company           Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  uid               String     // hex UID as read from the chip
+  cardType          CardType
+  status            CardStatus @default(UNASSIGNED)
+  label             String?
+  notes             String?
+
+  templateId        String?
+  template          CardTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  holderId          String?
+  holder            CardHolder?   @relation(fields: [holderId], references: [id], onDelete: SetNull)
+
+  registeredByEncoderId String?
+  registeredByEncoder   Encoder?  @relation("RegisteredByEncoder", fields: [registeredByEncoderId], references: [id], onDelete: SetNull)
+
+  // Encrypted at the application layer (AES-256-GCM) before storage — never store raw keys.
+  keysEncrypted     String?
+  // Last full memory dump (sectors/pages), non-sensitive, for quick inspection in the UI.
+  lastReadData      Json?
+
+  issuedAt          DateTime?
+  expiresAt         DateTime?
+  lastSeenAt        DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  accessZones       CardAccessZone[]
+  operationLogs     OperationLog[]
+
+  @@unique([companyId, uid])
+  @@index([companyId])
+  @@index([holderId])
+  @@map("cards")
+}
+
+// ---------------------------------------------------------------------------
+// Access control zones (optional feature: which doors/areas a card opens)
+// ---------------------------------------------------------------------------
+
+model AccessZone {
+  id          String   @id @default(uuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  cards       CardAccessZone[]
+
+  @@index([companyId])
+  @@map("access_zones")
+}
+
+model CardAccessZone {
+  id          String     @id @default(uuid())
+  cardId      String
+  card        Card       @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  zoneId      String
+  zone        AccessZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  grantedAt   DateTime   @default(now())
+
+  @@unique([cardId, zoneId])
+  @@map("card_access_zones")
+}
+
+// ---------------------------------------------------------------------------
+// Audit trail
+// ---------------------------------------------------------------------------
+
+model OperationLog {
+  id            String          @id @default(uuid())
+  companyId     String
+  company       Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  cardId        String?
+  card          Card?           @relation(fields: [cardId], references: [id], onDelete: SetNull)
+
+  encoderId     String?
+  encoder       Encoder?        @relation(fields: [encoderId], references: [id], onDelete: SetNull)
+
+  userId        String?
+  user          User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  operationType OperationType
+  status        OperationStatus
+  details       Json?
+  errorMessage  String?
+  performedAt   DateTime        @default(now())
+
+  @@index([companyId])
+  @@index([cardId])
+  @@index([performedAt])
+  @@map("operation_logs")
+}

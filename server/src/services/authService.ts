@@ -1,0 +1,96 @@
+import crypto from "crypto";
+import bcrypt from "bcryptjs";
+import { prisma } from "../lib/prisma";
+import { ApiError } from "../utils/ApiError";
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/jwt";
+import { env } from "../config/env";
+
+function hashToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function ttlToDate(ttl: string): Date {
+  const match = /^(\d+)([smhd])$/.exec(ttl);
+  const now = Date.now();
+  if (!match) return new Date(now + 30 * 24 * 60 * 60 * 1000);
+  const amount = Number(match[1]);
+  const unitMs = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }[match[2] as "s" | "m" | "h" | "d"];
+  return new Date(now + amount * unitMs);
+}
+
+export async function login(email: string, password: string) {
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user || !user.isActive) {
+    throw ApiError.unauthorized("Invalid email or password");
+  }
+  const valid = await bcrypt.compare(password, user.passwordHash);
+  if (!valid) {
+    throw ApiError.unauthorized("Invalid email or password");
+  }
+
+  const accessToken = signAccessToken({ sub: user.id, role: user.role, companyId: user.companyId });
+  const jti = crypto.randomUUID();
+  const refreshToken = signRefreshToken({ sub: user.id, jti });
+
+  await prisma.refreshToken.create({
+    data: {
+      id: jti,
+      tokenHash: hashToken(refreshToken),
+      userId: user.id,
+      expiresAt: ttlToDate(env.jwt.refreshTtl),
+    },
+  });
+
+  await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+
+  const { passwordHash: _passwordHash, ...safeUser } = user;
+  return { user: safeUser, accessToken, refreshToken };
+}
+
+export async function refresh(token: string) {
+  let payload;
+  try {
+    payload = verifyRefreshToken(token);
+  } catch {
+    throw ApiError.unauthorized("Invalid refresh token");
+  }
+
+  const record = await prisma.refreshToken.findUnique({ where: { id: payload.jti } });
+  if (!record || record.revokedAt || record.tokenHash !== hashToken(token) || record.expiresAt < new Date()) {
+    throw ApiError.unauthorized("Refresh token is no longer valid");
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: record.userId } });
+  if (!user || !user.isActive) {
+    throw ApiError.unauthorized("Account is inactive");
+  }
+
+  // Rotate: revoke the old token, issue a new pair.
+  await prisma.refreshToken.update({ where: { id: record.id }, data: { revokedAt: new Date() } });
+
+  const accessToken = signAccessToken({ sub: user.id, role: user.role, companyId: user.companyId });
+  const jti = crypto.randomUUID();
+  const refreshToken = signRefreshToken({ sub: user.id, jti });
+  await prisma.refreshToken.create({
+    data: {
+      id: jti,
+      tokenHash: hashToken(refreshToken),
+      userId: user.id,
+      expiresAt: ttlToDate(env.jwt.refreshTtl),
+    },
+  });
+
+  return { accessToken, refreshToken };
+}
+
+export async function logout(token: string) {
+  try {
+    const payload = verifyRefreshToken(token);
+    await prisma.refreshToken.updateMany({
+      where: { id: payload.jti },
+      data: { revokedAt: new Date() },
+    });
+  } catch {
+    // already invalid/expired — logout is idempotent either way
+  }
+}

@@ -1,0 +1,61 @@
+import { Request, Response } from "express";
+import { prisma } from "../lib/prisma";
+import { asyncHandler } from "../utils/asyncHandler";
+import { ApiError } from "../utils/ApiError";
+import { assertCompanyAccess, scopedCompanyId } from "../middleware/rbac";
+
+export const listTemplates = asyncHandler(async (req: Request, res: Response) => {
+  const companyId = scopedCompanyId(req);
+  const templates = await prisma.cardTemplate.findMany({
+    where: companyId ? { companyId } : {},
+    orderBy: { name: "asc" },
+  });
+  res.json(templates);
+});
+
+export const getTemplate = asyncHandler(async (req: Request, res: Response) => {
+  const template = await prisma.cardTemplate.findUnique({ where: { id: req.params.id } });
+  if (!template) throw ApiError.notFound("Template not found");
+  assertCompanyAccess(req, template.companyId);
+  res.json(template);
+});
+
+export const createTemplate = asyncHandler(async (req: Request, res: Response) => {
+  const companyId = req.user!.role === "SUPER_ADMIN" ? req.body.companyId : req.user!.companyId;
+  if (!companyId) throw ApiError.badRequest("companyId is required");
+
+  if (req.body.isDefault) {
+    await prisma.cardTemplate.updateMany({
+      where: { companyId, cardType: req.body.cardType },
+      data: { isDefault: false },
+    });
+  }
+
+  const template = await prisma.cardTemplate.create({ data: { ...req.body, companyId } });
+  res.status(201).json(template);
+});
+
+export const updateTemplate = asyncHandler(async (req: Request, res: Response) => {
+  const existing = await prisma.cardTemplate.findUnique({ where: { id: req.params.id } });
+  if (!existing) throw ApiError.notFound("Template not found");
+  assertCompanyAccess(req, existing.companyId);
+
+  if (req.body.isDefault) {
+    await prisma.cardTemplate.updateMany({
+      where: { companyId: existing.companyId, cardType: req.body.cardType ?? existing.cardType, id: { not: existing.id } },
+      data: { isDefault: false },
+    });
+  }
+
+  const { companyId: _ignored, ...data } = req.body;
+  const template = await prisma.cardTemplate.update({ where: { id: req.params.id }, data });
+  res.json(template);
+});
+
+export const deleteTemplate = asyncHandler(async (req: Request, res: Response) => {
+  const existing = await prisma.cardTemplate.findUnique({ where: { id: req.params.id } });
+  if (!existing) throw ApiError.notFound("Template not found");
+  assertCompanyAccess(req, existing.companyId);
+  await prisma.cardTemplate.delete({ where: { id: req.params.id } });
+  res.status(204).send();
+});

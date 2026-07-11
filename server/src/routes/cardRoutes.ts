@@ -1,0 +1,42 @@
+import { Router } from "express";
+import * as cardController from "../controllers/cardController";
+import { authenticate } from "../middleware/auth";
+import { requireRole } from "../middleware/rbac";
+import { validate } from "../middleware/validate";
+import { registerCardBody, updateCardBody, assignCardBody, cardListQuery } from "../validators/card";
+import { idParams } from "../validators/common";
+
+const router = Router();
+
+router.use(authenticate);
+
+const OPERATOR_UP = ["SUPER_ADMIN", "COMPANY_ADMIN", "MANAGER", "OPERATOR"] as const;
+const MANAGER_UP = ["SUPER_ADMIN", "COMPANY_ADMIN", "MANAGER"] as const;
+
+router.get("/", validate({ query: cardListQuery }), cardController.listCards);
+router.get("/:id", validate({ params: idParams }), cardController.getCard);
+router.get("/:id/keys", requireRole(...MANAGER_UP), validate({ params: idParams }), cardController.getCardKeys);
+
+router.post("/", requireRole(...OPERATOR_UP), validate({ body: registerCardBody }), cardController.registerCard);
+router.patch(
+  "/:id",
+  requireRole(...OPERATOR_UP),
+  validate({ params: idParams, body: updateCardBody }),
+  cardController.updateCard
+);
+
+router.post(
+  "/:id/assign",
+  requireRole(...OPERATOR_UP),
+  validate({ params: idParams, body: assignCardBody }),
+  cardController.assignCard
+);
+router.post("/:id/unassign", requireRole(...OPERATOR_UP), validate({ params: idParams }), cardController.unassignCard);
+router.post("/:id/block", requireRole(...MANAGER_UP), validate({ params: idParams }), cardController.blockCard);
+router.post("/:id/unblock", requireRole(...MANAGER_UP), validate({ params: idParams }), cardController.unblockCard);
+router.post("/:id/lost", requireRole(...OPERATOR_UP), validate({ params: idParams }), cardController.markLostCard);
+router.post("/:id/retire", requireRole(...MANAGER_UP), validate({ params: idParams }), cardController.retireCard);
+
+router.delete("/:id", requireRole(...MANAGER_UP), validate({ params: idParams }), cardController.deleteCard);
+
+export default router;

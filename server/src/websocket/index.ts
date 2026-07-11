@@ -1,0 +1,161 @@
+import { Server as HttpServer } from "http";
+import { Server, Socket } from "socket.io";
+import { v4 as uuid } from "uuid";
+import { prisma } from "../lib/prisma";
+import { verifyAccessToken } from "../utils/jwt";
+import { env } from "../config/env";
+import { logOperation } from "../services/operationLogService";
+import { OperationType } from "@prisma/client";
+
+interface DashboardSocketData {
+  userId: string;
+  role: string;
+  companyId: string | null;
+}
+
+interface AgentSocketData {
+  encoderId: string;
+  companyId: string;
+}
+
+// Maps encoder command types to the OperationLog enum for audit purposes.
+const COMMAND_TO_OPERATION: Record<string, OperationType> = {
+  READ: "READ",
+  WRITE: "WRITE",
+  FORMAT: "FORMAT",
+  LOCK: "LOCK",
+  KEY_CHANGE: "KEY_CHANGE",
+  CLONE: "CLONE",
+};
+
+let io: Server | undefined;
+
+export function initWebsocket(httpServer: HttpServer): Server {
+  io = new Server(httpServer, {
+    cors: { origin: env.clientOrigin, credentials: true },
+  });
+
+  const dashboardNsp = io.of("/dashboard");
+  const agentNsp = io.of("/agent");
+
+  // --- Dashboard clients (the React app) -----------------------------------
+  dashboardNsp.use((socket, next) => {
+    try {
+      const token = socket.handshake.auth?.token as string | undefined;
+      if (!token) throw new Error("missing token");
+      const payload = verifyAccessToken(token);
+      socket.data = { userId: payload.sub, role: payload.role, companyId: payload.companyId } satisfies DashboardSocketData;
+      next();
+    } catch {
+      next(new Error("unauthorized"));
+    }
+  });
+
+  dashboardNsp.on("connection", (socket: Socket) => {
+    const data = socket.data as DashboardSocketData;
+    if (data.companyId) socket.join(`company:${data.companyId}`);
+    if (data.role === "SUPER_ADMIN") socket.join("super-admins");
+
+    // SUPER_ADMIN can attach to a specific company's live feed.
+    socket.on("subscribe:company", (companyId: string) => {
+      if (data.role === "SUPER_ADMIN" && typeof companyId === "string") {
+        socket.join(`company:${companyId}`);
+      }
+    });
+
+    socket.on(
+      "encoder:command",
+      async (
+        payload: { encoderId: string; command: string; args?: unknown },
+        ack?: (res: { ok: boolean; error?: string; commandId?: string }) => void
+      ) => {
+        try {
+          const encoder = await prisma.encoder.findUnique({ where: { id: payload.encoderId } });
+          if (!encoder) throw new Error("Encoder not found");
+          if (data.role !== "SUPER_ADMIN" && encoder.companyId !== data.companyId) {
+            throw new Error("Forbidden");
+          }
+          if (encoder.status === "OFFLINE") throw new Error("Encoder is offline");
+
+          const commandId = uuid();
+          agentNsp.to(`encoder:${encoder.id}`).emit("command", {
+            commandId,
+            command: payload.command,
+            args: payload.args ?? {},
+            requestedBy: data.userId,
+          });
+          ack?.({ ok: true, commandId });
+        } catch (err) {
+          ack?.({ ok: false, error: err instanceof Error ? err.message : "Command failed" });
+        }
+      }
+    );
+  });
+
+  // --- Local hardware agents (one process per physical encoder) ------------
+  agentNsp.use(async (socket, next) => {
+    try {
+      const agentKey = socket.handshake.auth?.agentKey as string | undefined;
+      if (!agentKey) throw new Error("missing agent key");
+      const encoder = await prisma.encoder.findUnique({ where: { agentKey } });
+      if (!encoder || !encoder.isActive) throw new Error("unknown or inactive encoder");
+      socket.data = { encoderId: encoder.id, companyId: encoder.companyId } satisfies AgentSocketData;
+      next();
+    } catch {
+      next(new Error("unauthorized"));
+    }
+  });
+
+  agentNsp.on("connection", (socket: Socket) => {
+    const data = socket.data as AgentSocketData;
+    socket.join(`encoder:${data.encoderId}`);
+
+    prisma.encoder
+      .update({ where: { id: data.encoderId }, data: { status: "ONLINE", lastSeenAt: new Date() } })
+      .then((encoder) => {
+        dashboardNsp.to(`company:${data.companyId}`).emit("encoder:status", { encoderId: encoder.id, status: encoder.status });
+      })
+      .catch(() => undefined);
+
+    socket.on("heartbeat", () => {
+      prisma.encoder.update({ where: { id: data.encoderId }, data: { lastSeenAt: new Date() } }).catch(() => undefined);
+    });
+
+    socket.on("card:detected", (payload: { uid: string; cardType?: string; atr?: string }) => {
+      dashboardNsp.to(`company:${data.companyId}`).emit("card:detected", { encoderId: data.encoderId, ...payload });
+    });
+
+    socket.on(
+      "command:result",
+      async (payload: { commandId: string; command: string; success: boolean; data?: unknown; error?: string }) => {
+        dashboardNsp.to(`company:${data.companyId}`).emit("encoder:commandResult", { encoderId: data.encoderId, ...payload });
+
+        const operationType = COMMAND_TO_OPERATION[payload.command] ?? "READ";
+        await logOperation({
+          companyId: data.companyId,
+          encoderId: data.encoderId,
+          operationType,
+          status: payload.success ? "SUCCESS" : "FAILED",
+          details: payload.data as any,
+          errorMessage: payload.error,
+        }).catch(() => undefined);
+      }
+    );
+
+    socket.on("disconnect", () => {
+      prisma.encoder
+        .update({ where: { id: data.encoderId }, data: { status: "OFFLINE" } })
+        .then((encoder) => {
+          dashboardNsp.to(`company:${data.companyId}`).emit("encoder:status", { encoderId: encoder.id, status: encoder.status });
+        })
+        .catch(() => undefined);
+    });
+  });
+
+  return io;
+}
+
+export function getIO(): Server {
+  if (!io) throw new Error("Websocket server not initialized");
+  return io;
+}

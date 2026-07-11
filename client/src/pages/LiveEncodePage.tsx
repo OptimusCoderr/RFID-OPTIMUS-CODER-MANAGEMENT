@@ -1,0 +1,299 @@
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Radio, CreditCard, Send, ExternalLink } from "lucide-react";
+import { Link } from "react-router-dom";
+import toast from "react-hot-toast";
+import { api, apiErrorMessage } from "@/lib/api";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { Badge } from "@/components/ui/Badge";
+import { useSocket } from "@/context/SocketContext";
+import { CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
+import type { Card, CardType, Encoder, EncoderStatus, PaginatedResponse } from "@/types";
+
+interface LogEntry {
+  id: string;
+  at: Date;
+  message: string;
+  tone?: "SUCCESS" | "FAILED" | "PENDING";
+}
+
+const COMMANDS = [
+  { value: "READ_UID", label: "Read UID" },
+  { value: "READ_BLOCK", label: "Read MIFARE Classic block" },
+  { value: "WRITE_BLOCK", label: "Write MIFARE Classic block" },
+  { value: "READ_NTAG", label: "Read NTAG page(s)" },
+  { value: "WRITE_NTAG", label: "Write NTAG page" },
+];
+
+export default function LiveEncodePage() {
+  const { socket, connected } = useSocket();
+  const queryClient = useQueryClient();
+
+  const { data: encoders } = useQuery({
+    queryKey: ["encoders"],
+    queryFn: async () => (await api.get<Encoder[]>("/encoders")).data,
+  });
+
+  const [statusOverrides, setStatusOverrides] = useState<Record<string, EncoderStatus>>({});
+  const [encoderId, setEncoderId] = useState("");
+  const [detectedUid, setDetectedUid] = useState<string | null>(null);
+  const [matchedCard, setMatchedCard] = useState<Card | null | undefined>(undefined);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+
+  const [command, setCommand] = useState("READ_UID");
+  const [block, setBlock] = useState(4);
+  const [page, setPage] = useState(4);
+  const [pageCount, setPageCount] = useState(1);
+  const [key, setKey] = useState("FFFFFFFFFFFF");
+  const [keyType, setKeyType] = useState<"A" | "B">("A");
+  const [writeData, setWriteData] = useState("");
+
+  const [regType, setRegType] = useState<CardType>("MIFARE_CLASSIC_1K");
+  const [regLabel, setRegLabel] = useState("");
+
+  useEffect(() => {
+    if (!encoders || encoders.length === 0) return;
+    if (!encoderId) setEncoderId(encoders[0].id);
+  }, [encoders, encoderId]);
+
+  function pushLog(message: string, tone?: LogEntry["tone"]) {
+    setLogs((prev) => [{ id: crypto.randomUUID(), at: new Date(), message, tone }, ...prev].slice(0, 50));
+  }
+
+  useEffect(() => {
+    if (!socket) return;
+
+    function onStatus(payload: { encoderId: string; status: EncoderStatus }) {
+      setStatusOverrides((prev) => ({ ...prev, [payload.encoderId]: payload.status }));
+      queryClient.invalidateQueries({ queryKey: ["encoders"] });
+    }
+
+    function onCardDetected(payload: { encoderId: string; uid: string; cardType?: string; atr?: string }) {
+      if (payload.encoderId !== encoderId) return;
+      setDetectedUid(payload.uid);
+      pushLog(`Card detected: ${payload.uid}`, "SUCCESS");
+      lookupCard(payload.uid);
+    }
+
+    function onCommandResult(payload: {
+      encoderId: string;
+      commandId: string;
+      command: string;
+      success: boolean;
+      data?: unknown;
+      error?: string;
+    }) {
+      if (payload.encoderId !== encoderId) return;
+      if (payload.success) {
+        pushLog(`${payload.command} succeeded: ${JSON.stringify(payload.data)}`, "SUCCESS");
+      } else {
+        pushLog(`${payload.command} failed: ${payload.error}`, "FAILED");
+      }
+    }
+
+    socket.on("encoder:status", onStatus);
+    socket.on("card:detected", onCardDetected);
+    socket.on("encoder:commandResult", onCommandResult);
+    return () => {
+      socket.off("encoder:status", onStatus);
+      socket.off("card:detected", onCardDetected);
+      socket.off("encoder:commandResult", onCommandResult);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, encoderId]);
+
+  async function lookupCard(uid: string) {
+    setMatchedCard(undefined);
+    try {
+      const { data } = await api.get<PaginatedResponse<Card>>("/cards", { params: { search: uid, pageSize: 1 } });
+      const match = data.data.find((c) => c.uid.toLowerCase() === uid.toLowerCase());
+      setMatchedCard(match ?? null);
+    } catch {
+      setMatchedCard(null);
+    }
+  }
+
+  const registerCard = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post<Card>("/cards", {
+          uid: detectedUid,
+          cardType: regType,
+          label: regLabel || undefined,
+          registeredByEncoderId: encoderId,
+        })
+      ).data,
+    onSuccess: (card) => {
+      toast.success("Card registered");
+      setMatchedCard(card);
+      queryClient.invalidateQueries({ queryKey: ["cards"] });
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not register card")),
+  });
+
+  const selectedEncoder = useMemo(() => encoders?.find((e) => e.id === encoderId), [encoders, encoderId]);
+  const liveStatus = (selectedEncoder && statusOverrides[selectedEncoder.id]) ?? selectedEncoder?.status;
+
+  function sendCommand(e: FormEvent) {
+    e.preventDefault();
+    if (!socket || !encoderId) return;
+
+    let args: Record<string, unknown> = {};
+    if (command === "READ_BLOCK") args = { block, key, keyType };
+    if (command === "WRITE_BLOCK") args = { block, data: writeData, key, keyType };
+    if (command === "READ_NTAG") args = { page, pageCount };
+    if (command === "WRITE_NTAG") args = { page, data: writeData };
+
+    pushLog(`Sending ${command}...`, "PENDING");
+    socket.emit("encoder:command", { encoderId, command, args }, (res: { ok: boolean; error?: string }) => {
+      if (!res.ok) pushLog(`${command} rejected: ${res.error}`, "FAILED");
+    });
+  }
+
+  return (
+    <div>
+      <PageHeader title="Live Encode" description="Trigger real-time read/write operations against a connected encoder." />
+
+      <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="card p-5 lg:col-span-1">
+          <h3 className="mb-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Encoder</h3>
+          <select className="input mb-3" value={encoderId} onChange={(e) => setEncoderId(e.target.value)}>
+            {encoders?.map((enc) => (
+              <option key={enc.id} value={enc.id}>
+                {enc.name}
+              </option>
+            ))}
+          </select>
+          <div className="flex items-center gap-2">
+            <Badge tone={liveStatus}>{liveStatus ?? "—"}</Badge>
+            <span className="text-xs text-slate-400">{connected ? "Live updates connected" : "Connecting..."}</span>
+          </div>
+
+          <div className="mt-5 flex items-center gap-2 text-sm text-slate-500">
+            <Radio size={15} className={detectedUid ? "text-emerald-500" : "text-slate-300"} />
+            {detectedUid ? `Card present: ${detectedUid}` : "Waiting for a card..."}
+          </div>
+
+          {detectedUid && matchedCard === null && (
+            <div className="mt-4 space-y-2 rounded-lg border border-dashed border-slate-300 p-3 dark:border-slate-700">
+              <p className="text-xs text-slate-500">Unknown card — register it:</p>
+              <select className="input" value={regType} onChange={(e) => setRegType(e.target.value as CardType)}>
+                {CARD_TYPE_OPTIONS.map((t) => (
+                  <option key={t} value={t}>
+                    {formatEnum(t)}
+                  </option>
+                ))}
+              </select>
+              <input className="input" placeholder="Label (optional)" value={regLabel} onChange={(e) => setRegLabel(e.target.value)} />
+              <button className="btn-primary w-full" onClick={() => registerCard.mutate()} disabled={registerCard.isPending}>
+                <CreditCard size={14} /> Register card
+              </button>
+            </div>
+          )}
+
+          {matchedCard && (
+            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm dark:border-emerald-900 dark:bg-emerald-900/20">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="font-medium">{matchedCard.label ?? matchedCard.uid}</span>
+                <Badge tone={matchedCard.status}>{matchedCard.status}</Badge>
+              </div>
+              <Link to={`/cards/${matchedCard.id}`} className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline dark:text-brand-400">
+                Open card <ExternalLink size={12} />
+              </Link>
+            </div>
+          )}
+        </div>
+
+        <div className="card p-5 lg:col-span-2">
+          <h3 className="mb-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Send command</h3>
+          <form onSubmit={sendCommand} className="space-y-3">
+            <select className="input" value={command} onChange={(e) => setCommand(e.target.value)}>
+              {COMMANDS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+
+            {(command === "READ_BLOCK" || command === "WRITE_BLOCK") && (
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="label">Block</label>
+                  <input type="number" className="input" value={block} onChange={(e) => setBlock(Number(e.target.value))} />
+                </div>
+                <div>
+                  <label className="label">Key (hex)</label>
+                  <input className="input font-mono" value={key} onChange={(e) => setKey(e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Key type</label>
+                  <select className="input" value={keyType} onChange={(e) => setKeyType(e.target.value as "A" | "B")}>
+                    <option value="A">A</option>
+                    <option value="B">B</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {command === "WRITE_BLOCK" && (
+              <div>
+                <label className="label">Data (16 bytes hex)</label>
+                <input className="input font-mono" value={writeData} onChange={(e) => setWriteData(e.target.value)} />
+              </div>
+            )}
+
+            {(command === "READ_NTAG" || command === "WRITE_NTAG") && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Page</label>
+                  <input type="number" className="input" value={page} onChange={(e) => setPage(Number(e.target.value))} />
+                </div>
+                {command === "READ_NTAG" && (
+                  <div>
+                    <label className="label">Page count</label>
+                    <input type="number" className="input" value={pageCount} onChange={(e) => setPageCount(Number(e.target.value))} />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {command === "WRITE_NTAG" && (
+              <div>
+                <label className="label">Data (4 bytes hex)</label>
+                <input className="input font-mono" value={writeData} onChange={(e) => setWriteData(e.target.value)} />
+              </div>
+            )}
+
+            <button type="submit" className="btn-primary" disabled={liveStatus !== "ONLINE"}>
+              <Send size={15} /> Send to encoder
+            </button>
+            {liveStatus !== "ONLINE" && <p className="text-xs text-amber-600">Encoder is offline — start its local agent to send commands.</p>}
+          </form>
+        </div>
+      </div>
+
+      <div className="card p-5">
+        <h3 className="mb-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Live event log</h3>
+        <div className="space-y-1 font-mono text-xs">
+          {logs.map((log) => (
+            <div key={log.id} className="flex items-center gap-2">
+              <span className="text-slate-400">{log.at.toLocaleTimeString()}</span>
+              <span
+                className={
+                  log.tone === "SUCCESS"
+                    ? "text-emerald-600"
+                    : log.tone === "FAILED"
+                    ? "text-red-600"
+                    : "text-slate-500"
+                }
+              >
+                {log.message}
+              </span>
+            </div>
+          ))}
+          {logs.length === 0 && <p className="text-slate-400">No events yet.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
