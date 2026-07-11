@@ -21,6 +21,14 @@ const PORT = Number(process.env.LOCAL_DB_PORT ?? 55432);
 const USER = "rfid_local";
 const PASSWORD = "rfid_local";
 
+// Postgres refuses to run its own binaries as root. `createPostgresUser`
+// works around that by creating a dedicated system user to run them as
+// instead — but doing so requires root/sudo itself (groupadd/useradd), and
+// is actively wrong (and will fail with a permissions error) for the common
+// case of a regular, non-root developer machine. Only opt into it when we
+// really are root (true in most containers/CI, false on a normal desktop).
+const IS_ROOT = process.getuid?.() === 0;
+
 function adminUrl(): string {
   return `postgresql://${USER}:${PASSWORD}@${HOST}:${PORT}/postgres`;
 }
@@ -101,7 +109,7 @@ export async function ensureLocalDatabase(dbName: string): Promise<string> {
       password: PASSWORD,
       port: PORT,
       persistent: true,
-      createPostgresUser: true,
+      createPostgresUser: IS_ROOT,
     });
 
     const alreadyInitialised = fs.existsSync(path.join(DATA_DIR, "PG_VERSION"));
