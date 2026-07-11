@@ -1,15 +1,22 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Download, Upload } from "lucide-react";
 import toast from "react-hot-toast";
-import { api, apiErrorMessage } from "@/lib/api";
+import { api, apiErrorMessage, downloadCsv } from "@/lib/api";
+import { parseCsv } from "@/lib/csv";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Modal } from "@/components/ui/Modal";
 import { FullPageSpinner, Spinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
 import { CARD_STATUS_OPTIONS, CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
 import type { Card, CardTemplate, CardType, PaginatedResponse } from "@/types";
+
+interface BulkImportResult {
+  created: number;
+  skipped: number;
+  errors: { row: number; uid?: string; error: string }[];
+}
 
 interface RegisterFormState {
   uid: string;
@@ -29,6 +36,11 @@ export default function CardsPage() {
   const [status, setStatus] = useState("");
   const [cardType, setCardType] = useState("");
   const [search, setSearch] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
+  const [importRows, setImportRows] = useState<Record<string, string>[]>([]);
+  const [importResult, setImportResult] = useState<BulkImportResult | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ["cards", { page, status, cardType, search }],
@@ -66,9 +78,52 @@ export default function CardsPage() {
     onError: (err) => toast.error(apiErrorMessage(err, "Could not register card")),
   });
 
+  const bulkImport = useMutation({
+    mutationFn: async (rows: Record<string, string>[]) =>
+      (
+        await api.post<BulkImportResult>("/cards/bulk-import", {
+          rows: rows.map((r) => ({
+            uid: r.uid ?? r.UID,
+            cardType: r.cardType ?? r.CardType ?? r["Card Type"],
+            label: r.label ?? r.Label,
+          })),
+        })
+      ).data,
+    onSuccess: (result) => {
+      setImportResult(result);
+      queryClient.invalidateQueries({ queryKey: ["cards"] });
+      if (result.created > 0) toast.success(`Imported ${result.created} card${result.created === 1 ? "" : "s"}`);
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Import failed")),
+  });
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     registerCard.mutate(form);
+  }
+
+  async function handleFileSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    const rows = parseCsv(text);
+    setImportRows(rows);
+    setImportResult(null);
+  }
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      await downloadCsv(
+        "/cards/export",
+        { status: status || undefined, cardType: cardType || undefined, search: search || undefined },
+        `cards-${new Date().toISOString().slice(0, 10)}.csv`
+      );
+    } catch {
+      toast.error("Export failed");
+    } finally {
+      setExporting(false);
+    }
   }
 
   const availableTemplates = templates?.filter((t) => t.cardType === form.cardType) ?? [];
@@ -79,9 +134,17 @@ export default function CardsPage() {
         title="Cards"
         description="Every MIFARE, NTAG, or generic RFID tag registered to your organization."
         actions={
-          <button className="btn-primary" onClick={() => setModalOpen(true)}>
-            <Plus size={16} /> Register card
-          </button>
+          <>
+            <button className="btn-secondary" onClick={handleExport} disabled={exporting}>
+              {exporting ? <Spinner className="h-4 w-4" /> : <Download size={16} />} Export CSV
+            </button>
+            <button className="btn-secondary" onClick={() => setImportOpen(true)}>
+              <Upload size={16} /> Import CSV
+            </button>
+            <button className="btn-primary" onClick={() => setModalOpen(true)}>
+              <Plus size={16} /> Register card
+            </button>
+          </>
         }
       />
 
@@ -244,6 +307,91 @@ export default function CardsPage() {
             Register card
           </button>
         </form>
+      </Modal>
+
+      <Modal
+        open={importOpen}
+        onClose={() => {
+          setImportOpen(false);
+          setImportRows([]);
+          setImportResult(null);
+        }}
+        title="Import cards from CSV"
+        wide
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-500">
+            CSV with columns <code className="font-mono text-xs">uid, cardType, label</code> (header row required). Card type must
+            match one of the supported types, e.g. <code className="font-mono text-xs">MIFARE_CLASSIC_1K</code>.
+          </p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="input"
+            onChange={handleFileSelected}
+          />
+
+          {importRows.length > 0 && !importResult && (
+            <div>
+              <p className="mb-2 text-sm text-slate-500">{importRows.length} row(s) ready to import.</p>
+              <div className="max-h-48 overflow-y-auto rounded-lg border border-slate-100 text-xs dark:border-slate-800">
+                <table className="w-full">
+                  <thead className="bg-slate-50 text-left dark:bg-slate-900/50">
+                    <tr>
+                      <th className="px-3 py-2">UID</th>
+                      <th className="px-3 py-2">Card Type</th>
+                      <th className="px-3 py-2">Label</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {importRows.slice(0, 10).map((r, i) => (
+                      <tr key={i}>
+                        <td className="px-3 py-1.5 font-mono">{r.uid ?? r.UID}</td>
+                        <td className="px-3 py-1.5">{r.cardType ?? r.CardType ?? r["Card Type"]}</td>
+                        <td className="px-3 py-1.5">{r.label ?? r.Label ?? ""}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <button className="btn-primary mt-3 w-full" onClick={() => bulkImport.mutate(importRows)} disabled={bulkImport.isPending}>
+                {bulkImport.isPending ? <Spinner className="h-4 w-4 text-white" /> : `Import ${importRows.length} card(s)`}
+              </button>
+            </div>
+          )}
+
+          {importResult && (
+            <div className="space-y-2">
+              <div className="flex gap-4 text-sm">
+                <span className="text-emerald-600">{importResult.created} created</span>
+                <span className="text-slate-500">{importResult.skipped} skipped (already existed)</span>
+                <span className="text-red-600">{importResult.errors.length} errors</span>
+              </div>
+              {importResult.errors.length > 0 && (
+                <div className="max-h-40 overflow-y-auto rounded-lg border border-red-100 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-900/20 dark:text-red-300">
+                  {importResult.errors.map((e, i) => (
+                    <div key={i}>
+                      Row {e.row}
+                      {e.uid ? ` (${e.uid})` : ""}: {e.error}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                className="btn-secondary w-full"
+                onClick={() => {
+                  setImportOpen(false);
+                  setImportRows([]);
+                  setImportResult(null);
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                }}
+              >
+                Done
+              </button>
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   );

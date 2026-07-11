@@ -28,6 +28,20 @@ Prisma), and **Socket.IO** for live encode/read operations.
 - **Encrypted key storage** — MIFARE sector keys are encrypted at rest
   (AES-256-GCM) and are only ever decrypted server-side for an authorized
   encode operation.
+- **In-app notifications** — company admins/managers get live (websocket) and
+  in-app alerts when a card is blocked, reported lost, expires soon, or
+  auto-expires, and when an encoder drops offline.
+- **Card expiry automation** — a daily job (plus one on boot) flags cards
+  expiring within 7 days and auto-retires anything already past expiry.
+- **Password reset** — self-service forgot/reset password flow; emails send
+  over SMTP if configured, otherwise the reset link is logged to the server
+  console for local dev.
+- **CSV export/import** — export the card inventory or audit log to CSV with
+  the current filters applied, or bulk-register cards from a CSV upload.
+- **Global quick search** — `⌘K`/`Ctrl+K` command palette to jump straight to
+  a card or card holder from anywhere in the app.
+- **Dark mode**, a self-service profile page, and a company settings page for
+  company admins.
 
 ## Architecture
 
@@ -133,6 +147,9 @@ generates the `agentKey` shown exactly once.
 - **Hardware bridge**: `nfc-pcsc` (PC/SC), standard PC/SC pseudo-APDUs for
   MIFARE Classic key authentication, page-level read/write for
   NTAG/Ultralight
+- **Background jobs**: `node-cron` for the daily card-expiry sweep
+- **Email**: `nodemailer`, optional — falls back to logging the message to
+  the server console when `SMTP_HOST` isn't set (see `server/.env.example`)
 - **Infra**: Docker Compose (Postgres + API + Nginx-served client)
 
 ## Security notes

@@ -22,4 +22,12 @@ export const env = {
     refreshTtl: process.env.JWT_REFRESH_TTL ?? "30d",
   },
   encryptionKey: required("ENCRYPTION_KEY"),
+  appUrl: process.env.APP_URL ?? "http://localhost:5173",
+  smtp: {
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT ?? 587),
+    user: process.env.SMTP_USER,
+    password: process.env.SMTP_PASSWORD,
+    from: process.env.SMTP_FROM ?? "RFID Manager <no-reply@rfidmanager.local>",
+  },
 };

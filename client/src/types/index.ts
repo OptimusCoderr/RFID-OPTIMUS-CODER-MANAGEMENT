@@ -208,3 +208,24 @@ export interface DashboardStats {
   totalCompanies: number;
   recentActivity: OperationLog[];
 }
+
+export type NotificationType =
+  | "CARD_EXPIRING"
+  | "CARD_EXPIRED"
+  | "CARD_BLOCKED"
+  | "CARD_LOST"
+  | "ENCODER_OFFLINE"
+  | "ENCODER_ONLINE"
+  | "SYSTEM";
+
+export interface AppNotification {
+  id: string;
+  companyId: string;
+  userId: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  link?: string | null;
+  readAt?: string | null;
+  createdAt: string;
+}

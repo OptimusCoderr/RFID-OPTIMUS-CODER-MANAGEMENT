@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, Link } from "react-router-dom";
 import { clsx } from "clsx";
 import {
   LayoutDashboard,
@@ -12,10 +12,19 @@ import {
   ShieldCheck,
   ScrollText,
   LogOut,
+  Sun,
+  Moon,
+  Search,
+  UserCircle,
+  Settings,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useSocket } from "@/context/SocketContext";
+import { useTheme } from "@/context/ThemeContext";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { CommandPalette } from "@/components/CommandPalette";
+import { useCommandPalette } from "@/context/CommandPaletteContext";
 import type { Role } from "@/types";
 
 interface NavItem {
@@ -41,6 +50,8 @@ const NAV_ITEMS: NavItem[] = [
 export function AppLayout() {
   const { user, logout } = useAuth();
   const { connected } = useSocket();
+  const { theme, toggleTheme } = useTheme();
+  const { open: openSearch } = useCommandPalette();
 
   const items = NAV_ITEMS.filter((item) => !item.roles || (user && item.roles.includes(user.role)));
 
@@ -83,22 +94,66 @@ export function AppLayout() {
             <span className={clsx("h-2 w-2 rounded-full", connected ? "bg-emerald-500" : "bg-slate-300")} />
             {connected ? "Live updates connected" : "Live updates offline"}
           </div>
-          <div className="mb-3">
+          <Link to="/profile" className="mb-3 block rounded-lg -mx-1 px-1 py-1 hover:bg-slate-50 dark:hover:bg-slate-800">
             <div className="truncate text-sm font-medium">{user?.fullName}</div>
             <div className="truncate text-xs text-slate-400">
               {user?.role.replace("_", " ")}
               {user?.company ? ` · ${user.company.name}` : ""}
             </div>
-          </div>
+          </Link>
           <button onClick={() => logout()} className="btn-secondary w-full">
             <LogOut size={16} /> Sign out
           </button>
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto p-8">
-        <Outlet />
-      </main>
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <header className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-6 py-3 dark:border-slate-800 dark:bg-slate-900">
+          <button
+            onClick={openSearch}
+            className="flex w-72 items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-400 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600"
+          >
+            <Search size={15} />
+            Search cards, holders...
+            <kbd className="ml-auto rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-400 dark:border-slate-700">
+              ⌘K
+            </kbd>
+          </button>
+
+          <div className="flex items-center gap-1">
+            <button
+              onClick={toggleTheme}
+              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              title="Toggle theme"
+            >
+              {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+            </button>
+            <NotificationBell />
+            {user?.companyId && (user.role === "SUPER_ADMIN" || user.role === "COMPANY_ADMIN") && (
+              <Link
+                to="/company-settings"
+                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                title="Company settings"
+              >
+                <Settings size={18} />
+              </Link>
+            )}
+            <Link
+              to="/profile"
+              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+              title="Your profile"
+            >
+              <UserCircle size={18} />
+            </Link>
+          </div>
+        </header>
+
+        <main className="flex-1 overflow-y-auto p-8">
+          <Outlet />
+        </main>
+      </div>
+
+      <CommandPalette />
     </div>
   );
 }

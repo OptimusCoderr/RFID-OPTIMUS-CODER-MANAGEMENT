@@ -26,6 +26,8 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.9.14",
     "prisma": "^5.20.0",
     "socket.io": "^4.7.5",
     "socket.io-client": "^4.7.5",
@@ -43,6 +45,8 @@
     "@types/jsonwebtoken": "^9.0.6",
     "@types/morgan": "^1.9.9",
     "@types/node": "^20.14.0",
+    "@types/node-cron": "^3.0.11",
+    "@types/nodemailer": "^6.4.15",
     "@types/uuid": "^9.0.8",
     "tsx": "^4.16.2",
     "typescript": "^5.5.4"
