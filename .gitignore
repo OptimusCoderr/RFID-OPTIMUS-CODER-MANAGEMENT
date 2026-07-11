@@ -10,4 +10,5 @@ coverage/
 .idea/
 server/prisma/dev.db
 server/generated/
+server/.local-db/
 *.tsbuildinfo

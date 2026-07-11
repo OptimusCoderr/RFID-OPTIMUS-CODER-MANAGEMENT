@@ -85,30 +85,32 @@ docker-compose.yml Postgres + API + client for local/dev deployment
 
 ## Getting started (local development)
 
-### 1. Database
-
-```bash
-docker compose up -d postgres
-```
-
-or point `DATABASE_URL` at any PostgreSQL 14+ instance.
-
-### 2. Server
+### 1. Server
 
 ```bash
 cd server
-cp .env.example .env    # fill in JWT secrets + a real 32-byte ENCRYPTION_KEY
 npm install
-npm run prisma:migrate  # creates tables
-npm run prisma:seed     # demo company, users, cards, templates
+npm run prisma:seed     # creates server/.env, provisions a local database, migrates, seeds
 npm run dev              # http://localhost:4000
 ```
 
-Generate a proper encryption key:
+That's it — no database setup step. Unless `DATABASE_URL` is already configured
+(in `server/.env` or your shell), the tooling automatically:
 
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
+- creates `server/.env` from `.env.example` with freshly generated secrets
+  (JWT signing keys, the card-key encryption key) on first run,
+- provisions a local, embedded PostgreSQL instance — no Docker, no system
+  Postgres install — with data persisted in `server/.local-db/` across
+  restarts,
+- runs migrations against it.
+
+This happens on `npm run dev`, `npm run prisma:seed`/`prisma:migrate`/`prisma:studio`,
+and `npm test` alike, however they're invoked (including from a debugger or
+an IDE's test runner) — see [Running it in VS Code](#running-it-in-vs-code)
+below. Point `DATABASE_URL` at a real PostgreSQL 14+ instance instead — e.g.
+`docker compose up -d postgres`, a system install, or a managed database — to
+skip all of this and use that instead; a configured `DATABASE_URL` is always
+respected as-is and nothing local ever gets started.
 
 Seeded logins (see console output after `prisma:seed`):
 
@@ -118,7 +120,7 @@ Seeded logins (see console output after `prisma:seed`):
 | Company Admin | admin@acme-logistics.example        | ChangeMe123!  |
 | Operator      | operator@acme-logistics.example     | ChangeMe123!  |
 
-### 3. Client
+### 2. Client
 
 ```bash
 cd client
@@ -128,7 +130,7 @@ npm run dev               # http://localhost:5173
 
 The Vite dev server proxies `/api` and `/socket.io` to `localhost:4000`.
 
-### 4. Local hardware agent (optional — needs a physical reader)
+### 3. Local hardware agent (optional — needs a physical reader)
 
 On the machine with the ACR122U/ACR1252U/PN532/etc plugged in:
 
@@ -152,19 +154,21 @@ The repo ships a `.vscode/` folder so this mostly works out of the box:
 2. VS Code will prompt you to install the recommended extensions
    (`.vscode/extensions.json`): Prisma, ESLint, Tailwind CSS IntelliSense,
    DotENV, REST Client, and the Vitest explorer. Accept it.
-3. Create `server/.env` from `server/.env.example` and fill in real secrets
-   (see step 2 above) — VS Code doesn't do this for you.
+3. `npm install` in `server/` and `client/` (or use the tasks below).
+   There's no `.env` to create by hand and no database to set up first — see
+   [Getting started](#getting-started-local-development) above; it's handled
+   automatically no matter which of the entry points below you use.
 4. Open the **Run and Debug** panel (`Ctrl+Shift+D` / `Cmd+Shift+D`) and pick
    a configuration from `.vscode/launch.json`:
    - **"Server: Debug (tsx)"** — runs the API with breakpoints, auto-restarts
-     on file changes.
+     on file changes. First run provisions the local database automatically.
    - **"Client: Launch Chrome"** — starts the Vite dev server (via its
      `preLaunchTask`) and opens it in a debuggable Chrome instance.
    - **"Full stack: server + client"** — a compound launch that starts both
      at once. This is the fastest way to get the whole app running with
      breakpoints on either side.
    - **"Server: Debug tests (vitest)"** — runs the test suite under the
-     debugger.
+     debugger; also self-provisions a (separate) local test database.
 5. Alternatively, use **Terminal → Run Task** (`.vscode/tasks.json`) for
    non-debug runs: `Server: install`, `Server: migrate`, `Server: seed`,
    `Server: dev`, `Server: test`, `Client: install`, `Client: dev`, or the
@@ -173,7 +177,8 @@ The repo ships a `.vscode/` folder so this mostly works out of the box:
    at the repo root with the REST Client extension and click "Send Request"
    above each block — it logs in as the seeded company admin, captures the
    token, and chains it into the rest of the calls (list cards, register a
-   card, block it, check the notification it generated, etc).
+   card, block it, check the notification it generated, etc). Run the
+   **"Server: seed"** task first so those credentials exist.
 7. Set breakpoints in `server/src/**` or `client/src/**` as usual — both
    debug configs use source maps, so they land on your TypeScript/TSX, not
    compiled output.
@@ -187,11 +192,14 @@ npm test          # unit tests + an integration suite against a real Postgres
 
 The integration suite (`server/tests/api.test.ts`) runs the actual Express
 app through `supertest` against a dedicated `rfid_management_test` database
-(auto-migrated by `server/tests/globalSetup.ts`) and covers the core
-happy path — company/user provisioning, card registration, lifecycle
-actions, notification generation, and cross-company RBAC isolation. Unit
-tests cover the pure-function pieces (encryption round-trips, JWT signing,
-CSV escaping, RBAC scoping helpers) with no DB required.
+(auto-provisioned and migrated by `server/tests/globalSetup.ts` — the same
+zero-config local database described above, unless `DATABASE_URL` is already
+set) and covers the core happy path — company/user provisioning, card
+registration, lifecycle actions, notification generation, and cross-company
+RBAC isolation. Unit tests cover the pure-function pieces (encryption
+round-trips, JWT signing, CSV escaping, RBAC scoping helpers) with no DB
+required. This works the same way whether you run `npm test`, `npx vitest`,
+or use an IDE's test runner directly.
 
 CI (`.github/workflows/ci.yml`) runs both on every push/PR: the server job
 spins up a Postgres service container and runs typecheck + build + the full
@@ -223,7 +231,9 @@ test suite; the client job typechecks and builds the Vite app.
 - Every tenant-scoped endpoint enforces company isolation in middleware
   (`assertCompanyAccess` / `scopedCompanyId`), independent of what a client
   sends.
-- Change every default in `server/.env.example` before deploying —
-  especially `ENCRYPTION_KEY` and the JWT secrets. The example key is all
-  zeros purely as a placeholder; generate a real one with the command
-  above before storing any card keys with it.
+- The zero-config local dev flow auto-generates real random secrets into
+  `server/.env` on first run — but for any shared or production deployment,
+  set your own `ENCRYPTION_KEY` and JWT secrets explicitly rather than
+  relying on that. The placeholder values in `server/.env.example` are all
+  zeros / obviously fake on purpose, precisely so they're never mistaken for
+  something safe to deploy with.
