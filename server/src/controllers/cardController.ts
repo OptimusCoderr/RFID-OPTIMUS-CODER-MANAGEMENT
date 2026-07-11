@@ -14,6 +14,7 @@ const CARD_INCLUDE = {
   template: { select: { id: true, name: true } },
   registeredByEncoder: { select: { id: true, name: true } },
   accessZones: { include: { zone: { select: { id: true, name: true } } } },
+  encoderAllocations: { include: { encoder: { select: { id: true, name: true } } } },
 } satisfies Prisma.CardInclude;
 
 function buildCardWhere(req: Request): Prisma.CardWhereInput {
@@ -332,4 +333,62 @@ export const bulkImportCards = asyncHandler(async (req: Request, res: Response) 
   }
 
   res.json({ created, skipped, errors });
+});
+
+// Restricting a card to specific encoder(s) is opt-in: a card with no
+// allocation rows is usable with any encoder in the company. Granting the
+// first allocation is what turns restriction on for that card.
+export const grantCardEncoders = asyncHandler(async (req: Request, res: Response) => {
+  const card = await prisma.card.findUnique({ where: { id: req.params.id } });
+  if (!card) throw ApiError.notFound("Card not found");
+  assertCompanyAccess(req, card.companyId);
+
+  const encoders = await prisma.encoder.findMany({
+    where: { id: { in: req.body.encoderIds }, companyId: card.companyId },
+  });
+  if (encoders.length !== req.body.encoderIds.length) {
+    throw ApiError.badRequest("One or more encoders do not belong to this company");
+  }
+
+  await prisma.$transaction(
+    encoders.map((encoder) =>
+      prisma.cardEncoderAllocation.upsert({
+        where: { cardId_encoderId: { cardId: card.id, encoderId: encoder.id } },
+        update: {},
+        create: { cardId: card.id, encoderId: encoder.id },
+      })
+    )
+  );
+
+  await logOperation({
+    companyId: card.companyId,
+    cardId: card.id,
+    userId: req.user!.id,
+    operationType: "UPDATE",
+    status: "SUCCESS",
+    details: { action: "grant_encoder_allocation", encoderIds: req.body.encoderIds },
+  });
+
+  res.status(204).send();
+});
+
+export const revokeCardEncoders = asyncHandler(async (req: Request, res: Response) => {
+  const card = await prisma.card.findUnique({ where: { id: req.params.id } });
+  if (!card) throw ApiError.notFound("Card not found");
+  assertCompanyAccess(req, card.companyId);
+
+  await prisma.cardEncoderAllocation.deleteMany({
+    where: { cardId: card.id, encoderId: { in: req.body.encoderIds } },
+  });
+
+  await logOperation({
+    companyId: card.companyId,
+    cardId: card.id,
+    userId: req.user!.id,
+    operationType: "UPDATE",
+    status: "SUCCESS",
+    details: { action: "revoke_encoder_allocation", encoderIds: req.body.encoderIds },
+  });
+
+  res.status(204).send();
 });

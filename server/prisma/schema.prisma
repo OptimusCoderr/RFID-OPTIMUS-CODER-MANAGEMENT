@@ -229,6 +229,7 @@ model Encoder {
 
   cardsRegistered  Card[]                @relation("RegisteredByEncoder")
   operationLogs    OperationLog[]
+  cardAllocations  CardEncoderAllocation[]
 
   @@index([companyId])
   @@map("encoders")
@@ -297,6 +298,9 @@ model Card {
 
   accessZones       CardAccessZone[]
   operationLogs     OperationLog[]
+  // Encoders this card is allowed to be used with. Empty = unrestricted
+  // (usable with any encoder in the company) — allocation is opt-in per card.
+  encoderAllocations CardEncoderAllocation[]
 
   @@unique([companyId, uid])
   @@index([companyId])
@@ -334,6 +338,23 @@ model CardAccessZone {
 
   @@unique([cardId, zoneId])
   @@map("card_access_zones")
+}
+
+// ---------------------------------------------------------------------------
+// Card <-> encoder allocation (optional): restricts which encoder(s) a card
+// may be used with. A card with no rows here is unrestricted.
+// ---------------------------------------------------------------------------
+
+model CardEncoderAllocation {
+  id        String   @id @default(uuid())
+  cardId    String
+  card      Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  encoderId String
+  encoder   Encoder  @relation(fields: [encoderId], references: [id], onDelete: Cascade)
+  grantedAt DateTime @default(now())
+
+  @@unique([cardId, encoderId])
+  @@map("card_encoder_allocations")
 }
 
 // ---------------------------------------------------------------------------
