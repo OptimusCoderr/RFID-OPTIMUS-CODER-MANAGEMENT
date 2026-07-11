@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { Plus, Trash2, CreditCard } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
@@ -91,7 +92,11 @@ export default function HoldersPage() {
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {holders?.map((h) => (
               <tr key={h.id}>
-                <td className="px-4 py-3 font-medium">{h.fullName}</td>
+                <td className="px-4 py-3 font-medium">
+                  <Link to={`/holders/${h.id}`} className="text-brand-600 hover:underline dark:text-brand-400">
+                    {h.fullName}
+                  </Link>
+                </td>
                 <td className="px-4 py-3 text-slate-500">{h.employeeId ?? "—"}</td>
                 <td className="px-4 py-3 text-slate-500">{h.department ?? "—"}</td>
                 <td className="px-4 py-3 text-slate-500">{h.email ?? h.phone ?? "—"}</td>

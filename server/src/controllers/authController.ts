@@ -16,15 +16,19 @@ const PROFILE_SELECT = {
   company: { select: { id: true, name: true, slug: true } },
 } as const;
 
+function requestMeta(req: Request) {
+  return { userAgent: req.headers["user-agent"], ipAddress: req.ip };
+}
+
 export const login = asyncHandler(async (req: Request, res: Response) => {
   const { email, password } = req.body;
-  const result = await authService.login(email, password);
+  const result = await authService.login(email, password, requestMeta(req));
   res.json(result);
 });
 
 export const refresh = asyncHandler(async (req: Request, res: Response) => {
   const { refreshToken } = req.body;
-  const result = await authService.refresh(refreshToken);
+  const result = await authService.refresh(refreshToken, requestMeta(req));
   res.json(result);
 });
 
@@ -71,4 +75,16 @@ export const updateProfile = asyncHandler(async (req: Request, res: Response) =>
 
   const user = await prisma.user.update({ where: { id: req.user.id }, data, select: PROFILE_SELECT });
   res.json(user);
+});
+
+export const listSessions = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  const sessions = await authService.listSessions(req.user.id);
+  res.json(sessions);
+});
+
+export const revokeSession = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) throw ApiError.unauthorized();
+  await authService.revokeSession(req.user.id, req.params.id);
+  res.status(204).send();
 });

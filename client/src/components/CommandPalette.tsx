@@ -95,7 +95,7 @@ export function CommandPalette() {
                   key={h.id}
                   className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50"
                   onClick={() => {
-                    navigate(`/holders`);
+                    navigate(`/holders/${h.id}`);
                     close();
                   }}
                 >

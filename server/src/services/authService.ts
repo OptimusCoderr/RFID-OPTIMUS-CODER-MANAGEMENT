@@ -21,7 +21,12 @@ function ttlToDate(ttl: string): Date {
   return new Date(now + amount * unitMs);
 }
 
-export async function login(email: string, password: string) {
+interface RequestMeta {
+  userAgent?: string;
+  ipAddress?: string;
+}
+
+export async function login(email: string, password: string, meta: RequestMeta = {}) {
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !user.isActive) {
     throw ApiError.unauthorized("Invalid email or password");
@@ -41,6 +46,8 @@ export async function login(email: string, password: string) {
       tokenHash: hashToken(refreshToken),
       userId: user.id,
       expiresAt: ttlToDate(env.jwt.refreshTtl),
+      userAgent: meta.userAgent,
+      ipAddress: meta.ipAddress,
     },
   });
 
@@ -50,7 +57,7 @@ export async function login(email: string, password: string) {
   return { user: safeUser, accessToken, refreshToken };
 }
 
-export async function refresh(token: string) {
+export async function refresh(token: string, meta: RequestMeta = {}) {
   let payload;
   try {
     payload = verifyRefreshToken(token);
@@ -80,10 +87,26 @@ export async function refresh(token: string) {
       tokenHash: hashToken(refreshToken),
       userId: user.id,
       expiresAt: ttlToDate(env.jwt.refreshTtl),
+      userAgent: meta.userAgent,
+      ipAddress: meta.ipAddress,
     },
   });
 
   return { accessToken, refreshToken };
+}
+
+export async function listSessions(userId: string) {
+  return prisma.refreshToken.findMany({
+    where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, userAgent: true, ipAddress: true, createdAt: true, expiresAt: true },
+  });
+}
+
+export async function revokeSession(userId: string, sessionId: string) {
+  const record = await prisma.refreshToken.findUnique({ where: { id: sessionId } });
+  if (!record || record.userId !== userId) throw ApiError.notFound("Session not found");
+  await prisma.refreshToken.update({ where: { id: sessionId }, data: { revokedAt: new Date() } });
 }
 
 export async function logout(token: string) {

@@ -1,17 +1,36 @@
 import { FormEvent, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Monitor, LogOut } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useAuth } from "@/context/AuthContext";
 import { formatEnum } from "@/lib/constants";
+import { describeUserAgent } from "@/lib/userAgent";
+import type { Session } from "@/types";
 
 export default function ProfilePage() {
   const { user, refreshUser } = useAuth();
+  const queryClient = useQueryClient();
   const [fullName, setFullName] = useState(user?.fullName ?? "");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+
+  const { data: sessions, isLoading: sessionsLoading } = useQuery({
+    queryKey: ["sessions"],
+    queryFn: async () => (await api.get<Session[]>("/auth/sessions")).data,
+  });
+
+  const revokeSession = useMutation({
+    mutationFn: async (id: string) => api.delete(`/auth/sessions/${id}`),
+    onSuccess: () => {
+      toast.success("Session signed out");
+      queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not revoke session")),
+  });
 
   const updateProfile = useMutation({
     mutationFn: async (payload: { fullName?: string; currentPassword?: string; newPassword?: string }) =>
@@ -116,6 +135,39 @@ export default function ProfilePage() {
               Update password
             </button>
           </form>
+        </div>
+      </div>
+
+      <div className="card mt-6 p-5">
+        <h3 className="mb-1 text-sm font-semibold text-slate-600 dark:text-slate-300">Active sessions</h3>
+        <p className="mb-4 text-xs text-slate-400">Every device currently signed in to your account.</p>
+
+        {sessionsLoading && <p className="text-sm text-slate-400">Loading...</p>}
+        {!sessionsLoading && sessions?.length === 0 && <p className="text-sm text-slate-400">No active sessions.</p>}
+
+        <div className="divide-y divide-slate-100 dark:divide-slate-800">
+          {sessions?.map((session) => (
+            <div key={session.id} className="flex items-center justify-between gap-4 py-3 text-sm">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                  <Monitor size={16} />
+                </div>
+                <div>
+                  <div className="font-medium">{describeUserAgent(session.userAgent)}</div>
+                  <div className="text-xs text-slate-400">
+                    {session.ipAddress ?? "Unknown IP"} · signed in {formatDistanceToNow(new Date(session.createdAt), { addSuffix: true })}
+                  </div>
+                </div>
+              </div>
+              <button
+                className="btn-secondary"
+                onClick={() => revokeSession.mutate(session.id)}
+                disabled={revokeSession.isPending}
+              >
+                <LogOut size={14} /> Sign out
+              </button>
+            </div>
+          ))}
         </div>
       </div>
     </div>

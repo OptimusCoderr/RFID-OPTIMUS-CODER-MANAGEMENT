@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, KeyRound, Trash2, Copy, Wifi } from "lucide-react";
 import toast from "react-hot-toast";
@@ -98,7 +99,9 @@ export default function EncodersPage() {
               </div>
               <Badge tone={enc.status}>{enc.status}</Badge>
             </div>
-            <h3 className="font-semibold">{enc.name}</h3>
+            <Link to={`/encoders/${enc.id}`} className="font-semibold text-brand-600 hover:underline dark:text-brand-400">
+              {enc.name}
+            </Link>
             <p className="text-xs text-slate-400">
               {formatEnum(enc.type)} · {formatEnum(enc.connectionType)}
             </p>
