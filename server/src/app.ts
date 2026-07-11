@@ -16,6 +16,7 @@ import cardRoutes from "./routes/cardRoutes";
 import zoneRoutes from "./routes/zoneRoutes";
 import dashboardRoutes from "./routes/dashboardRoutes";
 import logRoutes from "./routes/logRoutes";
+import notificationRoutes from "./routes/notificationRoutes";
 
 export function createApp() {
   const app = express();
@@ -45,6 +46,7 @@ export function createApp() {
   app.use("/api/zones", zoneRoutes);
   app.use("/api/dashboard", dashboardRoutes);
   app.use("/api/logs", logRoutes);
+  app.use("/api/notifications", notificationRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

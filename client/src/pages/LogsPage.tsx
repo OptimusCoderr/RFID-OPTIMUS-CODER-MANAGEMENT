@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { api } from "@/lib/api";
+import { Download } from "lucide-react";
+import toast from "react-hot-toast";
+import { api, downloadCsv } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Badge } from "@/components/ui/Badge";
-import { FullPageSpinner } from "@/components/ui/Spinner";
+import { FullPageSpinner, Spinner } from "@/components/ui/Spinner";
 import { formatEnum } from "@/lib/constants";
 import type { OperationLog, PaginatedResponse } from "@/types";
 
@@ -29,6 +31,7 @@ export default function LogsPage() {
   const [page, setPage] = useState(1);
   const [operationType, setOperationType] = useState("");
   const [status, setStatus] = useState("");
+  const [exporting, setExporting] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["logs", { page, operationType, status }],
@@ -41,9 +44,32 @@ export default function LogsPage() {
     placeholderData: (prev) => prev,
   });
 
+  async function handleExport() {
+    setExporting(true);
+    try {
+      await downloadCsv(
+        "/logs/export",
+        { operationType: operationType || undefined, status: status || undefined },
+        `audit-log-${new Date().toISOString().slice(0, 10)}.csv`
+      );
+    } catch {
+      toast.error("Export failed");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div>
-      <PageHeader title="Audit Logs" description="Every register, encode, assignment, and lifecycle change is recorded here." />
+      <PageHeader
+        title="Audit Logs"
+        description="Every register, encode, assignment, and lifecycle change is recorded here."
+        actions={
+          <button className="btn-secondary" onClick={handleExport} disabled={exporting}>
+            {exporting ? <Spinner className="h-4 w-4" /> : <Download size={16} />} Export CSV
+          </button>
+        }
+      />
 
       <div className="mb-4 flex flex-wrap gap-3">
         <select

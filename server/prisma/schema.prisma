@@ -104,6 +104,16 @@ enum OperationStatus {
   PENDING
 }
 
+enum NotificationType {
+  CARD_EXPIRING
+  CARD_EXPIRED
+  CARD_BLOCKED
+  CARD_LOST
+  ENCODER_OFFLINE
+  ENCODER_ONLINE
+  SYSTEM
+}
+
 // ---------------------------------------------------------------------------
 // Core tenancy
 // ---------------------------------------------------------------------------
@@ -127,6 +137,7 @@ model Company {
   templates     CardTemplate[]
   accessZones   AccessZone[]
   operationLogs OperationLog[]
+  notifications Notification[]
 
   @@map("companies")
 }
@@ -147,6 +158,8 @@ model User {
 
   operationLogs OperationLog[]
   refreshTokens RefreshToken[]
+  notifications Notification[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([companyId])
   @@map("users")
@@ -349,4 +362,45 @@ model OperationLog {
   @@index([cardId])
   @@index([performedAt])
   @@map("operation_logs")
+}
+
+// ---------------------------------------------------------------------------
+// In-app notifications
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id        String           @id @default(uuid())
+  companyId String
+  company   Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type      NotificationType
+  title     String
+  message   String
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, readAt])
+  @@index([companyId])
+  @@map("notifications")
+}
+
+// ---------------------------------------------------------------------------
+// Password reset
+// ---------------------------------------------------------------------------
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }

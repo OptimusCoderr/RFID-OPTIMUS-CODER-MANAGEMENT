@@ -14,10 +14,12 @@ const OPERATOR_UP = ["SUPER_ADMIN", "COMPANY_ADMIN", "MANAGER", "OPERATOR"] as c
 const MANAGER_UP = ["SUPER_ADMIN", "COMPANY_ADMIN", "MANAGER"] as const;
 
 router.get("/", validate({ query: cardListQuery }), cardController.listCards);
+router.get("/export", validate({ query: cardListQuery }), cardController.exportCards);
 router.get("/:id", validate({ params: idParams }), cardController.getCard);
 router.get("/:id/keys", requireRole(...MANAGER_UP), validate({ params: idParams }), cardController.getCardKeys);
 
 router.post("/", requireRole(...OPERATOR_UP), validate({ body: registerCardBody }), cardController.registerCard);
+router.post("/bulk-import", requireRole(...OPERATOR_UP), cardController.bulkImportCards);
 router.patch(
   "/:id",
   requireRole(...OPERATOR_UP),

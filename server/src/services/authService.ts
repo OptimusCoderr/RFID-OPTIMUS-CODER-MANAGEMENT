@@ -4,6 +4,9 @@ import { prisma } from "../lib/prisma";
 import { ApiError } from "../utils/ApiError";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/jwt";
 import { env } from "../config/env";
+import { sendEmail } from "./emailService";
+
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
@@ -93,4 +96,43 @@ export async function logout(token: string) {
   } catch {
     // already invalid/expired — logout is idempotent either way
   }
+}
+
+// Always succeeds from the caller's perspective — never reveals whether an
+// email address has an account, to avoid leaking account existence.
+export async function requestPasswordReset(email: string) {
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user || !user.isActive) return;
+
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  await prisma.passwordResetToken.create({
+    data: {
+      userId: user.id,
+      tokenHash: hashToken(rawToken),
+      expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+    },
+  });
+
+  const resetUrl = `${env.appUrl.replace(/\/$/, "")}/reset-password?token=${rawToken}`;
+  await sendEmail({
+    to: user.email,
+    subject: "Reset your RFID Manager password",
+    text: `We received a request to reset your password. This link expires in 1 hour:\n\n${resetUrl}\n\nIf you didn't request this, you can safely ignore this email.`,
+  });
+}
+
+export async function resetPassword(rawToken: string, newPassword: string) {
+  const record = await prisma.passwordResetToken.findUnique({ where: { tokenHash: hashToken(rawToken) } });
+  if (!record || record.usedAt || record.expiresAt < new Date()) {
+    throw ApiError.badRequest("This reset link is invalid or has expired");
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: record.userId }, data: { passwordHash } }),
+    prisma.passwordResetToken.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
+    // Revoke every active session — a password reset should force re-login everywhere.
+    prisma.refreshToken.updateMany({ where: { userId: record.userId, revokedAt: null }, data: { revokedAt: new Date() } }),
+  ]);
 }

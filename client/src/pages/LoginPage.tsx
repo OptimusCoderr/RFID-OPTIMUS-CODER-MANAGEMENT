@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { CreditCard } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "@/context/AuthContext";
@@ -55,9 +55,14 @@ export default function LoginPage() {
             />
           </div>
           <div>
-            <label className="label" htmlFor="password">
-              Password
-            </label>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="label mb-0" htmlFor="password">
+                Password
+              </label>
+              <Link to="/forgot-password" className="text-xs text-brand-600 hover:underline dark:text-brand-400">
+                Forgot password?
+              </Link>
+            </div>
             <input
               id="password"
               type="password"

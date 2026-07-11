@@ -5,6 +5,7 @@ import { prisma } from "../lib/prisma";
 import { verifyAccessToken } from "../utils/jwt";
 import { env } from "../config/env";
 import { logOperation } from "../services/operationLogService";
+import { notifyCompanyAdmins } from "../services/notificationService";
 import { OperationType } from "@prisma/client";
 
 interface DashboardSocketData {
@@ -55,6 +56,7 @@ export function initWebsocket(httpServer: HttpServer): Server {
     const data = socket.data as DashboardSocketData;
     if (data.companyId) socket.join(`company:${data.companyId}`);
     if (data.role === "SUPER_ADMIN") socket.join("super-admins");
+    socket.join(`user:${data.userId}`);
 
     // SUPER_ADMIN can attach to a specific company's live feed.
     socket.on("subscribe:company", (companyId: string) => {
@@ -147,6 +149,12 @@ export function initWebsocket(httpServer: HttpServer): Server {
         .update({ where: { id: data.encoderId }, data: { status: "OFFLINE" } })
         .then((encoder) => {
           dashboardNsp.to(`company:${data.companyId}`).emit("encoder:status", { encoderId: encoder.id, status: encoder.status });
+          notifyCompanyAdmins(data.companyId, {
+            type: "ENCODER_OFFLINE",
+            title: "Encoder went offline",
+            message: `${encoder.name} disconnected from its local agent.`,
+            link: "/encoders",
+          }).catch(() => undefined);
         })
         .catch(() => undefined);
     });
