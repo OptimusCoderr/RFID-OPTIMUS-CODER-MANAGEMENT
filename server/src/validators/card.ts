@@ -26,6 +26,10 @@ export const assignCardBody = z.object({
   holderId: z.string().uuid(),
 });
 
+export const cardEncodersBody = z.object({
+  encoderIds: z.array(z.string().uuid()).min(1),
+});
+
 export const cardListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),

@@ -1,19 +1,20 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ShieldOff, ShieldCheck, UserRound, UserX, AlertTriangle, Archive } from "lucide-react";
+import { ArrowLeft, ShieldOff, ShieldCheck, UserRound, UserX, AlertTriangle, Archive, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
 import { formatEnum } from "@/lib/constants";
-import type { Card, CardHolder, OperationLog, PaginatedResponse } from "@/types";
+import type { Card, CardHolder, Encoder, OperationLog, PaginatedResponse } from "@/types";
 
 export default function CardDetailPage() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   const [holderId, setHolderId] = useState("");
+  const [encoderToGrant, setEncoderToGrant] = useState("");
 
   const { data: card, isLoading } = useQuery({
     queryKey: ["card", id],
@@ -32,11 +33,35 @@ export default function CardDetailPage() {
     enabled: Boolean(id),
   });
 
+  const { data: encoders } = useQuery({
+    queryKey: ["encoders"],
+    queryFn: async () => (await api.get<Encoder[]>("/encoders")).data,
+  });
+
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ["card", id] });
     queryClient.invalidateQueries({ queryKey: ["logs", { cardId: id }] });
     queryClient.invalidateQueries({ queryKey: ["cards"] });
   }
+
+  const grantEncoder = useMutation({
+    mutationFn: async (encoderId: string) => api.post(`/cards/${id}/encoders/grant`, { encoderIds: [encoderId] }),
+    onSuccess: () => {
+      toast.success("Card restricted to encoder");
+      setEncoderToGrant("");
+      invalidate();
+    },
+    onError: (err) => toast.error(apiErrorMessage(err)),
+  });
+
+  const revokeEncoder = useMutation({
+    mutationFn: async (encoderId: string) => api.post(`/cards/${id}/encoders/revoke`, { encoderIds: [encoderId] }),
+    onSuccess: () => {
+      toast.success("Encoder allocation removed");
+      invalidate();
+    },
+    onError: (err) => toast.error(apiErrorMessage(err)),
+  });
 
   const assign = useMutation({
     mutationFn: async () => api.post(`/cards/${id}/assign`, { holderId }),
@@ -140,6 +165,51 @@ export default function CardDetailPage() {
               </div>
             </>
           )}
+
+          <h3 className="pt-2 text-sm font-semibold text-slate-600 dark:text-slate-300">Allowed encoders</h3>
+          <p className="text-xs text-slate-400">
+            {card.encoderAllocations && card.encoderAllocations.length > 0
+              ? "This card can only be used with the encoder(s) below."
+              : "Unrestricted — this card can be used with any encoder in the company."}
+          </p>
+          {card.encoderAllocations && card.encoderAllocations.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {card.encoderAllocations.map((a) => (
+                <span
+                  key={a.encoder.id}
+                  className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                >
+                  {a.encoder.name}
+                  <button
+                    className="text-slate-400 hover:text-red-600"
+                    onClick={() => revokeEncoder.mutate(a.encoder.id)}
+                    aria-label={`Remove ${a.encoder.name} allocation`}
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <select className="input" value={encoderToGrant} onChange={(e) => setEncoderToGrant(e.target.value)}>
+              <option value="">Restrict to an encoder…</option>
+              {encoders
+                ?.filter((enc) => !card.encoderAllocations?.some((a) => a.encoder.id === enc.id))
+                .map((enc) => (
+                  <option key={enc.id} value={enc.id}>
+                    {enc.name}
+                  </option>
+                ))}
+            </select>
+            <button
+              className="btn-secondary whitespace-nowrap"
+              disabled={!encoderToGrant}
+              onClick={() => grantEncoder.mutate(encoderToGrant)}
+            >
+              Add
+            </button>
+          </div>
         </div>
 
         <div className="card space-y-2 p-5 text-sm">

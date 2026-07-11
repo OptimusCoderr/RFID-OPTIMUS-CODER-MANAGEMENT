@@ -134,6 +134,13 @@ export default function LiveEncodePage() {
   const selectedEncoder = useMemo(() => encoders?.find((e) => e.id === encoderId), [encoders, encoderId]);
   const liveStatus = (selectedEncoder && statusOverrides[selectedEncoder.id]) ?? selectedEncoder?.status;
 
+  const cardRestrictedToOtherEncoders = Boolean(
+    matchedCard &&
+      matchedCard.encoderAllocations &&
+      matchedCard.encoderAllocations.length > 0 &&
+      !matchedCard.encoderAllocations.some((a) => a.encoder.id === encoderId)
+  );
+
   function sendCommand(e: FormEvent) {
     e.preventDefault();
     if (!socket || !encoderId) return;
@@ -145,9 +152,13 @@ export default function LiveEncodePage() {
     if (command === "WRITE_NTAG") args = { page, data: writeData };
 
     pushLog(`Sending ${command}...`, "PENDING");
-    socket.emit("encoder:command", { encoderId, command, args }, (res: { ok: boolean; error?: string }) => {
-      if (!res.ok) pushLog(`${command} rejected: ${res.error}`, "FAILED");
-    });
+    socket.emit(
+      "encoder:command",
+      { encoderId, command, args, cardId: matchedCard?.id },
+      (res: { ok: boolean; error?: string }) => {
+        if (!res.ok) pushLog(`${command} rejected: ${res.error}`, "FAILED");
+      }
+    );
   }
 
   return (
@@ -201,6 +212,12 @@ export default function LiveEncodePage() {
                 Open card <ExternalLink size={12} />
               </Link>
             </div>
+          )}
+
+          {cardRestrictedToOtherEncoders && (
+            <p className="mt-3 text-xs text-amber-600">
+              This card is restricted to a different encoder — commands sent from here will be rejected.
+            </p>
           )}
         </div>
 
@@ -264,10 +281,13 @@ export default function LiveEncodePage() {
               </div>
             )}
 
-            <button type="submit" className="btn-primary" disabled={liveStatus !== "ONLINE"}>
+            <button type="submit" className="btn-primary" disabled={liveStatus !== "ONLINE" || cardRestrictedToOtherEncoders}>
               <Send size={15} /> Send to encoder
             </button>
             {liveStatus !== "ONLINE" && <p className="text-xs text-amber-600">Encoder is offline — start its local agent to send commands.</p>}
+            {liveStatus === "ONLINE" && cardRestrictedToOtherEncoders && (
+              <p className="text-xs text-amber-600">This card isn't allocated to the selected encoder.</p>
+            )}
           </form>
         </div>
       </div>

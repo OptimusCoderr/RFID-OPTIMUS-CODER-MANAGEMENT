@@ -68,7 +68,7 @@ export function initWebsocket(httpServer: HttpServer): Server {
     socket.on(
       "encoder:command",
       async (
-        payload: { encoderId: string; command: string; args?: unknown },
+        payload: { encoderId: string; command: string; args?: unknown; cardId?: string },
         ack?: (res: { ok: boolean; error?: string; commandId?: string }) => void
       ) => {
         try {
@@ -78,6 +78,17 @@ export function initWebsocket(httpServer: HttpServer): Server {
             throw new Error("Forbidden");
           }
           if (encoder.status === "OFFLINE") throw new Error("Encoder is offline");
+
+          if (payload.cardId) {
+            const card = await prisma.card.findUnique({
+              where: { id: payload.cardId },
+              include: { encoderAllocations: { select: { encoderId: true } } },
+            });
+            if (card && card.encoderAllocations.length > 0) {
+              const allowed = card.encoderAllocations.some((a) => a.encoderId === encoder.id);
+              if (!allowed) throw new Error("This card is not allocated to this encoder");
+            }
+          }
 
           const commandId = uuid();
           agentNsp.to(`encoder:${encoder.id}`).emit("command", {

@@ -20,6 +20,11 @@ Prisma), and **Socket.IO** for live encode/read operations.
   mark lost, retire — every transition is written to an audit log.
 - **Access zones** — group cards by the physical areas/systems they should
   unlock (optional access-control layer on top of inventory management).
+- **Card–encoder allocation** — every company can register an unlimited
+  number of cards and encoders. By default any card can be used with any
+  encoder in the company; optionally, specific cards can be restricted to
+  one or more specific encoders, and the live-encode command flow enforces
+  that restriction server-side.
 - **Live Encode console** — a real-time page that shows cards as they're
   tapped on a connected encoder and lets you fire read/write commands at it
   from the browser, over a websocket.

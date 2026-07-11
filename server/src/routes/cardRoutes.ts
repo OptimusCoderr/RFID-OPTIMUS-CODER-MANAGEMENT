@@ -3,7 +3,7 @@ import * as cardController from "../controllers/cardController";
 import { authenticate } from "../middleware/auth";
 import { requireRole } from "../middleware/rbac";
 import { validate } from "../middleware/validate";
-import { registerCardBody, updateCardBody, assignCardBody, cardListQuery } from "../validators/card";
+import { registerCardBody, updateCardBody, assignCardBody, cardListQuery, cardEncodersBody } from "../validators/card";
 import { idParams } from "../validators/common";
 
 const router = Router();
@@ -38,6 +38,19 @@ router.post("/:id/block", requireRole(...MANAGER_UP), validate({ params: idParam
 router.post("/:id/unblock", requireRole(...MANAGER_UP), validate({ params: idParams }), cardController.unblockCard);
 router.post("/:id/lost", requireRole(...OPERATOR_UP), validate({ params: idParams }), cardController.markLostCard);
 router.post("/:id/retire", requireRole(...MANAGER_UP), validate({ params: idParams }), cardController.retireCard);
+
+router.post(
+  "/:id/encoders/grant",
+  requireRole(...MANAGER_UP),
+  validate({ params: idParams, body: cardEncodersBody }),
+  cardController.grantCardEncoders
+);
+router.post(
+  "/:id/encoders/revoke",
+  requireRole(...MANAGER_UP),
+  validate({ params: idParams, body: cardEncodersBody }),
+  cardController.revokeCardEncoders
+);
 
 router.delete("/:id", requireRole(...MANAGER_UP), validate({ params: idParams }), cardController.deleteCard);
 
