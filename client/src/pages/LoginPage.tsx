@@ -77,6 +77,13 @@ export default function LoginPage() {
             {submitting ? <Spinner className="h-4 w-4 text-white" /> : "Sign in"}
           </button>
         </form>
+
+        <p className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
+          New business?{" "}
+          <Link to="/register" className="text-brand-600 hover:underline dark:text-brand-400">
+            Register your company
+          </Link>
+        </p>
       </div>
     </div>
   );

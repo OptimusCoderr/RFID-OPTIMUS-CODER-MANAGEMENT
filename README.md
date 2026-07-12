@@ -7,9 +7,11 @@ Prisma), and **Socket.IO** for live encode/read operations.
 
 ## What it does
 
-- **Multi-company (multi-tenant)** — a super admin creates companies; each
-  company's users, cards, holders, encoders, templates, and audit logs are
-  fully isolated from every other company.
+- **Multi-company (multi-tenant)** — any business (hotel, office, university,
+  etc) can self-register at `/register` and immediately get its own login and
+  fully isolated card/holder/encoder/template/audit-log inventory; a super
+  admin can also create companies directly. Every other company's data is
+  invisible to them.
 - **Card compatibility** — MIFARE Classic 1K/4K/Mini, MIFARE Ultralight/C,
   MIFARE DESFire EV1/EV2/EV3, MIFARE Plus, NTAG213/215/216, and generic
   125kHz tags (EM4100, HID Prox, T5577), plus generic ISO14443A/15693.

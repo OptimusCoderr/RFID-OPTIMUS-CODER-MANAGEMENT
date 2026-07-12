@@ -26,6 +26,11 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
   res.json(result);
 });
 
+export const registerCompany = asyncHandler(async (req: Request, res: Response) => {
+  const result = await authService.registerCompany(req.body, requestMeta(req));
+  res.status(201).json(result);
+});
+
 export const refresh = asyncHandler(async (req: Request, res: Response) => {
   const { refreshToken } = req.body;
   const result = await authService.refresh(refreshToken, requestMeta(req));
