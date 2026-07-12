@@ -15,9 +15,16 @@ Prisma), and **Socket.IO** for live encode/read operations.
 - **Card compatibility** — MIFARE Classic 1K/4K/Mini, MIFARE Ultralight/C,
   MIFARE DESFire EV1/EV2/EV3, MIFARE Plus, NTAG213/215/216, and generic
   125kHz tags (EM4100, HID Prox, T5577), plus generic ISO14443A/15693.
-- **Card templates** — define the MIFARE Classic sector/key layout or the
-  NTAG/Ultralight page map once, then apply it whenever a card of that type
-  is registered.
+- **Card templates** — define the MIFARE Classic sector/key layout, the
+  NTAG/Ultralight page map, or a MIFARE DESFire application/file partition
+  layout once, then apply it whenever a card of that type is registered.
+- **MIFARE DESFire partitioning** — real application/file support (not just
+  sectors): define isolated applications (e.g. one for building access, a
+  separate one for a canteen wallet) each with their own AES key(s) and
+  files, and provision/read/write them from Live Encode. See
+  [HOW-TO-USE.md](HOW-TO-USE.md#613-mifare-desfire-partitioning-applications--files)
+  for what's supported and its limits (AES authentication and Plain
+  communication mode only — no legacy DES/3DES, no MAC/Encrypted comms).
 - **Card lifecycle** — register, assign to a holder, unassign, block/unblock,
   mark lost, retire — every transition is written to an audit log.
 - **Access zones** — group cards by the physical areas/systems they should

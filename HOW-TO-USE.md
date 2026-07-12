@@ -32,6 +32,7 @@ it* once it's up.
    - [6.10 Dashboard and audit logs](#610-dashboard-and-audit-logs)
    - [6.11 Your profile and active sessions](#611-your-profile-and-active-sessions)
    - [6.12 Company settings](#612-company-settings)
+   - [6.13 MIFARE DESFire partitioning (applications & files)](#613-mifare-desfire-partitioning-applications--files)
 7. [Worked examples by industry](#7-worked-examples-by-industry)
    - [7.1 Hotel](#71-hotel)
    - [7.2 Business / office](#72-business--office)
@@ -69,7 +70,8 @@ platform operators, but day-to-day usage never needs it.
 | **User** | A person who logs into the dashboard. Belongs to exactly one company (except `SUPER_ADMIN`). |
 | **Card holder** | The person a card is *for* — a guest, employee, or student. Not a login; just a record (name, department/room, employee/student ID, photo). |
 | **Card** | A physical RFID/NFC tag: a UID, a type (MIFARE Classic 1K, NTAG213, 125kHz Prox, etc.), a status, optionally assigned to a holder. |
-| **Card template** | A reusable memory layout (which MIFARE sectors/keys, or which NTAG pages, mean what) applied when a card of that type is registered. |
+| **Card template** | A reusable memory layout (which MIFARE sectors/keys, which NTAG pages, or which DESFire applications/files, mean what) applied when a card of that type is registered. |
+| **DESFire application / file** | Real card **partitioning**, specific to MIFARE DESFire: the card's memory is divided into independent, separately-keyed applications (e.g. one for building access, one for a canteen wallet), each containing its own files. Distinct from — and more capable than — MIFARE Classic's sector/key layout. See [6.13](#613-mifare-desfire-partitioning-applications--files). |
 | **Encoder** | The physical reader/writer device (ACR122U, PN532, OMNIKEY, etc.) that talks to cards. Each encoder authenticates to the API with its own `agentKey`. |
 | **Local agent** | A small process (`npm run agent`) that runs on the machine physically connected to an encoder and bridges it to the cloud dashboard over a websocket. |
 | **Access zone** | An optional grouping of cards by the physical area/system they unlock (e.g. "Pool", "Server Room", "Loading Dock"). |
@@ -373,6 +375,78 @@ From **Profile**:
 and logo from **Company Settings**. `SUPER_ADMIN`s manage every company from
 the **Companies** page, including deactivating one without deleting its data.
 
+### 6.13 MIFARE DESFire partitioning (applications & files)
+
+MIFARE Classic's "sectors" and NTAG's "pages" are simple memory layouts —
+useful, but not real isolation. **MIFARE DESFire** (EV1/EV2/EV3) supports
+genuine **partitioning**: the card is divided into independent
+**applications**, each identified by a 3-byte AID and protected by its own
+key(s), and each application holds its own **files**. This is what lets one
+physical card safely serve multiple purposes at once — e.g. a university ID
+with a building-access application the security office controls, and a
+completely separate library-loans application the library controls, neither
+able to read or write the other's data.
+
+**1. Design the partition layout in a template.** From **Templates → New
+template**, pick a DESFire card type (`MIFARE_DESFIRE_EV1/EV2/EV3`) and use
+the **Applications** editor:
+- **Add application** — set its AID (3 bytes hex, e.g. `F00001`), a name,
+  and how many AES keys it has (1–14; typically one key per role that needs
+  distinct access, e.g. a "read" key and a separate "admin" key).
+- **Add file** within an application — pick a file type:
+  - **Standard/Backup Data** — a fixed-size byte blob (e.g. an employee ID, a
+    photo hash, an access-level flag).
+  - **Value** — a signed integer balance with credit/debit semantics (e.g. a
+    prepaid canteen balance).
+  - **Linear/Cyclic Record** — an append-only (or ring-buffer) log of
+    fixed-size records (e.g. a tap-in/tap-out access log).
+
+**2. Provision a physical card from Live Encode.** With the card on the
+reader, use the **Send command** dropdown:
+1. **DESFire: create application** (admin-only, one time per AID) — creates
+   the partition you designed in the template.
+2. **DESFire: select application** — every subsequent command operates on
+   whichever application is currently selected.
+3. **DESFire: create file** (admin-only) — creates each file inside the
+   selected application.
+4. **DESFire: authenticate (AES)** — proves possession of that application's
+   key before any access-restricted read/write will succeed.
+5. **DESFire: read file** / **write file** — read or write the file's data
+   once authenticated.
+6. **DESFire: delete file** / **delete application** / **format card** —
+   admin-only, destructive, and asks for confirmation before sending.
+
+Every one of these is a real native DESFire command sent to the physical
+card over the local agent — this isn't simulated. **Create application**,
+**delete application**, **delete file**, and **format card** additionally
+require `MANAGER` role or above (unlike the routine read/write commands,
+which any signed-in company member can run) since they can destroy another
+card's partition or wipe a card outright.
+
+**Known limitations** — read these before relying on this for anything
+security-critical:
+
+- **Only AES authentication is implemented** (DESFire's modern,
+  EV1/EV2/EV3-standard method). Legacy DES/2K3DES/3K3DES key authentication
+  is not supported — application keys must be AES.
+- **Only Plain communication mode is implemented** for file reads/writes —
+  the payload travels as-is after authentication, with no per-command MAC or
+  encryption. This is a normal, supported DESFire mode (and the
+  authentication step itself is real, correctly-implemented AES mutual
+  authentication with proper session-key derivation), but it is not
+  DESFire's maximum-security mode. Don't rely on this alone for
+  payment-grade or otherwise highly sensitive data.
+- **Access rights default to "authenticating key required" for everything**
+  (read, write, read&write, and change-access all default to key index 0)
+  unless you explicitly mark a file's right as "free" — this platform
+  intentionally does not default any file to public/free access.
+- This integration has been built and unit-tested against the DESFire
+  protocol specification (APDU framing, status codes, and the full AES
+  mutual-authentication handshake all have automated tests — see
+  `server/src/hardware/desfireCrypto.test.ts`), but has not been verified
+  against physical DESFire hardware. Test thoroughly with your actual cards
+  and reader before any production rollout.
+
 ## 7. Worked examples by industry
 
 ### 7.1 Hotel
@@ -501,6 +575,12 @@ Postgres instance, set real JWT/encryption secrets (never the defaults from
   server-side layer that handles live encode commands, not just in the UI.
 - Self-service company registration is rate-limited to reduce abuse, and
   slug/email uniqueness is enforced at the database level.
+- DESFire's destructive commands (create/delete application, delete file,
+  format card) are role-gated to `MANAGER`+ server-side, on top of the
+  existing company-scoping check — a `VIEWER`/`OPERATOR` cannot wipe a card
+  or delete another partition even by calling the websocket API directly.
+  See [6.13](#613-mifare-desfire-partitioning-applications--files) for the
+  DESFire integration's specific cryptographic scope and limits.
 
 ## 12. Troubleshooting
 
@@ -532,7 +612,7 @@ implicitly scoped to the caller's own company unless they're `SUPER_ADMIN`.
 | Notifications | `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all` |
 | Dashboard | `GET /dashboard/stats` |
 | Audit logs | `GET /logs`, `GET /logs/export` |
-| Live encode (websocket, `/dashboard` namespace) | `encoder:command` (emit), `encoder:status` / `card:detected` / `encoder:commandResult` (listen) |
+| Live encode (websocket, `/dashboard` namespace) | `encoder:command` (emit — includes MIFARE Classic/NTAG commands plus `LIST_APPLICATIONS`/`SELECT_APPLICATION`/`AUTH_APPLICATION`/`READ_FILE`/`WRITE_FILE`/`CREATE_APPLICATION`/`CREATE_FILE`/`DELETE_FILE`/`DELETE_APPLICATION`/`FORMAT_PICC` for DESFire — see [6.13](#613-mifare-desfire-partitioning-applications--files)), `encoder:status` / `card:detected` / `encoder:commandResult` (listen) |
 | Hardware agent (websocket, `/agent` namespace) | authenticates with an encoder's `agentKey`; emits `heartbeat`, `card:detected`, `command:result`; listens for `command` |
 
 For a runnable, pre-chained example of the REST calls (login → register a

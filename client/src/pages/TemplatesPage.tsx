@@ -8,10 +8,13 @@ import { Modal } from "@/components/ui/Modal";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
 import { CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
-import type { CardTemplate, CardType, MifareSectorLayout, NtagPageLayout } from "@/types";
+import type { CardTemplate, CardType, DesfireApplicationLayout, DesfireFileLayout, DesfireFileType, MifareSectorLayout, NtagPageLayout } from "@/types";
 
 const isMifareClassic = (t: CardType) => t.startsWith("MIFARE_CLASSIC");
 const isPageBased = (t: CardType) => t.startsWith("NTAG") || t.startsWith("MIFARE_ULTRALIGHT");
+const isDesfire = (t: CardType) => t.startsWith("MIFARE_DESFIRE");
+
+const DESFIRE_FILE_TYPES: DesfireFileType[] = ["STANDARD_DATA", "BACKUP_DATA", "VALUE", "LINEAR_RECORD", "CYCLIC_RECORD"];
 
 export default function TemplatesPage() {
   const queryClient = useQueryClient();
@@ -21,6 +24,7 @@ export default function TemplatesPage() {
   const [cardType, setCardType] = useState<CardType>("MIFARE_CLASSIC_1K");
   const [sectors, setSectors] = useState<MifareSectorLayout[]>([]);
   const [pages, setPages] = useState<NtagPageLayout[]>([]);
+  const [applications, setApplications] = useState<DesfireApplicationLayout[]>([]);
   const [isDefault, setIsDefault] = useState(false);
 
   const { data: templates, isLoading } = useQuery({
@@ -39,6 +43,7 @@ export default function TemplatesPage() {
           layout: {
             sectors: isMifareClassic(cardType) ? sectors : undefined,
             pages: isPageBased(cardType) ? pages : undefined,
+            applications: isDesfire(cardType) ? applications : undefined,
           },
         })
       ).data,
@@ -66,6 +71,7 @@ export default function TemplatesPage() {
     setCardType("MIFARE_CLASSIC_1K");
     setSectors([]);
     setPages([]);
+    setApplications([]);
     setIsDefault(false);
   }
 
@@ -106,6 +112,12 @@ export default function TemplatesPage() {
               <p className="mt-3 text-xs text-slate-400">{t.layout.sectors.length} configured sector(s)</p>
             )}
             {t.layout.pages && <p className="mt-3 text-xs text-slate-400">{t.layout.pages.length} page range(s)</p>}
+            {t.layout.applications && (
+              <p className="mt-3 text-xs text-slate-400">
+                {t.layout.applications.length} application(s),{" "}
+                {t.layout.applications.reduce((sum, a) => sum + a.files.length, 0)} file(s)
+              </p>
+            )}
           </div>
         ))}
         {templates?.length === 0 && <p className="text-sm text-slate-400">No templates yet.</p>}
@@ -138,6 +150,7 @@ export default function TemplatesPage() {
             <SectorEditor sectors={sectors} setSectors={setSectors} />
           )}
           {isPageBased(cardType) && <PageEditor pages={pages} setPages={setPages} />}
+          {isDesfire(cardType) && <ApplicationEditor applications={applications} setApplications={setApplications} />}
 
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
@@ -244,6 +257,170 @@ function PageEditor({ pages, setPages }: { pages: NtagPageLayout[]; setPages: (p
           </div>
         ))}
         {pages.length === 0 && <p className="text-xs text-slate-400">No page ranges configured yet.</p>}
+      </div>
+    </div>
+  );
+}
+
+const EMPTY_DESFIRE_FILE: DesfireFileLayout = { fileId: 1, type: "STANDARD_DATA", purpose: "", size: 32 };
+
+function ApplicationEditor({
+  applications,
+  setApplications,
+}: {
+  applications: DesfireApplicationLayout[];
+  setApplications: (a: DesfireApplicationLayout[]) => void;
+}) {
+  function updateApp(index: number, patch: Partial<DesfireApplicationLayout>) {
+    setApplications(applications.map((a, i) => (i === index ? { ...a, ...patch } : a)));
+  }
+
+  function updateFile(appIndex: number, fileIndex: number, patch: Partial<DesfireFileLayout>) {
+    setApplications(
+      applications.map((a, i) =>
+        i === appIndex ? { ...a, files: a.files.map((f, fi) => (fi === fileIndex ? { ...f, ...patch } : f)) } : a
+      )
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between">
+        <label className="label mb-0">Applications (partitions)</label>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() =>
+            setApplications([
+              ...applications,
+              { aid: "F00001", name: "", keyCount: 1, keyType: "AES", files: [] },
+            ])
+          }
+        >
+          <Plus size={14} /> Add application
+        </button>
+      </div>
+      <p className="mb-3 text-xs text-slate-400">
+        Each application is an isolated partition (its own AID and keys) — e.g. one for building access, a
+        separate one for a canteen wallet. Reads/writes use AES authentication and Plain communication mode.
+      </p>
+      <div className="space-y-3">
+        {applications.map((app, appIndex) => (
+          <div key={appIndex} className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <div className="mb-2 flex items-center gap-2">
+              <input
+                className="input w-28 font-mono"
+                placeholder="AID (hex)"
+                value={app.aid}
+                onChange={(e) => updateApp(appIndex, { aid: e.target.value })}
+              />
+              <input
+                className="input flex-1"
+                placeholder="Name (e.g. Building Access)"
+                value={app.name ?? ""}
+                onChange={(e) => updateApp(appIndex, { name: e.target.value })}
+              />
+              <input
+                type="number"
+                className="input w-20"
+                min={1}
+                max={14}
+                title="Key count"
+                value={app.keyCount}
+                onChange={(e) => updateApp(appIndex, { keyCount: Number(e.target.value) })}
+              />
+              <button
+                type="button"
+                className="text-slate-400 hover:text-red-600"
+                onClick={() => setApplications(applications.filter((_, i) => i !== appIndex))}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="ml-2 space-y-2 border-l border-slate-100 pl-3 dark:border-slate-800">
+              {app.files.map((file, fileIndex) => (
+                <div key={fileIndex} className="flex flex-wrap items-center gap-2 text-sm">
+                  <input
+                    type="number"
+                    className="input w-16"
+                    min={0}
+                    max={31}
+                    title="File ID"
+                    value={file.fileId}
+                    onChange={(e) => updateFile(appIndex, fileIndex, { fileId: Number(e.target.value) })}
+                  />
+                  <select
+                    className="input w-40"
+                    value={file.type}
+                    onChange={(e) => updateFile(appIndex, fileIndex, { type: e.target.value as DesfireFileType })}
+                  >
+                    {DESFIRE_FILE_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {formatEnum(t)}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className="input flex-1"
+                    placeholder="Purpose"
+                    value={file.purpose}
+                    onChange={(e) => updateFile(appIndex, fileIndex, { purpose: e.target.value })}
+                  />
+                  {(file.type === "STANDARD_DATA" || file.type === "BACKUP_DATA") && (
+                    <input
+                      type="number"
+                      className="input w-24"
+                      placeholder="Size (bytes)"
+                      value={file.size ?? ""}
+                      onChange={(e) => updateFile(appIndex, fileIndex, { size: Number(e.target.value) })}
+                    />
+                  )}
+                  {(file.type === "LINEAR_RECORD" || file.type === "CYCLIC_RECORD") && (
+                    <>
+                      <input
+                        type="number"
+                        className="input w-24"
+                        placeholder="Record size"
+                        value={file.recordSize ?? ""}
+                        onChange={(e) => updateFile(appIndex, fileIndex, { recordSize: Number(e.target.value) })}
+                      />
+                      <input
+                        type="number"
+                        className="input w-24"
+                        placeholder="Max records"
+                        value={file.maxRecords ?? ""}
+                        onChange={(e) => updateFile(appIndex, fileIndex, { maxRecords: Number(e.target.value) })}
+                      />
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    className="text-slate-400 hover:text-red-600"
+                    onClick={() =>
+                      updateApp(appIndex, { files: app.files.filter((_, i) => i !== fileIndex) })
+                    }
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() =>
+                  updateApp(appIndex, {
+                    files: [...app.files, { ...EMPTY_DESFIRE_FILE, fileId: app.files.length }],
+                  })
+                }
+              >
+                <Plus size={12} /> Add file
+              </button>
+              {app.files.length === 0 && <p className="text-xs text-slate-400">No files in this application yet.</p>}
+            </div>
+          </div>
+        ))}
+        {applications.length === 0 && <p className="text-xs text-slate-400">No applications (partitions) configured yet.</p>}
       </div>
     </div>
   );

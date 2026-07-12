@@ -19,9 +19,41 @@ const ntagPageSchema = z.object({
   purpose: z.string().max(100),
 });
 
+// MIFARE DESFire application/file (partitioning) layout. Access rights are
+// DESFire key indices (0-13), 0xE = free access, 0xF = never.
+const desfireAccessRightsSchema = z.object({
+  read: z.number().int().min(0).max(15).optional(),
+  write: z.number().int().min(0).max(15).optional(),
+  readWrite: z.number().int().min(0).max(15).optional(),
+  change: z.number().int().min(0).max(15).optional(),
+});
+
+const desfireFileSchema = z.object({
+  fileId: z.number().int().min(0).max(31),
+  type: z.enum(["STANDARD_DATA", "BACKUP_DATA", "VALUE", "LINEAR_RECORD", "CYCLIC_RECORD"]),
+  purpose: z.string().max(100),
+  size: z.number().int().min(1).max(8192).optional(),
+  minValue: z.number().int().optional(),
+  maxValue: z.number().int().optional(),
+  initialValue: z.number().int().optional(),
+  recordSize: z.number().int().min(1).max(8192).optional(),
+  maxRecords: z.number().int().min(1).max(65535).optional(),
+  accessRights: desfireAccessRightsSchema.optional(),
+});
+
+const desfireApplicationSchema = z.object({
+  aid: z.string().regex(/^[0-9a-fA-F]{6}$/, "aid must be 3 bytes of hex"),
+  name: z.string().max(100).optional(),
+  keyCount: z.number().int().min(1).max(14).default(1),
+  // Only AES authentication is implemented by this platform's encode flow.
+  keyType: z.literal("AES").default("AES"),
+  files: z.array(desfireFileSchema).max(32).default([]),
+});
+
 export const templateLayoutSchema = z.object({
   sectors: z.array(mifareSectorSchema).optional(),
   pages: z.array(ntagPageSchema).optional(),
+  applications: z.array(desfireApplicationSchema).optional(),
   ndef: z.boolean().optional(),
   notes: z.string().max(1000).optional(),
 });

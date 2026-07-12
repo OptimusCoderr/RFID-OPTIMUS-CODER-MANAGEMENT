@@ -109,6 +109,124 @@ async function runCommand(command: string, args: Record<string, unknown>): Promi
       await bridge.writeNtagPage(lastReaderName, page, data);
       return { page, written: true };
     }
+
+    // --- MIFARE DESFire (application/file partitioning) ------------------
+
+    case "GET_DESFIRE_VERSION": {
+      return bridge.getDesfireVersion(lastReaderName);
+    }
+    case "LIST_APPLICATIONS": {
+      return { applications: await bridge.listApplications(lastReaderName) };
+    }
+    case "SELECT_APPLICATION": {
+      const { aid } = args as { aid: string };
+      await bridge.selectApplication(lastReaderName, aid);
+      return { aid, selected: true };
+    }
+    case "AUTH_APPLICATION": {
+      const { keyNo, key } = args as { keyNo: number; key: string };
+      await bridge.authenticateDesfireAes(lastReaderName, keyNo, key);
+      return { keyNo, authenticated: true };
+    }
+    case "CREATE_APPLICATION": {
+      const { aid, keyCount, keySettings1 } = args as { aid: string; keyCount: number; keySettings1?: number };
+      await bridge.createApplication(lastReaderName, aid, keyCount, keySettings1);
+      return { aid, created: true };
+    }
+    case "DELETE_APPLICATION": {
+      const { aid } = args as { aid: string };
+      await bridge.deleteApplication(lastReaderName, aid);
+      return { aid, deleted: true };
+    }
+    case "GET_FILE_IDS": {
+      return { fileIds: await bridge.getFileIds(lastReaderName) };
+    }
+    case "GET_FILE_SETTINGS": {
+      const { fileId } = args as { fileId: number };
+      return bridge.getFileSettings(lastReaderName, fileId);
+    }
+    case "CREATE_FILE": {
+      const { fileId, fileType, size, minValue, maxValue, initialValue, recordSize, maxRecords, accessRights } = args as {
+        fileId: number;
+        fileType: "STANDARD_DATA" | "BACKUP_DATA" | "VALUE" | "LINEAR_RECORD" | "CYCLIC_RECORD";
+        size?: number;
+        minValue?: number;
+        maxValue?: number;
+        initialValue?: number;
+        recordSize?: number;
+        maxRecords?: number;
+        accessRights?: { read?: number; write?: number; readWrite?: number; change?: number };
+      };
+      switch (fileType) {
+        case "STANDARD_DATA":
+          await bridge.createStdDataFile(lastReaderName, fileId, size ?? 32, accessRights);
+          break;
+        case "BACKUP_DATA":
+          await bridge.createBackupDataFile(lastReaderName, fileId, size ?? 32, accessRights);
+          break;
+        case "VALUE":
+          await bridge.createValueFile(
+            lastReaderName,
+            fileId,
+            { minValue: minValue ?? 0, maxValue: maxValue ?? 1_000_000, initialValue: initialValue ?? 0 },
+            accessRights
+          );
+          break;
+        case "LINEAR_RECORD":
+          await bridge.createRecordFile(lastReaderName, fileId, false, recordSize ?? 16, maxRecords ?? 10, accessRights);
+          break;
+        case "CYCLIC_RECORD":
+          await bridge.createRecordFile(lastReaderName, fileId, true, recordSize ?? 16, maxRecords ?? 10, accessRights);
+          break;
+        default:
+          throw new Error(`Unsupported DESFire file type: ${fileType}`);
+      }
+      return { fileId, fileType, created: true };
+    }
+    case "DELETE_FILE": {
+      const { fileId } = args as { fileId: number };
+      await bridge.deleteFile(lastReaderName, fileId);
+      return { fileId, deleted: true };
+    }
+    case "READ_FILE": {
+      const { fileId, offset, length } = args as { fileId: number; offset?: number; length?: number };
+      const data = await bridge.readFileData(lastReaderName, fileId, offset ?? 0, length ?? 0);
+      return { fileId, data };
+    }
+    case "WRITE_FILE": {
+      const { fileId, data, offset } = args as { fileId: number; data: string; offset?: number };
+      await bridge.writeFileData(lastReaderName, fileId, data, offset ?? 0);
+      return { fileId, written: true };
+    }
+    case "GET_VALUE": {
+      const { fileId } = args as { fileId: number };
+      return { fileId, value: await bridge.getValue(lastReaderName, fileId) };
+    }
+    case "CREDIT_VALUE": {
+      const { fileId, amount } = args as { fileId: number; amount: number };
+      await bridge.creditValue(lastReaderName, fileId, amount);
+      return { fileId, credited: amount };
+    }
+    case "DEBIT_VALUE": {
+      const { fileId, amount } = args as { fileId: number; amount: number };
+      await bridge.debitValue(lastReaderName, fileId, amount);
+      return { fileId, debited: amount };
+    }
+    case "READ_RECORDS": {
+      const { fileId, offset, count } = args as { fileId: number; offset?: number; count?: number };
+      const data = await bridge.readRecords(lastReaderName, fileId, offset ?? 0, count ?? 0);
+      return { fileId, data };
+    }
+    case "WRITE_RECORD": {
+      const { fileId, data, offset } = args as { fileId: number; data: string; offset?: number };
+      await bridge.writeRecord(lastReaderName, fileId, data, offset ?? 0);
+      return { fileId, written: true };
+    }
+    case "FORMAT_PICC": {
+      await bridge.formatDesfirePicc(lastReaderName);
+      return { formatted: true };
+    }
+
     default:
       throw new Error(`Unsupported command: ${command}`);
   }

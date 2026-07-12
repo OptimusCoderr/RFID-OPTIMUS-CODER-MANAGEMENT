@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Badge } from "@/components/ui/Badge";
 import { useSocket } from "@/context/SocketContext";
 import { CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
-import type { Card, CardType, Encoder, EncoderStatus, PaginatedResponse } from "@/types";
+import type { Card, CardType, DesfireFileType, Encoder, EncoderStatus, PaginatedResponse } from "@/types";
 
 interface LogEntry {
   id: string;
@@ -23,7 +23,20 @@ const COMMANDS = [
   { value: "WRITE_BLOCK", label: "Write MIFARE Classic block" },
   { value: "READ_NTAG", label: "Read NTAG page(s)" },
   { value: "WRITE_NTAG", label: "Write NTAG page" },
+  { value: "LIST_APPLICATIONS", label: "DESFire: list applications" },
+  { value: "SELECT_APPLICATION", label: "DESFire: select application" },
+  { value: "AUTH_APPLICATION", label: "DESFire: authenticate (AES)" },
+  { value: "READ_FILE", label: "DESFire: read file" },
+  { value: "WRITE_FILE", label: "DESFire: write file" },
+  { value: "CREATE_APPLICATION", label: "DESFire: create application (admin)" },
+  { value: "CREATE_FILE", label: "DESFire: create file (admin)" },
+  { value: "DELETE_FILE", label: "DESFire: delete file (admin)" },
+  { value: "DELETE_APPLICATION", label: "DESFire: delete application (admin)" },
+  { value: "FORMAT_PICC", label: "DESFire: format card (admin, destructive)" },
 ];
+
+const DESTRUCTIVE_COMMANDS = new Set(["CREATE_APPLICATION", "DELETE_APPLICATION", "DELETE_FILE", "FORMAT_PICC"]);
+const DESFIRE_FILE_TYPES: DesfireFileType[] = ["STANDARD_DATA", "BACKUP_DATA", "VALUE", "LINEAR_RECORD", "CYCLIC_RECORD"];
 
 export default function LiveEncodePage() {
   const { socket, connected } = useSocket();
@@ -50,6 +63,20 @@ export default function LiveEncodePage() {
 
   const [regType, setRegType] = useState<CardType>("MIFARE_CLASSIC_1K");
   const [regLabel, setRegLabel] = useState("");
+
+  // DESFire application/file partitioning
+  const [aid, setAid] = useState("F00001");
+  const [desfireKeyNo, setDesfireKeyNo] = useState(0);
+  const [desfireKey, setDesfireKey] = useState("00000000000000000000000000000000");
+  const [fileId, setFileId] = useState(1);
+  const [fileOffset, setFileOffset] = useState(0);
+  const [fileLength, setFileLength] = useState(0);
+  const [fileWriteData, setFileWriteData] = useState("");
+  const [createAppKeyCount, setCreateAppKeyCount] = useState(1);
+  const [createFileType, setCreateFileType] = useState<DesfireFileType>("STANDARD_DATA");
+  const [createFileSize, setCreateFileSize] = useState(32);
+  const [createFileRecordSize, setCreateFileRecordSize] = useState(16);
+  const [createFileMaxRecords, setCreateFileMaxRecords] = useState(10);
 
   useEffect(() => {
     if (!encoders || encoders.length === 0) return;
@@ -145,11 +172,30 @@ export default function LiveEncodePage() {
     e.preventDefault();
     if (!socket || !encoderId) return;
 
+    if (DESTRUCTIVE_COMMANDS.has(command) && !confirm(`${command.replace(/_/g, " ")} cannot be undone. Continue?`)) {
+      return;
+    }
+
     let args: Record<string, unknown> = {};
     if (command === "READ_BLOCK") args = { block, key, keyType };
     if (command === "WRITE_BLOCK") args = { block, data: writeData, key, keyType };
     if (command === "READ_NTAG") args = { page, pageCount };
     if (command === "WRITE_NTAG") args = { page, data: writeData };
+    if (command === "SELECT_APPLICATION") args = { aid };
+    if (command === "AUTH_APPLICATION") args = { keyNo: desfireKeyNo, key: desfireKey };
+    if (command === "READ_FILE") args = { fileId, offset: fileOffset, length: fileLength };
+    if (command === "WRITE_FILE") args = { fileId, data: fileWriteData, offset: fileOffset };
+    if (command === "CREATE_APPLICATION") args = { aid, keyCount: createAppKeyCount };
+    if (command === "CREATE_FILE")
+      args = {
+        fileId,
+        fileType: createFileType,
+        size: createFileSize,
+        recordSize: createFileRecordSize,
+        maxRecords: createFileMaxRecords,
+      };
+    if (command === "DELETE_FILE") args = { fileId };
+    if (command === "DELETE_APPLICATION") args = { aid };
 
     pushLog(`Sending ${command}...`, "PENDING");
     socket.emit(
@@ -278,6 +324,156 @@ export default function LiveEncodePage() {
               <div>
                 <label className="label">Data (4 bytes hex)</label>
                 <input className="input font-mono" value={writeData} onChange={(e) => setWriteData(e.target.value)} />
+              </div>
+            )}
+
+            {(command === "SELECT_APPLICATION" || command === "CREATE_APPLICATION" || command === "DELETE_APPLICATION") && (
+              <div>
+                <label className="label">AID (3 bytes hex)</label>
+                <input className="input font-mono" value={aid} onChange={(e) => setAid(e.target.value)} />
+              </div>
+            )}
+
+            {command === "CREATE_APPLICATION" && (
+              <div>
+                <label className="label">Key count</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={14}
+                  className="input"
+                  value={createAppKeyCount}
+                  onChange={(e) => setCreateAppKeyCount(Number(e.target.value))}
+                />
+              </div>
+            )}
+
+            {command === "AUTH_APPLICATION" && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Key index</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={13}
+                    className="input"
+                    value={desfireKeyNo}
+                    onChange={(e) => setDesfireKeyNo(Number(e.target.value))}
+                  />
+                </div>
+                <div>
+                  <label className="label">AES key (32 hex chars)</label>
+                  <input className="input font-mono" value={desfireKey} onChange={(e) => setDesfireKey(e.target.value)} />
+                </div>
+              </div>
+            )}
+
+            {(command === "READ_FILE" || command === "WRITE_FILE" || command === "DELETE_FILE") && (
+              <div>
+                <label className="label">File ID</label>
+                <input type="number" min={0} max={31} className="input" value={fileId} onChange={(e) => setFileId(Number(e.target.value))} />
+              </div>
+            )}
+
+            {(command === "READ_FILE" || command === "WRITE_FILE") && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Offset (bytes)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    className="input"
+                    value={fileOffset}
+                    onChange={(e) => setFileOffset(Number(e.target.value))}
+                  />
+                </div>
+                {command === "READ_FILE" && (
+                  <div>
+                    <label className="label">Length (0 = all)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      className="input"
+                      value={fileLength}
+                      onChange={(e) => setFileLength(Number(e.target.value))}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {command === "WRITE_FILE" && (
+              <div>
+                <label className="label">Data (hex)</label>
+                <input className="input font-mono" value={fileWriteData} onChange={(e) => setFileWriteData(e.target.value)} />
+              </div>
+            )}
+
+            {command === "CREATE_FILE" && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label">File ID</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={31}
+                      className="input"
+                      value={fileId}
+                      onChange={(e) => setFileId(Number(e.target.value))}
+                    />
+                  </div>
+                  <div>
+                    <label className="label">File type</label>
+                    <select className="input" value={createFileType} onChange={(e) => setCreateFileType(e.target.value as DesfireFileType)}>
+                      {DESFIRE_FILE_TYPES.map((t) => (
+                        <option key={t} value={t}>
+                          {formatEnum(t)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                {(createFileType === "STANDARD_DATA" || createFileType === "BACKUP_DATA" || createFileType === "VALUE") && (
+                  <div>
+                    <label className="label">Size (bytes)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      className="input"
+                      value={createFileSize}
+                      onChange={(e) => setCreateFileSize(Number(e.target.value))}
+                    />
+                  </div>
+                )}
+                {(createFileType === "LINEAR_RECORD" || createFileType === "CYCLIC_RECORD") && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="label">Record size (bytes)</label>
+                      <input
+                        type="number"
+                        min={1}
+                        className="input"
+                        value={createFileRecordSize}
+                        onChange={(e) => setCreateFileRecordSize(Number(e.target.value))}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Max records</label>
+                      <input
+                        type="number"
+                        min={1}
+                        className="input"
+                        value={createFileMaxRecords}
+                        onChange={(e) => setCreateFileMaxRecords(Number(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                )}
+                <p className="text-xs text-slate-400">
+                  Created with Plain communication mode and access rights locked to the authenticating key — this
+                  platform doesn't support MAC/Encrypted file communication.
+                </p>
               </div>
             )}
 
