@@ -57,6 +57,62 @@ export async function login(email: string, password: string, meta: RequestMeta =
   return { user: safeUser, accessToken, refreshToken };
 }
 
+interface RegisterCompanyInput {
+  companyName: string;
+  slug: string;
+  contactEmail?: string;
+  fullName: string;
+  email: string;
+  password: string;
+}
+
+// Self-service sign-up: a new business (hotel, university, etc) registers
+// itself and its first user, who becomes COMPANY_ADMIN of a brand-new
+// company. No SUPER_ADMIN involvement needed. Company/user creation is
+// transactional so a failure never leaves an orphaned company with no admin.
+export async function registerCompany(input: RegisterCompanyInput, meta: RequestMeta = {}) {
+  const passwordHash = await bcrypt.hash(input.password, 12);
+
+  const user = await prisma.$transaction(async (tx) => {
+    const company = await tx.company.create({
+      data: {
+        name: input.companyName,
+        slug: input.slug,
+        contactEmail: input.contactEmail,
+      },
+    });
+    return tx.user.create({
+      data: {
+        email: input.email,
+        passwordHash,
+        fullName: input.fullName,
+        role: "COMPANY_ADMIN",
+        companyId: company.id,
+      },
+      include: { company: { select: { id: true, name: true, slug: true } } },
+    });
+  });
+
+  const accessToken = signAccessToken({ sub: user.id, role: user.role, companyId: user.companyId });
+  const jti = crypto.randomUUID();
+  const refreshToken = signRefreshToken({ sub: user.id, jti });
+
+  await prisma.refreshToken.create({
+    data: {
+      id: jti,
+      tokenHash: hashToken(refreshToken),
+      userId: user.id,
+      expiresAt: ttlToDate(env.jwt.refreshTtl),
+      userAgent: meta.userAgent,
+      ipAddress: meta.ipAddress,
+    },
+  });
+  await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+
+  const { passwordHash: _passwordHash, ...safeUser } = user;
+  return { user: safeUser, accessToken, refreshToken };
+}
+
 export async function refresh(token: string, meta: RequestMeta = {}) {
   let payload;
   try {

@@ -2,10 +2,20 @@ import { createContext, useContext, useEffect, useState, ReactNode, useCallback 
 import { api, setTokens, clearTokens, getAccessToken } from "@/lib/api";
 import type { User } from "@/types";
 
+interface RegisterCompanyInput {
+  companyName: string;
+  slug: string;
+  contactEmail?: string;
+  fullName: string;
+  email: string;
+  password: string;
+}
+
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  registerCompany: (input: RegisterCompanyInput) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -44,6 +54,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data.user);
   }, []);
 
+  const registerCompany = useCallback(async (input: RegisterCompanyInput) => {
+    const { data } = await api.post("/auth/register-company", input);
+    setTokens(data.accessToken, data.refreshToken);
+    setUser(data.user);
+  }, []);
+
   const logout = useCallback(async () => {
     const refreshToken = localStorage.getItem("rfid_refresh_token");
     try {
@@ -56,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ user, loading, login, registerCompany, logout, refreshUser }}>{children}</AuthContext.Provider>
   );
 }
 

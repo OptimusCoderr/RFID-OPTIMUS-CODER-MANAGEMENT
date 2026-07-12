@@ -127,9 +127,50 @@ export interface NtagPageLayout {
   purpose: string;
 }
 
+export type DesfireFileType = "STANDARD_DATA" | "BACKUP_DATA" | "VALUE" | "LINEAR_RECORD" | "CYCLIC_RECORD";
+
+export interface DesfireAccessRights {
+  // Each is a DESFire key index (0-13), 0xE (14) = free access (no key needed),
+  // 0xF (15) = never. Left undefined defaults to "same key that authenticated the app".
+  read?: number;
+  write?: number;
+  readWrite?: number;
+  change?: number;
+}
+
+export interface DesfireFileLayout {
+  fileId: number; // 0-31
+  type: DesfireFileType;
+  purpose: string;
+  // Standard/backup data files: size in bytes.
+  size?: number;
+  // Value files.
+  minValue?: number;
+  maxValue?: number;
+  initialValue?: number;
+  // Linear/cyclic record files.
+  recordSize?: number;
+  maxRecords?: number;
+  accessRights?: DesfireAccessRights;
+}
+
+export interface DesfireApplicationLayout {
+  aid: string; // 3 bytes of hex, e.g. "F00001"
+  name?: string;
+  keyCount: number; // 1-14
+  // Only AES authentication is implemented by this platform's encode flow.
+  keyType: "AES";
+  files: DesfireFileLayout[];
+}
+
 export interface CardTemplateLayout {
   sectors?: MifareSectorLayout[];
   pages?: NtagPageLayout[];
+  // MIFARE DESFire application/file partitioning. Reads/writes against these
+  // files use DESFire's Plain communication mode after AES authentication —
+  // MAC/Encrypted communication modes and legacy DES/3DES keys aren't
+  // supported by this platform's live-encode flow.
+  applications?: DesfireApplicationLayout[];
   ndef?: boolean;
   notes?: string;
 }

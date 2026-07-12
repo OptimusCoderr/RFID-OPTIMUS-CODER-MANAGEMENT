@@ -27,7 +27,33 @@ const COMMAND_TO_OPERATION: Record<string, OperationType> = {
   LOCK: "LOCK",
   KEY_CHANGE: "KEY_CHANGE",
   CLONE: "CLONE",
+  // MIFARE DESFire application/file partitioning.
+  GET_DESFIRE_VERSION: "READ",
+  LIST_APPLICATIONS: "READ",
+  SELECT_APPLICATION: "READ",
+  AUTH_APPLICATION: "READ",
+  CREATE_APPLICATION: "CREATE",
+  DELETE_APPLICATION: "DELETE",
+  GET_FILE_IDS: "READ",
+  GET_FILE_SETTINGS: "READ",
+  CREATE_FILE: "CREATE",
+  DELETE_FILE: "DELETE",
+  READ_FILE: "READ",
+  WRITE_FILE: "WRITE",
+  GET_VALUE: "READ",
+  CREDIT_VALUE: "WRITE",
+  DEBIT_VALUE: "WRITE",
+  READ_RECORDS: "READ",
+  WRITE_RECORD: "WRITE",
+  FORMAT_PICC: "FORMAT",
 };
+
+// Commands that destroy data (wipe a whole card, or delete an
+// application/file that other cards' partitions may depend on) — gated to
+// MANAGER-and-up, unlike the routine read/write commands which any
+// authenticated company member can send.
+const DESTRUCTIVE_COMMANDS = new Set(["CREATE_APPLICATION", "DELETE_APPLICATION", "DELETE_FILE", "FORMAT_PICC"]);
+const MANAGER_UP_ROLES = new Set(["SUPER_ADMIN", "COMPANY_ADMIN", "MANAGER"]);
 
 let io: Server | undefined;
 
@@ -78,6 +104,10 @@ export function initWebsocket(httpServer: HttpServer): Server {
             throw new Error("Forbidden");
           }
           if (encoder.status === "OFFLINE") throw new Error("Encoder is offline");
+
+          if (DESTRUCTIVE_COMMANDS.has(payload.command) && !MANAGER_UP_ROLES.has(data.role)) {
+            throw new Error("You do not have permission to run this command");
+          }
 
           if (payload.cardId) {
             const card = await prisma.card.findUnique({

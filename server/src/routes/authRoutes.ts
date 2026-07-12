@@ -3,7 +3,14 @@ import rateLimit from "express-rate-limit";
 import * as authController from "../controllers/authController";
 import { authenticate } from "../middleware/auth";
 import { validate } from "../middleware/validate";
-import { loginBody, refreshBody, forgotPasswordBody, resetPasswordBody, updateProfileBody } from "../validators/auth";
+import {
+  loginBody,
+  refreshBody,
+  forgotPasswordBody,
+  resetPasswordBody,
+  updateProfileBody,
+  registerCompanyBody,
+} from "../validators/auth";
 import { idParams } from "../validators/common";
 
 const router = Router();
@@ -22,7 +29,20 @@ const resetLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 router.post("/login", loginLimiter, validate({ body: loginBody }), authController.login);
+router.post(
+  "/register-company",
+  registerLimiter,
+  validate({ body: registerCompanyBody }),
+  authController.registerCompany
+);
 router.post("/refresh", validate({ body: refreshBody }), authController.refresh);
 router.post("/logout", validate({ body: refreshBody }), authController.logout);
 router.get("/me", authenticate, authController.me);
