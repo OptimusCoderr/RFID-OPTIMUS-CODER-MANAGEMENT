@@ -1,0 +1,17 @@
+{
+  "name": "rfid-management-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local hardware bridge for the RFID/NFC Management System. Run this on the machine with your USB/serial card reader plugged in — it does not need the rest of the platform's source code.",
+  "main": "dist/agent/agent.js",
+  "scripts": {
+    "start": "node dist/agent/agent.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "socket.io-client": "^4.7.5"
+  },
+  "optionalDependencies": {
+    "nfc-pcsc": "^0.8.1"
+  }
+}

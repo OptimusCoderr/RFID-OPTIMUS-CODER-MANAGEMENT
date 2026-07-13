@@ -1,12 +1,12 @@
 import { FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, KeyRound, Trash2, Copy, Wifi } from "lucide-react";
+import { Plus, KeyRound, Trash2, Copy, Wifi, Download } from "lucide-react";
 import toast from "react-hot-toast";
-import { api, apiErrorMessage } from "@/lib/api";
+import { api, apiErrorMessage, downloadPost } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Modal } from "@/components/ui/Modal";
-import { FullPageSpinner } from "@/components/ui/Spinner";
+import { FullPageSpinner, Spinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
 import { ENCODER_CONNECTION_OPTIONS, ENCODER_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
 import type { Encoder, EncoderConnectionType, EncoderType } from "@/types";
@@ -27,6 +27,8 @@ export default function EncodersPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<EncoderFormState>(EMPTY_FORM);
   const [revealedKey, setRevealedKey] = useState<{ name: string; agentKey: string } | null>(null);
+  const [agentServerUrl, setAgentServerUrl] = useState(window.location.origin);
+  const [downloadingAgent, setDownloadingAgent] = useState(false);
 
   const { data: encoders, isLoading } = useQuery({
     queryKey: ["encoders"],
@@ -49,6 +51,7 @@ export default function EncodersPage() {
       setModalOpen(false);
       setForm(EMPTY_FORM);
       setRevealedKey({ name: encoder.name, agentKey: encoder.agentKey! });
+      setAgentServerUrl(window.location.origin);
     },
     onError: (err) => toast.error(apiErrorMessage(err, "Could not register encoder")),
   });
@@ -58,6 +61,7 @@ export default function EncodersPage() {
     onSuccess: (encoder) => {
       queryClient.invalidateQueries({ queryKey: ["encoders"] });
       setRevealedKey({ name: encoder.name, agentKey: encoder.agentKey! });
+      setAgentServerUrl(window.location.origin);
     },
     onError: (err) => toast.error(apiErrorMessage(err)),
   });
@@ -74,6 +78,19 @@ export default function EncodersPage() {
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     createEncoder.mutate(form);
+  }
+
+  async function handleDownloadAgent() {
+    if (!revealedKey) return;
+    setDownloadingAgent(true);
+    try {
+      const filename = `rfid-agent-${revealedKey.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.zip`;
+      await downloadPost("/agent-package/download", { agentKey: revealedKey.agentKey, serverUrl: agentServerUrl }, filename);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not download the agent package"));
+    } finally {
+      setDownloadingAgent(false);
+    }
   }
 
   if (isLoading) return <FullPageSpinner />;
@@ -173,29 +190,61 @@ export default function EncodersPage() {
         </form>
       </Modal>
 
-      <Modal open={Boolean(revealedKey)} onClose={() => setRevealedKey(null)} title="Agent key generated">
+      <Modal open={Boolean(revealedKey)} onClose={() => setRevealedKey(null)} title="Set up the local agent">
         {revealedKey && (
-          <div className="space-y-3">
+          <div className="space-y-4">
             <p className="text-sm text-slate-500">
-              Copy this key now — it won't be shown again. Set it as <code className="font-mono">AGENT_KEY</code> when running the
-              local agent for <strong>{revealedKey.name}</strong>.
+              <strong>{revealedKey.name}</strong> is registered. Set up its local agent on the machine with the
+              physical reader plugged in — download a ready-to-run package below, no need for this platform's
+              source code or a development setup.
             </p>
-            <div className="flex items-center gap-2">
-              <input readOnly className="input font-mono text-xs" value={revealedKey.agentKey} />
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => {
-                  navigator.clipboard.writeText(revealedKey.agentKey);
-                  toast.success("Copied to clipboard");
-                }}
-              >
-                <Copy size={15} />
-              </button>
+
+            <div>
+              <label className="label">Agent server URL</label>
+              <input
+                className="input font-mono text-xs"
+                value={agentServerUrl}
+                onChange={(e) => setAgentServerUrl(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-slate-400">
+                The address the agent connects to. Defaults to this page's address — change it if the reader's
+                machine reaches this server through a different URL (e.g. a different public hostname).
+              </p>
             </div>
-            <pre className="overflow-x-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">
-              AGENT_SERVER_URL=https://your-server AGENT_KEY={revealedKey.agentKey} npm run agent
-            </pre>
+
+            <button type="button" className="btn-primary w-full" onClick={handleDownloadAgent} disabled={downloadingAgent}>
+              {downloadingAgent ? <Spinner className="h-4 w-4 text-white" /> : <Download size={15} />}
+              Download agent for {revealedKey.name}
+            </button>
+            <p className="text-xs text-slate-400">
+              Unzip it on that machine, run <code className="font-mono">npm install</code> once, then{" "}
+              <code className="font-mono">npm start</code> — the server URL and key above are already filled in.
+            </p>
+
+            <details className="text-xs text-slate-500">
+              <summary className="cursor-pointer font-medium">Advanced: run it from source instead</summary>
+              <div className="mt-2 space-y-2">
+                <p className="text-slate-400">
+                  Copy this key now — it won't be shown again outside this package download.
+                </p>
+                <div className="flex items-center gap-2">
+                  <input readOnly className="input font-mono text-xs" value={revealedKey.agentKey} />
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      navigator.clipboard.writeText(revealedKey.agentKey);
+                      toast.success("Copied to clipboard");
+                    }}
+                  >
+                    <Copy size={15} />
+                  </button>
+                </div>
+                <pre className="overflow-x-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">
+                  AGENT_SERVER_URL={agentServerUrl} AGENT_KEY={revealedKey.agentKey} npm run agent
+                </pre>
+              </div>
+            </details>
           </div>
         )}
       </Modal>

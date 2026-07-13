@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, KeyRound, Trash2, Copy } from "lucide-react";
+import { ArrowLeft, KeyRound, Trash2, Copy, Download } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import toast from "react-hot-toast";
-import { api, apiErrorMessage } from "@/lib/api";
-import { FullPageSpinner } from "@/components/ui/Spinner";
+import { api, apiErrorMessage, downloadPost } from "@/lib/api";
+import { FullPageSpinner, Spinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { formatEnum } from "@/lib/constants";
@@ -19,6 +19,8 @@ export default function EncoderDetailPage() {
   const { socket } = useSocket();
   const [liveStatus, setLiveStatus] = useState<EncoderStatus | null>(null);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const [agentServerUrl, setAgentServerUrl] = useState(window.location.origin);
+  const [downloadingAgent, setDownloadingAgent] = useState(false);
 
   const { data: encoder, isLoading } = useQuery({
     queryKey: ["encoder", id],
@@ -49,9 +51,23 @@ export default function EncoderDetailPage() {
       queryClient.invalidateQueries({ queryKey: ["encoder", id] });
       queryClient.invalidateQueries({ queryKey: ["encoders"] });
       setRevealedKey(updated.agentKey!);
+      setAgentServerUrl(window.location.origin);
     },
     onError: (err) => toast.error(apiErrorMessage(err)),
   });
+
+  async function handleDownloadAgent() {
+    if (!revealedKey || !encoder) return;
+    setDownloadingAgent(true);
+    try {
+      const filename = `rfid-agent-${encoder.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.zip`;
+      await downloadPost("/agent-package/download", { agentKey: revealedKey, serverUrl: agentServerUrl }, filename);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Could not download the agent package"));
+    } finally {
+      setDownloadingAgent(false);
+    }
+  }
 
   const deleteEncoder = useMutation({
     mutationFn: async () => api.delete(`/encoders/${id}`),
@@ -132,27 +148,52 @@ export default function EncoderDetailPage() {
 
       <Modal open={Boolean(revealedKey)} onClose={() => setRevealedKey(null)} title="New agent key generated">
         {revealedKey && (
-          <div className="space-y-3">
+          <div className="space-y-4">
             <p className="text-sm text-slate-500">
-              Copy this key now — it won't be shown again. Update <code className="font-mono">AGENT_KEY</code> wherever the local agent
-              for <strong>{encoder.name}</strong> is running, then restart it.
+              Download a fresh, ready-to-run agent package for <strong>{encoder.name}</strong> with this new key
+              already filled in — no need for this platform's source code.
             </p>
-            <div className="flex items-center gap-2">
-              <input readOnly className="input font-mono text-xs" value={revealedKey} />
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => {
-                  navigator.clipboard.writeText(revealedKey);
-                  toast.success("Copied to clipboard");
-                }}
-              >
-                <Copy size={15} />
-              </button>
+
+            <div>
+              <label className="label">Agent server URL</label>
+              <input
+                className="input font-mono text-xs"
+                value={agentServerUrl}
+                onChange={(e) => setAgentServerUrl(e.target.value)}
+              />
             </div>
-            <pre className="overflow-x-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">
-              AGENT_SERVER_URL=https://your-server AGENT_KEY={revealedKey} npm run agent
-            </pre>
+
+            <button type="button" className="btn-primary w-full" onClick={handleDownloadAgent} disabled={downloadingAgent}>
+              {downloadingAgent ? <Spinner className="h-4 w-4 text-white" /> : <Download size={15} />}
+              Download agent for {encoder.name}
+            </button>
+            <p className="text-xs text-slate-400">
+              Unzip on the machine with the reader, run <code className="font-mono">npm install</code> once, then{" "}
+              <code className="font-mono">npm start</code>.
+            </p>
+
+            <details className="text-xs text-slate-500">
+              <summary className="cursor-pointer font-medium">Advanced: run it from source instead</summary>
+              <div className="mt-2 space-y-2">
+                <p className="text-slate-400">Copy this key now — it won't be shown again outside this package download.</p>
+                <div className="flex items-center gap-2">
+                  <input readOnly className="input font-mono text-xs" value={revealedKey} />
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      navigator.clipboard.writeText(revealedKey);
+                      toast.success("Copied to clipboard");
+                    }}
+                  >
+                    <Copy size={15} />
+                  </button>
+                </div>
+                <pre className="overflow-x-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">
+                  AGENT_SERVER_URL={agentServerUrl} AGENT_KEY={revealedKey} npm run agent
+                </pre>
+              </div>
+            </details>
           </div>
         )}
       </Modal>

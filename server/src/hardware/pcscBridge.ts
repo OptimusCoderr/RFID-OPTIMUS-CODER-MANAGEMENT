@@ -88,7 +88,7 @@ export class PcscBridge {
       throw new Error(
         "nfc-pcsc is not installed/built on this machine. Install PC/SC Lite " +
           "(`libpcsclite-dev` on Debian/Ubuntu, built-in Smart Card service on Windows/macOS), " +
-          "then run `npm install` in server/ again."
+          "then run `npm install` again in this agent's folder."
       );
     }
 
