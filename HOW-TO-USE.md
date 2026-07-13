@@ -252,8 +252,12 @@ re-decide it every time you register one:
 
 There are three ways to get a card into the system:
 
-**A. Manual registration** (no encoder needed) — **Cards → Register card**:
-enter the UID by hand (e.g. printed on the card or read with any app),
+**A. Manual/scanned registration** — **Cards → Register card**: if an
+encoder is online, use the **Scan from encoder** picker at the top of the
+form — select it, click **Scan**, tap the card, and its UID fills in
+automatically (no typing, no risk of a transposed digit). If no encoder is
+online, or you're registering from a UID printed on the card or read with
+another app, just type it into the **UID (hex)** field directly. Either way,
 pick the card type and optional template/label/notes.
 
 **B. Live, at an encoder** — **Live Encode** page:

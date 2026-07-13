@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Plus, Search, Download, Upload, ShieldOff, ShieldCheck, X } from "lucide-react";
+import { Plus, Search, Download, Upload, ShieldOff, ShieldCheck, X, Radio } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage, downloadCsv } from "@/lib/api";
 import { parseCsv } from "@/lib/csv";
@@ -10,8 +10,9 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Modal } from "@/components/ui/Modal";
 import { FullPageSpinner, Spinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
+import { useSocket } from "@/context/SocketContext";
 import { CARD_STATUS_OPTIONS, CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
-import type { Card, CardTemplate, CardType, PaginatedResponse } from "@/types";
+import type { Card, CardTemplate, CardType, Encoder, PaginatedResponse } from "@/types";
 
 interface BulkImportResult {
   created: number;
@@ -31,6 +32,7 @@ const EMPTY_FORM: RegisterFormState = { uid: "", cardType: "MIFARE_CLASSIC_1K", 
 
 export default function CardsPage() {
   const queryClient = useQueryClient();
+  const { socket } = useSocket();
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<RegisterFormState>(EMPTY_FORM);
   const [page, setPage] = useState(1);
@@ -43,6 +45,39 @@ export default function CardsPage() {
   const [exporting, setExporting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [scanEncoderId, setScanEncoderId] = useState("");
+  const [scanning, setScanning] = useState(false);
+
+  const { data: encoders } = useQuery({
+    queryKey: ["encoders"],
+    queryFn: async () => (await api.get<Encoder[]>("/encoders")).data,
+    enabled: modalOpen,
+  });
+  const onlineEncoders = encoders?.filter((e) => e.status === "ONLINE") ?? [];
+
+  useEffect(() => {
+    if (!modalOpen) {
+      setScanning(false);
+      setScanEncoderId("");
+    }
+  }, [modalOpen]);
+
+  useEffect(() => {
+    if (!socket || !scanning || !scanEncoderId) return;
+
+    function onCardDetected(payload: { encoderId: string; uid: string }) {
+      if (payload.encoderId !== scanEncoderId) return;
+      setForm((f) => ({ ...f, uid: payload.uid.toUpperCase() }));
+      setScanning(false);
+      toast.success(`UID captured: ${payload.uid.toUpperCase()}`);
+    }
+
+    socket.on("card:detected", onCardDetected);
+    return () => {
+      socket.off("card:detected", onCardDetected);
+    };
+  }, [socket, scanning, scanEncoderId]);
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ["cards", { page, status, cardType, search }],
@@ -337,6 +372,41 @@ export default function CardsPage() {
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Register a card">
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="rounded-lg border border-slate-100 p-3 dark:border-slate-800">
+            <label className="label">Scan from encoder (optional)</label>
+            {onlineEncoders.length === 0 ? (
+              <p className="text-xs text-slate-400">
+                No encoders are online right now — enter the UID by hand below, or start a local agent and reopen this form.
+              </p>
+            ) : (
+              <div className="flex items-center gap-2">
+                <select
+                  className="input"
+                  value={scanEncoderId}
+                  onChange={(e) => {
+                    setScanEncoderId(e.target.value);
+                    setScanning(false);
+                  }}
+                >
+                  <option value="">Select an encoder…</option>
+                  {onlineEncoders.map((enc) => (
+                    <option key={enc.id} value={enc.id}>
+                      {enc.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn-secondary whitespace-nowrap"
+                  disabled={!scanEncoderId}
+                  onClick={() => setScanning((s) => !s)}
+                >
+                  <Radio size={14} className={scanning ? "animate-pulse text-emerald-500" : ""} />
+                  {scanning ? "Waiting for tap…" : "Scan"}
+                </button>
+              </div>
+            )}
+          </div>
           <div>
             <label className="label">UID (hex)</label>
             <input
