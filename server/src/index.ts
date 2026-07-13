@@ -10,6 +10,15 @@ async function main() {
     await ensureDevEnvironment();
   }
 
+  // The downloadable agent package (server/agent-dist/) is a build artifact;
+  // in production it's built into the Docker image ahead of time, but local
+  // dev entry points that bypass npm's pre-hooks (e.g. launching tsx
+  // directly from an IDE) need it generated on first boot.
+  if (process.env.NODE_ENV !== "production") {
+    const { ensureAgentDistBuilt } = await import("./devtools/agentDist");
+    ensureAgentDistBuilt();
+  }
+
   const { createApp } = await import("./app");
   const { initWebsocket } = await import("./websocket");
   const { env } = await import("./config/env");

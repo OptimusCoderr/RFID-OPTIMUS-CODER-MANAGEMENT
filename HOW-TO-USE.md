@@ -502,24 +502,47 @@ security-critical:
 ## 8. Setting up a physical encoder
 
 The cloud dashboard never talks to hardware directly — a small local agent
-process bridges a physical reader to your dashboard:
+process bridges a physical reader to your dashboard. A browser can't reach
+USB/serial hardware directly (that's a browser security restriction, not a
+limitation of this platform), so *something* has to run on the machine with
+the reader plugged in — but you don't need this platform's source code,
+a database, or a development setup to do it.
 
 1. From **Encoders**, click **Register encoder**, fill in name/type/
-   connection/location. On save, you're shown a one-time **agent key** —
-   copy it now, it's never shown again (you can rotate it later if lost).
-2. On the machine physically connected to the reader:
+   connection/location, then save.
+2. A **"Set up the local agent"** panel appears. Confirm the **Agent server
+   URL** (pre-filled with this page's address — only change it if the
+   reader's machine reaches your server through a different URL), then click
+   **Download agent for &lt;name&gt;**. You get a small `.zip` with the
+   server URL and a one-time **agent key** already filled in — no manual
+   copy/paste, and it's never shown again after you close this panel (you
+   can always download a fresh one later via **Rotate key**, which
+   invalidates the old one).
+3. Copy that `.zip` to the machine physically connected to the reader,
+   unzip it, and run:
    ```bash
-   cd server
-   npm install     # nfc-pcsc is optional; needs PC/SC Lite (Linux: libpcsclite-dev)
-                    # or the built-in Smart Card service (Windows/macOS)
-   AGENT_SERVER_URL=https://your-server AGENT_KEY=<the copied key> npm run agent
+   npm install     # pulls in just the ~3 packages the agent needs — not this
+                    # platform's full source/build tooling. nfc-pcsc (the PC/SC
+                    # driver) is optional; on Linux it needs PC/SC Lite
+                    # (`libpcsclite-dev`) — Windows/macOS use the built-in
+                    # Smart Card service automatically.
+   npm start
    ```
-3. Once connected, the encoder's status flips to **Online** across every
+   Leave it running for as long as this machine should be able to encode
+   cards (set it up as a startup item/service if it should always be on).
+4. Once connected, the encoder's status flips to **Online** across every
    connected dashboard in real time, and it becomes selectable on
    **Live Encode**.
-4. If the agent key leaks or you're decommissioning a reader, use
-   **Rotate key** (invalidates the old key immediately) or delete the
-   encoder entirely.
+5. If the agent key leaks, is lost, or you're setting up a replacement PC,
+   use **Rotate key** to invalidate the old one and download a fresh
+   package. Deleting the encoder retires it entirely.
+
+Prefer running from source instead of downloading a package (e.g. you're
+actively developing against this platform)? Every "Set up the local agent"
+panel has an **Advanced: run it from source instead** section with the
+manual `AGENT_SERVER_URL=... AGENT_KEY=... npm run agent` command run from
+`server/` in a full clone of this repo — functionally identical, just more
+setup.
 
 Supported reader families: ACR122U, ACR1252U, ACR1281U, PN532, OMNIKEY
 5022/5427, and generic PC/SC devices, plus a generic serial path for

@@ -81,12 +81,17 @@ Prisma), and **Socket.IO** for live encode/read operations.
 ```
 
 The cloud API never talks to hardware directly. A small **local agent**
-process (same codebase, `npm run agent`) runs on whatever machine has the
-USB/serial encoder plugged in, using `nfc-pcsc` for PC/SC-class readers. It
-authenticates to the API with a per-encoder `agentKey` and bridges card
-events / commands over its own websocket namespace. This means the
-dashboard can be hosted anywhere while encoding still happens locally,
-which is how virtually every commercial badge-encoding system is built.
+process runs on whatever machine has the USB/serial encoder plugged in,
+using `nfc-pcsc` for PC/SC-class readers. It authenticates to the API with a
+per-encoder `agentKey` and bridges card events/commands over its own
+websocket namespace. This means the dashboard can be hosted anywhere while
+encoding still happens locally, which is how virtually every commercial
+badge-encoding system is built. Setting that agent up doesn't require this
+platform's source code — the dashboard's **Encoders** page has a
+**Download agent** button that produces a small, ready-to-run `.zip`
+(server URL and key already filled in); see
+[HOW-TO-USE.md](HOW-TO-USE.md#8-setting-up-a-physical-encoder) for the full
+walkthrough.
 
 ## Repository layout
 
@@ -146,18 +151,25 @@ The Vite dev server proxies `/api` and `/socket.io` to `localhost:4000`.
 
 ### 3. Local hardware agent (optional — needs a physical reader)
 
-On the machine with the ACR122U/ACR1252U/PN532/etc plugged in:
+Register the encoder from the dashboard's **Encoders** page first, then use
+the **Download agent** button that appears — it produces a small `.zip`
+with the server URL and a one-time `agentKey` already filled in. On the
+machine with the ACR122U/ACR1252U/PN532/etc plugged in:
 
 ```bash
-cd server
-npm install               # nfc-pcsc is an optional dependency; it needs
-                           # PC/SC Lite (Linux: libpcsclite-dev) or the
-                           # built-in Smart Card service (Windows/macOS)
-AGENT_SERVER_URL=http://localhost:4000 AGENT_KEY=<from Encoders page> npm run agent
+unzip rfid-agent-*.zip && cd rfid-agent-*
+npm install                # pulls in just the ~3 packages the agent needs,
+                            # not this repo's full source/build tooling.
+                            # nfc-pcsc is an optional dependency; it needs
+                            # PC/SC Lite (Linux: libpcsclite-dev) or the
+                            # built-in Smart Card service (Windows/macOS)
+npm start
 ```
 
-Register the encoder from the dashboard's **Encoders** page first — it
-generates the `agentKey` shown exactly once.
+Prefer running it from source instead (e.g. you're developing against this
+platform)? The download panel's "Advanced" section has the equivalent
+`AGENT_SERVER_URL=... AGENT_KEY=... npm run agent` command to run from
+`server/` in this repo.
 
 ## Running it in VS Code
 

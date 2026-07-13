@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "agent-dist/dist",
+    "rootDir": "src",
+    "sourceMap": false
+  },
+  "include": ["src/agent/agent.ts", "src/hardware/pcscBridge.ts", "src/hardware/desfireCrypto.ts"]
+}

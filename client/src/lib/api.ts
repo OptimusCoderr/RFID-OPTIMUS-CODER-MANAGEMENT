@@ -61,9 +61,8 @@ api.interceptors.response.use(
   }
 );
 
-export async function downloadCsv(url: string, params: Record<string, unknown>, filename: string) {
-  const response = await api.get(url, { params, responseType: "blob" });
-  const blobUrl = window.URL.createObjectURL(new Blob([response.data]));
+function saveBlob(data: BlobPart, filename: string) {
+  const blobUrl = window.URL.createObjectURL(new Blob([data]));
   const link = document.createElement("a");
   link.href = blobUrl;
   link.download = filename;
@@ -71,6 +70,16 @@ export async function downloadCsv(url: string, params: Record<string, unknown>, 
   link.click();
   link.remove();
   window.URL.revokeObjectURL(blobUrl);
+}
+
+export async function downloadCsv(url: string, params: Record<string, unknown>, filename: string) {
+  const response = await api.get(url, { params, responseType: "blob" });
+  saveBlob(response.data, filename);
+}
+
+export async function downloadPost(url: string, body: Record<string, unknown>, filename: string) {
+  const response = await api.post(url, body, { responseType: "blob" });
+  saveBlob(response.data, filename);
 }
 
 export function apiErrorMessage(err: unknown, fallback = "Something went wrong"): string {
