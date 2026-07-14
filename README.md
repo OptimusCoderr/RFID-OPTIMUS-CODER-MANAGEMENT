@@ -269,3 +269,14 @@ test suite; the client job typechecks and builds the Vite app.
   relying on that. The placeholder values in `server/.env.example` are all
   zeros / obviously fake on purpose, precisely so they're never mistaken for
   something safe to deploy with.
+- **Rotating `JWT_ACCESS_SECRET`**: better-auth's JWT plugin generates a
+  signing keypair on first use and stores it (encrypted with this secret) in
+  the `jwks` table. If you change `JWT_ACCESS_SECRET` on an existing database
+  without also clearing that table, every `GET /api/auth/token` call starts
+  failing with `500 Failed to decrypt private key...` — old and new secrets
+  can't both decrypt the same stored key. To rotate the secret in a real
+  deployment: set the new value, then run
+  `psql "$DATABASE_URL" -c 'TRUNCATE "jwks";'` (or `DELETE FROM "jwks";`) so a
+  fresh keypair is generated under the new secret on the next request. This
+  invalidates in-flight JWTs (users just need to mint a new one from their
+  still-valid session) but does not affect sessions or passwords.
