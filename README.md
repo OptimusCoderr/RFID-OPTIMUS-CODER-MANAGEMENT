@@ -235,9 +235,10 @@ test suite; the client job typechecks and builds the Vite app.
 
 - **Frontend**: React 18, TypeScript, Vite, Tailwind CSS, React Router,
   TanStack Query, Socket.IO client
-- **Backend**: Node.js, Express, TypeScript, Prisma ORM, PostgreSQL,
-  Socket.IO, Zod validation, JWT auth (access + rotating refresh tokens),
-  bcrypt, Helmet, rate limiting
+- **Backend**: Node.js (ESM), Express, TypeScript, Prisma ORM, PostgreSQL,
+  Socket.IO, Zod validation, [better-auth](https://better-auth.com) (email/
+  password + short-lived bearer JWTs verified statelessly via JWKS), Helmet,
+  rate limiting
 - **Hardware bridge**: `nfc-pcsc` (PC/SC), standard PC/SC pseudo-APDUs for
   MIFARE Classic key authentication, page-level read/write for
   NTAG/Ultralight
@@ -251,9 +252,14 @@ test suite; the client job typechecks and builds the Vite app.
 - MIFARE sector keys are encrypted at rest with AES-256-GCM; only
   `MANAGER`+ roles can request decrypted keys via `GET /cards/:id/keys`,
   and only for an authorized encode operation.
-- Access/refresh tokens are short-lived and rotated on every refresh;
-  refresh tokens are stored server-side as salted hashes so they can be
-  revoked.
+- Auth is handled by [better-auth](https://better-auth.com): passwords are
+  hashed with scrypt, sessions are managed and revocable server-side (see
+  Profile → Active sessions), and every app API call / the dashboard
+  websocket authenticates with a separate short-lived (15 min) JWT minted
+  from that session and verified statelessly via JWKS (no DB round-trip per
+  request). This app's own `Role` + `companyId` fields live directly on the
+  user record (as better-auth "additionalFields"), so RBAC/company-scoping
+  middleware is unaffected by the auth backend.
 - Every tenant-scoped endpoint enforces company isolation in middleware
   (`assertCompanyAccess` / `scopedCompanyId`), independent of what a client
   sends.

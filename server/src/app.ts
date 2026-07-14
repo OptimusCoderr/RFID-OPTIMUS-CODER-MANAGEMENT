@@ -3,6 +3,8 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import rateLimit from "express-rate-limit";
+import { toNodeHandler } from "better-auth/node";
+import { auth } from "./auth/index.js";
 import { env } from "./config/env.js";
 import { notFoundHandler, errorHandler } from "./middleware/errorHandler.js";
 
@@ -24,7 +26,6 @@ export function createApp() {
 
   app.use(helmet());
   app.use(cors({ origin: env.clientOrigin, credentials: true }));
-  app.use(express.json({ limit: "1mb" }));
   app.use(morgan(env.nodeEnv === "development" ? "dev" : "combined"));
   app.use(
     rateLimit({
@@ -37,7 +38,18 @@ export function createApp() {
 
   app.get("/health", (_req, res) => res.json({ status: "ok", time: new Date().toISOString() }));
 
+  // Our own auth endpoints beyond better-auth's built-ins (self-service
+  // company registration, and a profile shape that joins the company
+  // record) — registered before the catch-all so Express matches these
+  // more specific routes first.
   app.use("/api/auth", authRoutes);
+  // better-auth owns everything else under /api/auth/* (sign-in/up/out,
+  // forgot/reset-password, session listing/revocation, JWT minting, JWKS).
+  // Must be mounted before express.json() — better-auth parses the raw
+  // request body itself.
+  app.all("/api/auth/*", toNodeHandler(auth));
+
+  app.use(express.json({ limit: "1mb" }));
   app.use("/api/companies", companyRoutes);
   app.use("/api/users", userRoutes);
   app.use("/api/holders", holderRoutes);

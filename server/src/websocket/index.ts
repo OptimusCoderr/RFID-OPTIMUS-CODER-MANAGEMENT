@@ -66,11 +66,11 @@ export function initWebsocket(httpServer: HttpServer): Server {
   const agentNsp = io.of("/agent");
 
   // --- Dashboard clients (the React app) -----------------------------------
-  dashboardNsp.use((socket, next) => {
+  dashboardNsp.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token as string | undefined;
       if (!token) throw new Error("missing token");
-      const payload = verifyAccessToken(token);
+      const payload = await verifyAccessToken(token);
       socket.data = { userId: payload.sub, role: payload.role, companyId: payload.companyId } satisfies DashboardSocketData;
       next();
     } catch {

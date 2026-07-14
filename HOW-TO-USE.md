@@ -622,13 +622,21 @@ Postgres instance, set real JWT/encryption secrets (never the defaults from
 
 ## 13. API quick reference
 
-All endpoints are under `/api`, JSON in/out, JWT bearer auth (`Authorization:
-Bearer <accessToken>`) except where noted. Every list/detail endpoint is
-implicitly scoped to the caller's own company unless they're `SUPER_ADMIN`.
+All endpoints are under `/api`, JSON in/out. Auth is powered by
+[better-auth](https://better-auth.com) and is two-step: sign in (or sign up)
+to get a session token, then mint a short-lived JWT from that session
+(`GET /auth/token`) — the JWT is what every non-auth endpoint below expects
+as `Authorization: Bearer <jwt>`. A handful of account-management endpoints
+(session listing/revocation, sign-out, change-password, update-user)
+authenticate with the session token directly instead — see
+[api-requests.http](api-requests.http) for a runnable example of both. Every
+list/detail endpoint is implicitly scoped to the caller's own company unless
+they're `SUPER_ADMIN`.
 
 | Area | Endpoints |
 |---|---|
-| Auth | `POST /auth/login`, `POST /auth/register-company`, `POST /auth/refresh`, `POST /auth/logout`, `GET/PATCH /auth/me`, `POST /auth/forgot-password`, `POST /auth/reset-password`, `GET /auth/sessions`, `DELETE /auth/sessions/:id` |
+| Auth (better-auth) | `POST /auth/sign-in/email`, `POST /auth/sign-up/email`, `POST /auth/sign-out`, `GET /auth/token` (mint a JWT), `GET /auth/jwks`, `POST /auth/request-password-reset`, `POST /auth/reset-password`, `GET /auth/list-sessions`, `POST /auth/revoke-session`, `POST /auth/change-password`, `POST /auth/update-user` |
+| Auth (this app) | `POST /auth/register-company` (atomic company + first admin user), `GET /auth/me` (profile, joins the company record) |
 | Companies | `GET/POST /companies`, `GET/PATCH/DELETE /companies/:id` |
 | Users | `GET/POST /users`, `GET/PATCH/DELETE /users/:id` |
 | Card holders | `GET/POST /holders`, `GET/PATCH/DELETE /holders/:id` |

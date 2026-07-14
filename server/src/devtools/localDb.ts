@@ -155,7 +155,6 @@ function ensureEnvFile(): string {
   content = content
     .replace(/^DATABASE_URL=.*$/m, "# DATABASE_URL left unset on purpose — a local database is created automatically.")
     .replace(/^JWT_ACCESS_SECRET=.*$/m, `JWT_ACCESS_SECRET="${randomHex(32)}"`)
-    .replace(/^JWT_REFRESH_SECRET=.*$/m, `JWT_REFRESH_SECRET="${randomHex(32)}"`)
     .replace(/^ENCRYPTION_KEY=.*$/m, `ENCRYPTION_KEY="${randomHex(32)}"`);
 
   fs.writeFileSync(envPath, content);

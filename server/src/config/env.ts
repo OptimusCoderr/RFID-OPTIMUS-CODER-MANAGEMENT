@@ -16,10 +16,9 @@ export const env = {
   clientOrigin: process.env.CLIENT_ORIGIN ?? "http://localhost:5173",
   databaseUrl: required("DATABASE_URL"),
   jwt: {
+    // Used as better-auth's own signing secret (sessions + JWKS private key
+    // encryption) — see src/auth/index.ts.
     accessSecret: required("JWT_ACCESS_SECRET"),
-    refreshSecret: required("JWT_REFRESH_SECRET"),
-    accessTtl: process.env.JWT_ACCESS_TTL ?? "15m",
-    refreshTtl: process.env.JWT_REFRESH_TTL ?? "30d",
   },
   encryptionKey: required("ENCRYPTION_KEY"),
   appUrl: process.env.APP_URL ?? "http://localhost:5173",

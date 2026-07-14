@@ -22,7 +22,7 @@ export default function ResetPasswordPage() {
     }
     setSubmitting(true);
     try {
-      await api.post("/auth/reset-password", { token, password });
+      await api.post("/auth/reset-password", { token, newPassword: password });
       toast.success("Password updated — sign in with your new password");
       navigate("/login", { replace: true });
     } catch (err) {

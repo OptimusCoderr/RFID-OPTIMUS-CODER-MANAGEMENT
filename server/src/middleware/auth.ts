@@ -18,14 +18,14 @@ declare global {
   }
 }
 
-export function authenticate(req: Request, _res: Response, next: NextFunction) {
+export async function authenticate(req: Request, _res: Response, next: NextFunction) {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) {
     return next(ApiError.unauthorized("Missing bearer token"));
   }
   const token = header.slice("Bearer ".length);
   try {
-    const payload = verifyAccessToken(token);
+    const payload = await verifyAccessToken(token);
     req.user = { id: payload.sub, role: payload.role, companyId: payload.companyId };
     next();
   } catch {
