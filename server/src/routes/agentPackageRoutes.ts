@@ -1,8 +1,8 @@
 import { Router } from "express";
-import * as agentPackageController from "../controllers/agentPackageController";
-import { authenticate } from "../middleware/auth";
-import { validate } from "../middleware/validate";
-import { downloadAgentPackageBody } from "../validators/agentPackage";
+import * as agentPackageController from "../controllers/agentPackageController.js";
+import { authenticate } from "../middleware/auth.js";
+import { validate } from "../middleware/validate.js";
+import { downloadAgentPackageBody } from "../validators/agentPackage.js";
 
 const router = Router();
 

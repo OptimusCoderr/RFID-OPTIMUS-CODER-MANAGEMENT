@@ -3,15 +3,19 @@
 ### and click "Send Request" above each block. Run the server first
 ### (see .vscode/tasks.json: "Server: dev", or F5 > "Server: Debug (tsx)"),
 ### then seed it once with `npm run prisma:seed` inside server/.
+###
+### Auth is two steps (see README.md's "Full stack" section): sign in to get
+### a session token, then mint a short-lived JWT from that session — the JWT
+### is what every other request below authenticates with.
 
 @baseUrl = http://localhost:4000/api
 
 ### Health check (no auth)
 GET http://localhost:4000/health
 
-### Log in as the seeded company admin — captures the token for later requests
+### Sign in as the seeded company admin — captures the session token
 # @name login
-POST {{baseUrl}}/auth/login
+POST {{baseUrl}}/auth/sign-in/email
 Content-Type: application/json
 
 {
@@ -19,22 +23,27 @@ Content-Type: application/json
   "password": "ChangeMe123!"
 }
 
+### Mint a JWT from that session — this is the token every request below uses
+# @name jwt
+GET {{baseUrl}}/auth/token
+Authorization: Bearer {{login.response.body.token}}
+
 ### Who am I
 GET {{baseUrl}}/auth/me
-Authorization: Bearer {{login.response.body.accessToken}}
+Authorization: Bearer {{jwt.response.body.token}}
 
 ### Dashboard stats
 GET {{baseUrl}}/dashboard/stats
-Authorization: Bearer {{login.response.body.accessToken}}
+Authorization: Bearer {{jwt.response.body.token}}
 
 ### List cards
 GET {{baseUrl}}/cards?pageSize=10
-Authorization: Bearer {{login.response.body.accessToken}}
+Authorization: Bearer {{jwt.response.body.token}}
 
 ### Register a new card
 # @name registerCard
 POST {{baseUrl}}/cards
-Authorization: Bearer {{login.response.body.accessToken}}
+Authorization: Bearer {{jwt.response.body.token}}
 Content-Type: application/json
 
 {
@@ -45,32 +54,34 @@ Content-Type: application/json
 
 ### Block the card just created
 POST {{baseUrl}}/cards/{{registerCard.response.body.id}}/block
-Authorization: Bearer {{login.response.body.accessToken}}
+Authorization: Bearer {{jwt.response.body.token}}
 
 ### List notifications (the block above should have generated one)
 GET {{baseUrl}}/notifications
-Authorization: Bearer {{login.response.body.accessToken}}
+Authorization: Bearer {{jwt.response.body.token}}
 
 ### List card holders
 GET {{baseUrl}}/holders
-Authorization: Bearer {{login.response.body.accessToken}}
+Authorization: Bearer {{jwt.response.body.token}}
 
 ### List encoders
 GET {{baseUrl}}/encoders
-Authorization: Bearer {{login.response.body.accessToken}}
+Authorization: Bearer {{jwt.response.body.token}}
 
 ### Audit log
 GET {{baseUrl}}/logs?pageSize=20
-Authorization: Bearer {{login.response.body.accessToken}}
+Authorization: Bearer {{jwt.response.body.token}}
 
-### Active sessions for the current user
-GET {{baseUrl}}/auth/sessions
-Authorization: Bearer {{login.response.body.accessToken}}
+### Active sessions for the current user — this one uses the *session*
+### token directly (list-sessions/revoke-session/sign-out/change-password/
+### update-user are better-auth's own endpoints and don't accept the JWT)
+GET {{baseUrl}}/auth/list-sessions
+Authorization: Bearer {{login.response.body.token}}
 
 ### --- Super admin flow ---
 
 # @name superLogin
-POST {{baseUrl}}/auth/login
+POST {{baseUrl}}/auth/sign-in/email
 Content-Type: application/json
 
 {
@@ -78,6 +89,10 @@ Content-Type: application/json
   "password": "ChangeMe123!"
 }
 
+# @name superJwt
+GET {{baseUrl}}/auth/token
+Authorization: Bearer {{superLogin.response.body.token}}
+
 ### List every company (super admin only)
 GET {{baseUrl}}/companies
-Authorization: Bearer {{superLogin.response.body.accessToken}}
+Authorization: Bearer {{superJwt.response.body.token}}

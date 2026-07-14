@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { toCsv } from "./csv";
+import { toCsv } from "./csv.js";
 
 interface Row {
   uid: string;

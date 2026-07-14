@@ -32,7 +32,6 @@ jobs:
     env:
       DATABASE_URL: postgresql://rfid_user:rfid_password@localhost:5432/rfid_management_test?schema=public
       JWT_ACCESS_SECRET: ci-access-secret-please-change-1234567890
-      JWT_REFRESH_SECRET: ci-refresh-secret-please-change-1234567890
       ENCRYPTION_KEY: "1111111111111111111111111111111111111111111111111111111111111111"
 
     steps:

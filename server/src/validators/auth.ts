@@ -1,10 +1,9 @@
 import { z } from "zod";
 
-export const loginBody = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
-});
-
+// Sign-in/sign-up/sign-out, forgot/reset-password, and session listing are
+// all handled directly by better-auth's own mounted routes (see src/app.ts) —
+// this file only validates the custom endpoints that layer app-specific
+// behavior (multi-tenant company registration) on top.
 export const registerCompanyBody = z.object({
   companyName: z.string().min(2).max(200),
   slug: z
@@ -16,23 +15,4 @@ export const registerCompanyBody = z.object({
   fullName: z.string().min(2).max(200),
   email: z.string().email(),
   password: z.string().min(8).max(200),
-});
-
-export const refreshBody = z.object({
-  refreshToken: z.string().min(1),
-});
-
-export const forgotPasswordBody = z.object({
-  email: z.string().email(),
-});
-
-export const resetPasswordBody = z.object({
-  token: z.string().min(1),
-  password: z.string().min(8).max(200),
-});
-
-export const updateProfileBody = z.object({
-  fullName: z.string().min(2).max(200).optional(),
-  currentPassword: z.string().min(1).optional(),
-  newPassword: z.string().min(8).max(200).optional(),
 });

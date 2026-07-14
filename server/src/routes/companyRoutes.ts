@@ -1,10 +1,10 @@
 import { Router } from "express";
-import * as companyController from "../controllers/companyController";
-import { authenticate } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
-import { validate } from "../middleware/validate";
-import { createCompanyBody, updateCompanyBody } from "../validators/company";
-import { idParams } from "../validators/common";
+import * as companyController from "../controllers/companyController.js";
+import { authenticate } from "../middleware/auth.js";
+import { requireRole } from "../middleware/rbac.js";
+import { validate } from "../middleware/validate.js";
+import { createCompanyBody, updateCompanyBody } from "../validators/company.js";
+import { idParams } from "../validators/common.js";
 
 const router = Router();
 

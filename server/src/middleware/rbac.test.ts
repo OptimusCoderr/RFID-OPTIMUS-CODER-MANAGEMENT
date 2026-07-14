@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { Request } from "express";
-import { scopedCompanyId, assertCompanyAccess } from "./rbac";
-import { ApiError } from "../utils/ApiError";
-import type { AuthUser } from "./auth";
+import { scopedCompanyId, assertCompanyAccess } from "./rbac.js";
+import { ApiError } from "../utils/ApiError.js";
+import type { AuthUser } from "./auth.js";
 
 function fakeRequest(user: AuthUser | undefined, query: Record<string, unknown> = {}, body: Record<string, unknown> = {}): Request {
   return { user, query, body } as unknown as Request;

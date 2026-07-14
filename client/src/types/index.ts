@@ -274,6 +274,7 @@ export interface AppNotification {
 
 export interface Session {
   id: string;
+  token: string;
   userAgent?: string | null;
   ipAddress?: string | null;
   createdAt: string;

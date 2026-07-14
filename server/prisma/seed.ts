@@ -1,23 +1,39 @@
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
-import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { auth } from "../src/auth/index.js";
 
 const prisma = new PrismaClient();
+
+// signUpEmail (unlike prisma.user.upsert) throws on a duplicate email, so
+// this re-runs safely across repeated `npm run prisma:seed` invocations by
+// checking first — the seeded accounts' passwords are only ever set on
+// first creation, matching the old upsert's update:{} (no-op on repeat).
+async function ensureUser(input: { email: string; password: string; fullName: string; role: string; companyId?: string }) {
+  const existing = await prisma.user.findUnique({ where: { email: input.email } });
+  if (existing) return existing;
+
+  await auth.api.signUpEmail({
+    body: {
+      name: input.fullName,
+      email: input.email,
+      password: input.password,
+      role: input.role,
+      companyId: input.companyId,
+    },
+  });
+  return prisma.user.findUniqueOrThrow({ where: { email: input.email } });
+}
 
 async function main() {
   const superAdminEmail = process.env.SEED_SUPER_ADMIN_EMAIL ?? "admin@rfidmanager.local";
   const superAdminPassword = process.env.SEED_SUPER_ADMIN_PASSWORD ?? "ChangeMe123!";
 
-  const superAdmin = await prisma.user.upsert({
-    where: { email: superAdminEmail },
-    update: {},
-    create: {
-      email: superAdminEmail,
-      passwordHash: await bcrypt.hash(superAdminPassword, 12),
-      fullName: "Platform Super Admin",
-      role: "SUPER_ADMIN",
-    },
+  const superAdmin = await ensureUser({
+    email: superAdminEmail,
+    password: superAdminPassword,
+    fullName: "Platform Super Admin",
+    role: "SUPER_ADMIN",
   });
   console.log(`Super admin ready: ${superAdmin.email}`);
 
@@ -33,29 +49,21 @@ async function main() {
   });
 
   const companyAdminEmail = "admin@acme-logistics.example";
-  const companyAdmin = await prisma.user.upsert({
-    where: { email: companyAdminEmail },
-    update: {},
-    create: {
-      email: companyAdminEmail,
-      passwordHash: await bcrypt.hash("ChangeMe123!", 12),
-      fullName: "Acme Company Admin",
-      role: "COMPANY_ADMIN",
-      companyId: company.id,
-    },
+  const companyAdmin = await ensureUser({
+    email: companyAdminEmail,
+    password: "ChangeMe123!",
+    fullName: "Acme Company Admin",
+    role: "COMPANY_ADMIN",
+    companyId: company.id,
   });
   console.log(`Company admin ready: ${companyAdmin.email}`);
 
-  const operator = await prisma.user.upsert({
-    where: { email: "operator@acme-logistics.example" },
-    update: {},
-    create: {
-      email: "operator@acme-logistics.example",
-      passwordHash: await bcrypt.hash("ChangeMe123!", 12),
-      fullName: "Front Desk Operator",
-      role: "OPERATOR",
-      companyId: company.id,
-    },
+  const operator = await ensureUser({
+    email: "operator@acme-logistics.example",
+    password: "ChangeMe123!",
+    fullName: "Front Desk Operator",
+    role: "OPERATOR",
+    companyId: company.id,
   });
   console.log(`Operator ready: ${operator.email}`);
 

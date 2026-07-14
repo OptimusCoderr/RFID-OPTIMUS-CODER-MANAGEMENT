@@ -1,9 +1,9 @@
 import { Request, Response } from "express";
 import { Prisma } from "@prisma/client";
-import { prisma } from "../lib/prisma";
-import { asyncHandler } from "../utils/asyncHandler";
-import { scopedCompanyId } from "../middleware/rbac";
-import { toCsv } from "../utils/csv";
+import { prisma } from "../lib/prisma.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { scopedCompanyId } from "../middleware/rbac.js";
+import { toCsv } from "../utils/csv.js";
 
 function buildLogWhere(req: Request): Prisma.OperationLogWhereInput {
   const companyId = scopedCompanyId(req);

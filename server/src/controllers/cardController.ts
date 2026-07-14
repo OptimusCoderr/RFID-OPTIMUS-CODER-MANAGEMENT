@@ -1,13 +1,13 @@
 import { Request, Response } from "express";
 import { Prisma } from "@prisma/client";
-import { prisma } from "../lib/prisma";
-import { asyncHandler } from "../utils/asyncHandler";
-import { ApiError } from "../utils/ApiError";
-import { assertCompanyAccess, scopedCompanyId } from "../middleware/rbac";
-import { encryptSecret, decryptSecret } from "../utils/crypto";
-import { logOperation } from "../services/operationLogService";
-import { notifyCompanyAdmins } from "../services/notificationService";
-import { toCsv } from "../utils/csv";
+import { prisma } from "../lib/prisma.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { ApiError } from "../utils/ApiError.js";
+import { assertCompanyAccess, scopedCompanyId } from "../middleware/rbac.js";
+import { encryptSecret, decryptSecret } from "../utils/crypto.js";
+import { logOperation } from "../services/operationLogService.js";
+import { notifyCompanyAdmins } from "../services/notificationService.js";
+import { toCsv } from "../utils/csv.js";
 
 const CARD_INCLUDE = {
   holder: { select: { id: true, fullName: true, department: true, employeeId: true } },

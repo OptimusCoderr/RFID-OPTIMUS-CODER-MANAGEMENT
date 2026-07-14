@@ -1,6 +1,6 @@
 import { NotificationType } from "@prisma/client";
-import { prisma } from "../lib/prisma";
-import { getIO } from "../websocket";
+import { prisma } from "../lib/prisma.js";
+import { getIO } from "../websocket/index.js";
 
 interface NotifyInput {
   type: NotificationType;

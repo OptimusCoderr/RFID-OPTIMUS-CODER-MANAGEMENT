@@ -1,10 +1,19 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import bcrypt from "bcryptjs";
+import { createServer, Server } from "http";
 import request from "supertest";
-import { createApp } from "../src/app";
-import { prisma } from "../src/lib/prisma";
+import { createApp } from "../src/app.js";
+import { prisma } from "../src/lib/prisma.js";
+import { auth } from "../src/auth/index.js";
+import { env } from "../src/config/env.js";
 
 const app = createApp();
+
+// verifyAccessToken (src/utils/jwt.ts) fetches this app's own /api/auth/jwks
+// endpoint over real HTTP to verify JWTs statelessly — supertest's implicit
+// per-request ephemeral server doesn't satisfy that self-referential fetch,
+// so the suite also binds a real listener on the configured port, exactly
+// like `npm run dev`/production would.
+let server: Server;
 
 const SUPER_ADMIN_EMAIL = "super@test.local";
 const SUPER_ADMIN_PASSWORD = "SuperSecret123!";
@@ -12,26 +21,37 @@ const SUPER_ADMIN_PASSWORD = "SuperSecret123!";
 async function resetDb() {
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
-      operation_logs, notifications, card_access_zones, password_reset_tokens,
-      refresh_tokens, cards, card_templates, access_zones, card_holders,
+      operation_logs, notifications, card_access_zones, verifications,
+      sessions, accounts, jwks, cards, card_templates, access_zones, card_holders,
       encoders, users, companies
     RESTART IDENTITY CASCADE
   `);
 }
 
-async function loginAs(email: string, password: string) {
-  const res = await request(app).post("/api/auth/login").send({ email, password });
-  expect(res.status).toBe(200);
-  return res.body.accessToken as string;
+// Signs in and mints a short-lived JWT from the resulting session — the
+// bearer credential every protected app route and the dashboard websocket
+// actually verify (see src/utils/jwt.ts).
+async function loginAs(email: string, password: string): Promise<string> {
+  const signIn = await request(app).post("/api/auth/sign-in/email").send({ email, password });
+  expect(signIn.status).toBe(200);
+  const sessionToken = signIn.body.token as string;
+
+  const tokenRes = await request(app).get("/api/auth/token").set("Authorization", `Bearer ${sessionToken}`);
+  expect(tokenRes.status).toBe(200);
+  return tokenRes.body.token as string;
 }
 
 beforeAll(async () => {
   await resetDb();
-  await prisma.user.create({
-    data: {
+  await new Promise<void>((resolve) => {
+    server = createServer(app);
+    server.listen(env.port, resolve);
+  });
+  await auth.api.signUpEmail({
+    body: {
+      name: "Test Super Admin",
       email: SUPER_ADMIN_EMAIL,
-      passwordHash: await bcrypt.hash(SUPER_ADMIN_PASSWORD, 4),
-      fullName: "Test Super Admin",
+      password: SUPER_ADMIN_PASSWORD,
       role: "SUPER_ADMIN",
     },
   });
@@ -40,6 +60,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await resetDb();
   await prisma.$disconnect();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
 describe("auth", () => {
@@ -49,7 +70,7 @@ describe("auth", () => {
   });
 
   it("rejects an invalid login", async () => {
-    const res = await request(app).post("/api/auth/login").send({ email: SUPER_ADMIN_EMAIL, password: "wrong" });
+    const res = await request(app).post("/api/auth/sign-in/email").send({ email: SUPER_ADMIN_EMAIL, password: "wrong" });
     expect(res.status).toBe(401);
   });
 });

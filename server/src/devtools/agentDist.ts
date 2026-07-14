@@ -10,8 +10,10 @@
 // other way the server might get started that isn't through npm scripts).
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import { execSync } from "child_process";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_ROOT = path.join(__dirname, "..", "..");
 const AGENT_DIST_MARKER = path.join(SERVER_ROOT, "agent-dist", "dist", "agent", "agent.js");
 

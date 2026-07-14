@@ -1,10 +1,10 @@
 import { Router } from "express";
-import * as holderController from "../controllers/holderController";
-import { authenticate } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
-import { validate } from "../middleware/validate";
-import { createHolderBody, updateHolderBody } from "../validators/holder";
-import { idParams } from "../validators/common";
+import * as holderController from "../controllers/holderController.js";
+import { authenticate } from "../middleware/auth.js";
+import { requireRole } from "../middleware/rbac.js";
+import { validate } from "../middleware/validate.js";
+import { createHolderBody, updateHolderBody } from "../validators/holder.js";
+import { idParams } from "../validators/common.js";
 
 const router = Router();
 

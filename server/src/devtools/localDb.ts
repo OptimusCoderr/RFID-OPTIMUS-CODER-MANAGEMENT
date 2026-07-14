@@ -12,8 +12,10 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { execSync } from "child_process";
+import { fileURLToPath } from "url";
 import { Client } from "pg";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_ROOT = path.join(__dirname, "..", "..");
 const DATA_DIR = path.join(SERVER_ROOT, ".local-db");
 const HOST = "127.0.0.1";
@@ -153,7 +155,6 @@ function ensureEnvFile(): string {
   content = content
     .replace(/^DATABASE_URL=.*$/m, "# DATABASE_URL left unset on purpose — a local database is created automatically.")
     .replace(/^JWT_ACCESS_SECRET=.*$/m, `JWT_ACCESS_SECRET="${randomHex(32)}"`)
-    .replace(/^JWT_REFRESH_SECRET=.*$/m, `JWT_REFRESH_SECRET="${randomHex(32)}"`)
     .replace(/^ENCRYPTION_KEY=.*$/m, `ENCRYPTION_KEY="${randomHex(32)}"`);
 
   fs.writeFileSync(envPath, content);

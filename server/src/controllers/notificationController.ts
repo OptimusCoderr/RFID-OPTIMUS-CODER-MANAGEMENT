@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
-import { prisma } from "../lib/prisma";
-import { asyncHandler } from "../utils/asyncHandler";
-import { ApiError } from "../utils/ApiError";
+import { prisma } from "../lib/prisma.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { ApiError } from "../utils/ApiError.js";
 
 export const listNotifications = asyncHandler(async (req: Request, res: Response) => {
   const unreadOnly = req.query.unreadOnly === "true";

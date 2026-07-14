@@ -1,10 +1,10 @@
 import { Router } from "express";
-import * as templateController from "../controllers/templateController";
-import { authenticate } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
-import { validate } from "../middleware/validate";
-import { createTemplateBody, updateTemplateBody } from "../validators/template";
-import { idParams } from "../validators/common";
+import * as templateController from "../controllers/templateController.js";
+import { authenticate } from "../middleware/auth.js";
+import { requireRole } from "../middleware/rbac.js";
+import { validate } from "../middleware/validate.js";
+import { createTemplateBody, updateTemplateBody } from "../validators/template.js";
+import { idParams } from "../validators/common.js";
 
 const router = Router();
 

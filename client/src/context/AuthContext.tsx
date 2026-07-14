@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
-import { api, setTokens, clearTokens, getAccessToken } from "@/lib/api";
+import { api, getAccessToken, getSessionToken, setSessionToken, setAccessToken, clearTokens } from "@/lib/api";
 import type { User } from "@/types";
 
 interface RegisterCompanyInput {
@@ -48,22 +48,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const { data } = await api.post("/auth/login", { email, password });
-    setTokens(data.accessToken, data.refreshToken);
-    setUser(data.user);
-  }, []);
+  // Sign-in/sign-up only return better-auth's own session token — a JWT
+  // has to be minted from it separately before this app's own API routes
+  // (or the dashboard websocket) will accept it.
+  const establishSession = useCallback(
+    async (sessionToken: string) => {
+      setSessionToken(sessionToken);
+      const { data } = await api.get("/auth/token", { headers: { Authorization: `Bearer ${sessionToken}` } });
+      setAccessToken(data.token);
+      await refreshUser();
+    },
+    [refreshUser]
+  );
 
-  const registerCompany = useCallback(async (input: RegisterCompanyInput) => {
-    const { data } = await api.post("/auth/register-company", input);
-    setTokens(data.accessToken, data.refreshToken);
-    setUser(data.user);
-  }, []);
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const { data } = await api.post("/auth/sign-in/email", { email, password });
+      await establishSession(data.token);
+    },
+    [establishSession]
+  );
+
+  const registerCompany = useCallback(
+    async (input: RegisterCompanyInput) => {
+      const { data } = await api.post("/auth/register-company", input);
+      await establishSession(data.token);
+    },
+    [establishSession]
+  );
 
   const logout = useCallback(async () => {
-    const refreshToken = localStorage.getItem("rfid_refresh_token");
+    const sessionToken = getSessionToken();
     try {
-      if (refreshToken) await api.post("/auth/logout", { refreshToken });
+      if (sessionToken) await api.post("/auth/sign-out", {}, { headers: { Authorization: `Bearer ${sessionToken}` } });
     } catch {
       // ignore — we're logging out regardless
     }

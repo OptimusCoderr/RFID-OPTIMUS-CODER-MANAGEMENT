@@ -142,11 +142,16 @@ model Company {
   @@map("companies")
 }
 
+// Auth is handled by better-auth (see src/auth/index.ts). This model still
+// carries the app's own custom fields — role and companyId — used by the
+// RBAC middleware exactly as before; better-auth is configured to read/write
+// them via additionalFields rather than replacing the multi-tenant model.
 model User {
   id            String    @id @default(uuid())
   email         String    @unique
-  passwordHash  String
+  emailVerified Boolean   @default(false)
   fullName      String
+  image         String?
   role          Role
   isActive      Boolean   @default(true)
   lastLoginAt   DateTime?
@@ -157,27 +162,79 @@ model User {
   company       Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   operationLogs OperationLog[]
-  refreshTokens RefreshToken[]
   notifications Notification[]
-  passwordResetTokens PasswordResetToken[]
+  sessions      Session[]
+  accounts      Account[]
 
   @@index([companyId])
   @@map("users")
 }
 
-model RefreshToken {
-  id          String   @id @default(uuid())
-  tokenHash   String   @unique
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt   DateTime
-  revokedAt   DateTime?
-  userAgent   String?
-  ipAddress   String?
-  createdAt   DateTime @default(now())
+// --- better-auth core tables -----------------------------------------------
+
+model Session {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
-  @@map("refresh_tokens")
+  @@map("sessions")
+}
+
+// Credential (email/password) accounts store their password hash here, one
+// row per sign-in method a user has — not on the User record itself.
+model Account {
+  id                    String    @id @default(uuid())
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId             String
+  providerId            String
+  password              String?
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("accounts")
+}
+
+// Generic token store used by better-auth's email/password plugin for
+// password-reset tokens (replaces the old PasswordResetToken model).
+model Verification {
+  id         String   @id @default(uuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verifications")
+}
+
+// Signing key pairs for better-auth's jwt plugin (the SPA's bearer JWTs are
+// verified against these via JWKS — see src/utils/jwt.ts).
+model Jwks {
+  id         String    @id @default(uuid())
+  publicKey  String
+  privateKey String
+  alg        String?
+  crv        String?
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime?
+
+  @@map("jwks")
 }
 
 // ---------------------------------------------------------------------------
@@ -409,21 +466,4 @@ model Notification {
   @@index([userId, readAt])
   @@index([companyId])
   @@map("notifications")
-}
-
-// ---------------------------------------------------------------------------
-// Password reset
-// ---------------------------------------------------------------------------
-
-model PasswordResetToken {
-  id        String    @id @default(uuid())
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash String    @unique
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime  @default(now())
-
-  @@index([userId])
-  @@map("password_reset_tokens")
 }

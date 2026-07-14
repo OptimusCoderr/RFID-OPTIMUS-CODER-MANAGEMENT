@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Monitor, LogOut } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import toast from "react-hot-toast";
-import { api, apiErrorMessage } from "@/lib/api";
+import { api, apiErrorMessage, getSessionToken } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useAuth } from "@/context/AuthContext";
 import { formatEnum } from "@/lib/constants";
@@ -18,13 +18,20 @@ export default function ProfilePage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
+  // These better-auth endpoints authenticate with the session token, not
+  // this app's usual short-lived JWT — the interceptor in lib/api.ts leaves
+  // an explicitly-set Authorization header alone for exactly this reason.
+  function sessionAuthHeader() {
+    return { Authorization: `Bearer ${getSessionToken()}` };
+  }
+
   const { data: sessions, isLoading: sessionsLoading } = useQuery({
     queryKey: ["sessions"],
-    queryFn: async () => (await api.get<Session[]>("/auth/sessions")).data,
+    queryFn: async () => (await api.get<Session[]>("/auth/list-sessions", { headers: sessionAuthHeader() })).data,
   });
 
   const revokeSession = useMutation({
-    mutationFn: async (id: string) => api.delete(`/auth/sessions/${id}`),
+    mutationFn: async (token: string) => api.post("/auth/revoke-session", { token }, { headers: sessionAuthHeader() }),
     onSuccess: () => {
       toast.success("Session signed out");
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
@@ -32,22 +39,30 @@ export default function ProfilePage() {
     onError: (err) => toast.error(apiErrorMessage(err, "Could not revoke session")),
   });
 
-  const updateProfile = useMutation({
-    mutationFn: async (payload: { fullName?: string; currentPassword?: string; newPassword?: string }) =>
-      (await api.patch("/auth/me", payload)).data,
+  const updateName = useMutation({
+    mutationFn: async (name: string) => (await api.post("/auth/update-user", { name }, { headers: sessionAuthHeader() })).data,
     onSuccess: async () => {
       toast.success("Profile updated");
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
       await refreshUser();
     },
     onError: (err) => toast.error(apiErrorMessage(err, "Could not update profile")),
   });
 
+  const changePassword = useMutation({
+    mutationFn: async (payload: { currentPassword: string; newPassword: string }) =>
+      (await api.post("/auth/change-password", payload, { headers: sessionAuthHeader() })).data,
+    onSuccess: () => {
+      toast.success("Password updated");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not update password")),
+  });
+
   function handleNameSubmit(e: FormEvent) {
     e.preventDefault();
-    updateProfile.mutate({ fullName });
+    updateName.mutate(fullName);
   }
 
   function handlePasswordSubmit(e: FormEvent) {
@@ -56,7 +71,7 @@ export default function ProfilePage() {
       toast.error("New passwords don't match");
       return;
     }
-    updateProfile.mutate({ currentPassword, newPassword });
+    changePassword.mutate({ currentPassword, newPassword });
   }
 
   if (!user) return null;
@@ -90,7 +105,7 @@ export default function ProfilePage() {
               <label className="label">Full name</label>
               <input className="input" required value={fullName} onChange={(e) => setFullName(e.target.value)} />
             </div>
-            <button type="submit" className="btn-primary" disabled={updateProfile.isPending}>
+            <button type="submit" className="btn-primary" disabled={updateName.isPending}>
               Save name
             </button>
           </form>
@@ -131,7 +146,7 @@ export default function ProfilePage() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
               />
             </div>
-            <button type="submit" className="btn-primary" disabled={updateProfile.isPending}>
+            <button type="submit" className="btn-primary" disabled={changePassword.isPending}>
               Update password
             </button>
           </form>
@@ -161,7 +176,7 @@ export default function ProfilePage() {
               </div>
               <button
                 className="btn-secondary"
-                onClick={() => revokeSession.mutate(session.id)}
+                onClick={() => revokeSession.mutate(session.token)}
                 disabled={revokeSession.isPending}
               >
                 <LogOut size={14} /> Sign out

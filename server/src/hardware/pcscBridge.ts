@@ -11,6 +11,7 @@
 // and surface a clear error if it's missing.
 
 import crypto from "crypto";
+import { createRequire } from "module";
 import {
   buildWrappedApdu,
   buildContinueApdu,
@@ -26,10 +27,14 @@ import {
   packKeySettings2,
   unpackAccessRights,
   type DesfireAccessRights,
-} from "./desfireCrypto";
+} from "./desfireCrypto.js";
 
 export const KEY_TYPE_A = 0x60;
 export const KEY_TYPE_B = 0x61;
+
+// nfc-pcsc is a CommonJS package; createRequire lets an ES module load it
+// synchronously exactly like the pre-ESM code did (no functional change).
+const require = createRequire(import.meta.url);
 
 const DESFIRE_CMD = {
   GET_VERSION: 0x60,

@@ -577,24 +577,34 @@ Nginx-served build of the client:
 ```bash
 ENCRYPTION_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))") \
 JWT_ACCESS_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))") \
-JWT_REFRESH_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))") \
   docker compose up -d --build
 ```
 
 The `server` container runs `prisma migrate deploy` automatically on boot
 before starting the API. For a real production deployment beyond this
 compose file, put the API behind TLS, point `DATABASE_URL` at a managed
-Postgres instance, set real JWT/encryption secrets (never the defaults from
-`.env.example`), and configure SMTP so password reset emails actually send.
+Postgres instance, set a real `JWT_ACCESS_SECRET`/`ENCRYPTION_KEY` (never the
+defaults from `.env.example`), and configure SMTP so password reset emails
+actually send.
+
+If you ever need to change `JWT_ACCESS_SECRET` on a database that's already
+in use, also truncate the `jwks` table (`psql "$DATABASE_URL" -c 'TRUNCATE
+"jwks";'`) — otherwise better-auth can't decrypt the signing key it already
+generated under the old secret, and every `GET /api/auth/token` call starts
+failing with a 500 until it's cleared. This doesn't affect existing sessions
+or passwords, just in-flight JWTs (users simply mint a new one).
 
 ## 11. Security notes
 
 - Sector/page keys are encrypted at rest (AES-256-GCM); only `MANAGER`+
   roles can request the decrypted keys, and only via an authenticated,
   company-scoped request.
-- Access tokens are short-lived (15 min default) and refresh tokens rotate
-  on every use; refresh tokens are stored server-side as salted hashes so
-  any session can be remotely revoked (see [6.11](#611-your-profile-and-active-sessions)).
+- Auth is handled by [better-auth](https://better-auth.com): passwords are
+  hashed with scrypt, sessions are managed and revocable server-side (see
+  [6.11](#611-your-profile-and-active-sessions)), and every app API call /
+  the dashboard websocket authenticates with a separate short-lived (15 min)
+  JWT minted from that session and verified statelessly via JWKS (no DB
+  round-trip per request).
 - Every tenant-scoped endpoint enforces company isolation in middleware,
   independent of what a client sends — a `MANAGER` at one company literally
   cannot address another company's card even by guessing its ID.
@@ -619,16 +629,25 @@ Postgres instance, set real JWT/encryption secrets (never the defaults from
 | Password reset email never arrives | `SMTP_HOST` isn't configured — check the server console log instead; the reset link is printed there in that case. |
 | `groupadd: Permission denied` during local dev setup | You're running as a non-root user on your own machine, which is the normal/expected case — this is handled automatically; if you still see it, make sure you're on the latest version of this repo. |
 | Local dev database seems stuck/stale after a reboot | The auto-provisioned local Postgres restarts itself automatically on the next `npm run dev`/`npm test`; if something still seems off, delete `server/.local-db/` to force a clean re-provision (you'll lose local dev data, not anything real). |
+| `GET /api/auth/token` returns `500 Failed to decrypt private key...` | `JWT_ACCESS_SECRET` was changed without clearing the `jwks` table on the same database — see [§10 Deployment](#10-deployment). Truncate the `jwks` table and it'll regenerate under the new secret on the next request. |
 
 ## 13. API quick reference
 
-All endpoints are under `/api`, JSON in/out, JWT bearer auth (`Authorization:
-Bearer <accessToken>`) except where noted. Every list/detail endpoint is
-implicitly scoped to the caller's own company unless they're `SUPER_ADMIN`.
+All endpoints are under `/api`, JSON in/out. Auth is powered by
+[better-auth](https://better-auth.com) and is two-step: sign in (or sign up)
+to get a session token, then mint a short-lived JWT from that session
+(`GET /auth/token`) — the JWT is what every non-auth endpoint below expects
+as `Authorization: Bearer <jwt>`. A handful of account-management endpoints
+(session listing/revocation, sign-out, change-password, update-user)
+authenticate with the session token directly instead — see
+[api-requests.http](api-requests.http) for a runnable example of both. Every
+list/detail endpoint is implicitly scoped to the caller's own company unless
+they're `SUPER_ADMIN`.
 
 | Area | Endpoints |
 |---|---|
-| Auth | `POST /auth/login`, `POST /auth/register-company`, `POST /auth/refresh`, `POST /auth/logout`, `GET/PATCH /auth/me`, `POST /auth/forgot-password`, `POST /auth/reset-password`, `GET /auth/sessions`, `DELETE /auth/sessions/:id` |
+| Auth (better-auth) | `POST /auth/sign-in/email`, `POST /auth/sign-up/email`, `POST /auth/sign-out`, `GET /auth/token` (mint a JWT), `GET /auth/jwks`, `POST /auth/request-password-reset`, `POST /auth/reset-password`, `GET /auth/list-sessions`, `POST /auth/revoke-session`, `POST /auth/change-password`, `POST /auth/update-user` |
+| Auth (this app) | `POST /auth/register-company` (atomic company + first admin user), `GET /auth/me` (profile, joins the company record) |
 | Companies | `GET/POST /companies`, `GET/PATCH/DELETE /companies/:id` |
 | Users | `GET/POST /users`, `GET/PATCH/DELETE /users/:id` |
 | Card holders | `GET/POST /holders`, `GET/PATCH/DELETE /holders/:id` |

@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { env } from "../config/env";
+import { env } from "../config/env.js";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;

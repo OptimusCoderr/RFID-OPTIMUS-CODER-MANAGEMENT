@@ -13,7 +13,7 @@
 
 import "dotenv/config";
 import { io } from "socket.io-client";
-import { PcscBridge, DetectedCard } from "../hardware/pcscBridge";
+import { PcscBridge, DetectedCard } from "../hardware/pcscBridge.js";
 
 const SERVER_URL = process.env.AGENT_SERVER_URL ?? "http://localhost:4000";
 const AGENT_KEY = process.env.AGENT_KEY;

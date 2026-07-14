@@ -1,10 +1,10 @@
 import { Router } from "express";
-import * as zoneController from "../controllers/zoneController";
-import { authenticate } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
-import { validate } from "../middleware/validate";
-import { createZoneBody, updateZoneBody, zoneCardsBody } from "../validators/zone";
-import { idParams } from "../validators/common";
+import * as zoneController from "../controllers/zoneController.js";
+import { authenticate } from "../middleware/auth.js";
+import { requireRole } from "../middleware/rbac.js";
+import { validate } from "../middleware/validate.js";
+import { createZoneBody, updateZoneBody, zoneCardsBody } from "../validators/zone.js";
+import { idParams } from "../validators/common.js";
 
 const router = Router();
 

@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
-import { prisma } from "../lib/prisma";
-import { asyncHandler } from "../utils/asyncHandler";
-import { scopedCompanyId } from "../middleware/rbac";
+import { prisma } from "../lib/prisma.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { scopedCompanyId } from "../middleware/rbac.js";
 
 export const getStats = asyncHandler(async (req: Request, res: Response) => {
   const companyId = scopedCompanyId(req);

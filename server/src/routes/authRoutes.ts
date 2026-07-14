@@ -1,33 +1,25 @@
-import { Router } from "express";
+import express, { Router } from "express";
 import rateLimit from "express-rate-limit";
-import * as authController from "../controllers/authController";
-import { authenticate } from "../middleware/auth";
-import { validate } from "../middleware/validate";
-import {
-  loginBody,
-  refreshBody,
-  forgotPasswordBody,
-  resetPasswordBody,
-  updateProfileBody,
-  registerCompanyBody,
-} from "../validators/auth";
-import { idParams } from "../validators/common";
+import * as authController from "../controllers/authController.js";
+import { authenticate } from "../middleware/auth.js";
+import { validate } from "../middleware/validate.js";
+import { registerCompanyBody } from "../validators/auth.js";
 
 const router = Router();
 
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-const resetLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// Sign-in/up/out, forgot/reset-password, session listing/revocation, and JWT
+// minting are all handled by better-auth's own routes, mounted separately in
+// app.ts (POST /api/auth/sign-in/email, /sign-up/email, /sign-out,
+// /request-password-reset, /reset-password, GET /list-sessions, POST
+// /revoke-session, GET /token, GET /jwks, etc). This router only carries the
+// app-specific pieces layered on top.
+//
+// The global express.json() is mounted *after* better-auth's catch-all (it
+// needs the raw request stream), so any route here that needs a parsed body
+// applies express.json() itself, scoped to just that one route — applying
+// it router-wide would consume the body stream for every /api/auth/* request
+// that falls through unmatched to better-auth's handler, breaking it.
+const json = express.json({ limit: "1mb" });
 
 const registerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -36,20 +28,13 @@ const registerLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-router.post("/login", loginLimiter, validate({ body: loginBody }), authController.login);
 router.post(
   "/register-company",
+  json,
   registerLimiter,
   validate({ body: registerCompanyBody }),
   authController.registerCompany
 );
-router.post("/refresh", validate({ body: refreshBody }), authController.refresh);
-router.post("/logout", validate({ body: refreshBody }), authController.logout);
 router.get("/me", authenticate, authController.me);
-router.patch("/me", authenticate, validate({ body: updateProfileBody }), authController.updateProfile);
-router.post("/forgot-password", resetLimiter, validate({ body: forgotPasswordBody }), authController.forgotPassword);
-router.post("/reset-password", resetLimiter, validate({ body: resetPasswordBody }), authController.resetPassword);
-router.get("/sessions", authenticate, authController.listSessions);
-router.delete("/sessions/:id", authenticate, validate({ params: idParams }), authController.revokeSession);
 
 export default router;

@@ -1,26 +1,40 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 
-const ACCESS_TOKEN_KEY = "rfid_access_token";
-const REFRESH_TOKEN_KEY = "rfid_refresh_token";
+// Two different tokens, both from better-auth:
+// - The session token (from sign-in/sign-up) is long-lived (~30 days) and is
+//   only ever sent to better-auth's own endpoints (sign-out, list/revoke
+//   sessions, minting a fresh JWT) — never to this app's own API routes.
+// - The JWT (minted from the session via GET /auth/token) is short-lived
+//   (15 min) and is what every app API call and the dashboard websocket
+//   authenticate with, verified statelessly via JWKS with no DB round-trip.
+const SESSION_TOKEN_KEY = "rfid_session_token";
+const JWT_KEY = "rfid_jwt";
 
+export function getSessionToken() {
+  return localStorage.getItem(SESSION_TOKEN_KEY);
+}
+export function setSessionToken(token: string) {
+  localStorage.setItem(SESSION_TOKEN_KEY, token);
+}
 export function getAccessToken() {
-  return localStorage.getItem(ACCESS_TOKEN_KEY);
+  return localStorage.getItem(JWT_KEY);
 }
-export function getRefreshToken() {
-  return localStorage.getItem(REFRESH_TOKEN_KEY);
-}
-export function setTokens(accessToken: string, refreshToken: string) {
-  localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-  localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+export function setAccessToken(token: string) {
+  localStorage.setItem(JWT_KEY, token);
 }
 export function clearTokens() {
-  localStorage.removeItem(ACCESS_TOKEN_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_KEY);
+  localStorage.removeItem(SESSION_TOKEN_KEY);
+  localStorage.removeItem(JWT_KEY);
 }
 
 export const api = axios.create({ baseURL: "/api" });
 
 api.interceptors.request.use((config) => {
+  // A caller-supplied Authorization header wins — used for the handful of
+  // better-auth endpoints (session listing/revocation, change-password,
+  // update-user, sign-out) that authenticate with the session token rather
+  // than this app's usual JWT.
+  if (config.headers.Authorization) return config;
   const token = getAccessToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
@@ -28,12 +42,14 @@ api.interceptors.request.use((config) => {
 
 let refreshPromise: Promise<string> | null = null;
 
-async function refreshAccessToken(): Promise<string> {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) throw new Error("No refresh token available");
-  const { data } = await axios.post("/api/auth/refresh", { refreshToken });
-  setTokens(data.accessToken, data.refreshToken);
-  return data.accessToken;
+// Mints a fresh JWT from the still-valid session token — the JWT equivalent
+// of the old refresh-token rotation flow.
+async function mintFreshAccessToken(): Promise<string> {
+  const sessionToken = getSessionToken();
+  if (!sessionToken) throw new Error("No session token available");
+  const { data } = await axios.get("/api/auth/token", { headers: { Authorization: `Bearer ${sessionToken}` } });
+  setAccessToken(data.token);
+  return data.token;
 }
 
 api.interceptors.response.use(
@@ -45,7 +61,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isAuthRoute) {
       originalRequest._retry = true;
       try {
-        refreshPromise ??= refreshAccessToken().finally(() => {
+        refreshPromise ??= mintFreshAccessToken().finally(() => {
           refreshPromise = null;
         });
         const newToken = await refreshPromise;
@@ -84,7 +100,7 @@ export async function downloadPost(url: string, body: Record<string, unknown>, f
 
 export function apiErrorMessage(err: unknown, fallback = "Something went wrong"): string {
   if (axios.isAxiosError(err)) {
-    return (err.response?.data as { error?: string })?.error ?? fallback;
+    return (err.response?.data as { error?: string; message?: string })?.error ?? (err.response?.data as { message?: string })?.message ?? fallback;
   }
   return fallback;
 }

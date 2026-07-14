@@ -1,5 +1,5 @@
 import nodemailer, { Transporter } from "nodemailer";
-import { env } from "../config/env";
+import { env } from "../config/env.js";
 
 let transporter: Transporter | null | undefined;
 
