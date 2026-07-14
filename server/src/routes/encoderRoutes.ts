@@ -1,10 +1,10 @@
 import { Router } from "express";
-import * as encoderController from "../controllers/encoderController";
-import { authenticate } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
-import { validate } from "../middleware/validate";
-import { createEncoderBody, updateEncoderBody } from "../validators/encoder";
-import { idParams } from "../validators/common";
+import * as encoderController from "../controllers/encoderController.js";
+import { authenticate } from "../middleware/auth.js";
+import { requireRole } from "../middleware/rbac.js";
+import { validate } from "../middleware/validate.js";
+import { createEncoderBody, updateEncoderBody } from "../validators/encoder.js";
+import { idParams } from "../validators/common.js";
 
 const router = Router();
 

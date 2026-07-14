@@ -1,11 +1,11 @@
 import { Server as HttpServer } from "http";
 import { Server, Socket } from "socket.io";
 import { v4 as uuid } from "uuid";
-import { prisma } from "../lib/prisma";
-import { verifyAccessToken } from "../utils/jwt";
-import { env } from "../config/env";
-import { logOperation } from "../services/operationLogService";
-import { notifyCompanyAdmins } from "../services/notificationService";
+import { prisma } from "../lib/prisma.js";
+import { verifyAccessToken } from "../utils/jwt.js";
+import { env } from "../config/env.js";
+import { logOperation } from "../services/operationLogService.js";
+import { notifyCompanyAdmins } from "../services/notificationService.js";
 import { OperationType } from "@prisma/client";
 
 interface DashboardSocketData {

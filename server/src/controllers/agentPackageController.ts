@@ -1,8 +1,11 @@
 import { Request, Response } from "express";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import AdmZip from "adm-zip";
-import { asyncHandler } from "../utils/asyncHandler";
+import { asyncHandler } from "../utils/asyncHandler.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Two directories up from the compiled dist/controllers/ (or src/controllers/
 // under tsx) puts us at the server package root, alongside agent-dist/.

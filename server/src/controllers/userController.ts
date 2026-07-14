@@ -1,9 +1,9 @@
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import { prisma } from "../lib/prisma";
-import { asyncHandler } from "../utils/asyncHandler";
-import { ApiError } from "../utils/ApiError";
-import { assertCompanyAccess, scopedCompanyId } from "../middleware/rbac";
+import { prisma } from "../lib/prisma.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { ApiError } from "../utils/ApiError.js";
+import { assertCompanyAccess, scopedCompanyId } from "../middleware/rbac.js";
 
 const SAFE_SELECT = {
   id: true,

@@ -1,5 +1,5 @@
-import { prisma } from "../lib/prisma";
-import { notifyCompanyAdmins } from "../services/notificationService";
+import { prisma } from "../lib/prisma.js";
+import { notifyCompanyAdmins } from "../services/notificationService.js";
 
 const WARNING_WINDOW_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;

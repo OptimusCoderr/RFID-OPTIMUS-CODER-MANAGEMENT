@@ -1,10 +1,10 @@
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import { prisma } from "../lib/prisma";
-import { ApiError } from "../utils/ApiError";
-import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/jwt";
-import { env } from "../config/env";
-import { sendEmail } from "./emailService";
+import { prisma } from "../lib/prisma.js";
+import { ApiError } from "../utils/ApiError.js";
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from "../utils/jwt.js";
+import { env } from "../config/env.js";
+import { sendEmail } from "./emailService.js";
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 

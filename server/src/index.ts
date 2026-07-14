@@ -6,7 +6,7 @@ async function main() {
   // provision and use a local embedded PostgreSQL instance. Never applies in
   // production, where a real DATABASE_URL is required.
   if (!process.env.DATABASE_URL && process.env.NODE_ENV !== "production") {
-    const { ensureDevEnvironment } = await import("./devtools/localDb");
+    const { ensureDevEnvironment } = await import("./devtools/localDb.js");
     await ensureDevEnvironment();
   }
 
@@ -15,14 +15,14 @@ async function main() {
   // dev entry points that bypass npm's pre-hooks (e.g. launching tsx
   // directly from an IDE) need it generated on first boot.
   if (process.env.NODE_ENV !== "production") {
-    const { ensureAgentDistBuilt } = await import("./devtools/agentDist");
+    const { ensureAgentDistBuilt } = await import("./devtools/agentDist.js");
     ensureAgentDistBuilt();
   }
 
-  const { createApp } = await import("./app");
-  const { initWebsocket } = await import("./websocket");
-  const { env } = await import("./config/env");
-  const { checkExpiringCards } = await import("./jobs/expiringCardsJob");
+  const { createApp } = await import("./app.js");
+  const { initWebsocket } = await import("./websocket/index.js");
+  const { env } = await import("./config/env.js");
+  const { checkExpiringCards } = await import("./jobs/expiringCardsJob.js");
 
   const app = createApp();
   const httpServer = createServer(app);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { encryptSecret, decryptSecret, generateAgentKey } from "./crypto";
+import { encryptSecret, decryptSecret, generateAgentKey } from "./crypto.js";
 
 describe("crypto", () => {
   it("round-trips plaintext through encrypt/decrypt", () => {

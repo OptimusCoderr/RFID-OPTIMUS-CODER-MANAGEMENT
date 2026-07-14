@@ -19,7 +19,7 @@ import {
   packAccessRights,
   unpackAccessRights,
   packKeySettings2,
-} from "./desfireCrypto";
+} from "./desfireCrypto.js";
 
 describe("buildWrappedApdu", () => {
   it("wraps a command with no data", () => {

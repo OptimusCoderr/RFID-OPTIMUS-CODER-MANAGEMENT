@@ -12,8 +12,10 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { execSync } from "child_process";
+import { fileURLToPath } from "url";
 import { Client } from "pg";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_ROOT = path.join(__dirname, "..", "..");
 const DATA_DIR = path.join(SERVER_ROOT, ".local-db");
 const HOST = "127.0.0.1";

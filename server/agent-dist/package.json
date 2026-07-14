@@ -4,6 +4,7 @@
   "private": true,
   "description": "Local hardware bridge for the RFID/NFC Management System. Run this on the machine with your USB/serial card reader plugged in — it does not need the rest of the platform's source code.",
   "main": "dist/agent/agent.js",
+  "type": "module",
   "scripts": {
     "start": "node dist/agent/agent.js"
   },

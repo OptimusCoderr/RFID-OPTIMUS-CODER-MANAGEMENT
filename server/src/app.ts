@@ -3,21 +3,21 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import rateLimit from "express-rate-limit";
-import { env } from "./config/env";
-import { notFoundHandler, errorHandler } from "./middleware/errorHandler";
+import { env } from "./config/env.js";
+import { notFoundHandler, errorHandler } from "./middleware/errorHandler.js";
 
-import authRoutes from "./routes/authRoutes";
-import companyRoutes from "./routes/companyRoutes";
-import userRoutes from "./routes/userRoutes";
-import holderRoutes from "./routes/holderRoutes";
-import encoderRoutes from "./routes/encoderRoutes";
-import templateRoutes from "./routes/templateRoutes";
-import cardRoutes from "./routes/cardRoutes";
-import zoneRoutes from "./routes/zoneRoutes";
-import dashboardRoutes from "./routes/dashboardRoutes";
-import logRoutes from "./routes/logRoutes";
-import notificationRoutes from "./routes/notificationRoutes";
-import agentPackageRoutes from "./routes/agentPackageRoutes";
+import authRoutes from "./routes/authRoutes.js";
+import companyRoutes from "./routes/companyRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
+import holderRoutes from "./routes/holderRoutes.js";
+import encoderRoutes from "./routes/encoderRoutes.js";
+import templateRoutes from "./routes/templateRoutes.js";
+import cardRoutes from "./routes/cardRoutes.js";
+import zoneRoutes from "./routes/zoneRoutes.js";
+import dashboardRoutes from "./routes/dashboardRoutes.js";
+import logRoutes from "./routes/logRoutes.js";
+import notificationRoutes from "./routes/notificationRoutes.js";
+import agentPackageRoutes from "./routes/agentPackageRoutes.js";
 
 export function createApp() {
   const app = express();

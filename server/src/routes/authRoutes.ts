@@ -1,8 +1,8 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
-import * as authController from "../controllers/authController";
-import { authenticate } from "../middleware/auth";
-import { validate } from "../middleware/validate";
+import * as authController from "../controllers/authController.js";
+import { authenticate } from "../middleware/auth.js";
+import { validate } from "../middleware/validate.js";
 import {
   loginBody,
   refreshBody,
@@ -10,8 +10,8 @@ import {
   resetPasswordBody,
   updateProfileBody,
   registerCompanyBody,
-} from "../validators/auth";
-import { idParams } from "../validators/common";
+} from "../validators/auth.js";
+import { idParams } from "../validators/common.js";
 
 const router = Router();
 

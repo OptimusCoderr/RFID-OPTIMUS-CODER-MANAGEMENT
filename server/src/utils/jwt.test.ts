@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { signAccessToken, verifyAccessToken, signRefreshToken, verifyRefreshToken } from "./jwt";
+import { signAccessToken, verifyAccessToken, signRefreshToken, verifyRefreshToken } from "./jwt.js";
 
 describe("jwt", () => {
   it("round-trips an access token payload", () => {

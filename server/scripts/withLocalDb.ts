@@ -6,7 +6,7 @@
 //
 // Usage: tsx scripts/withLocalDb.ts -- <command> [args...]
 import { spawn } from "child_process";
-import { ensureDevEnvironment } from "../src/devtools/localDb";
+import { ensureDevEnvironment } from "../src/devtools/localDb.js";
 
 async function main() {
   const separatorIndex = process.argv.indexOf("--");

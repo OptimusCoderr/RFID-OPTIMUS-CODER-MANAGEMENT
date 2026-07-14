@@ -1,9 +1,9 @@
 import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
-import { asyncHandler } from "../utils/asyncHandler";
-import * as authService from "../services/authService";
-import { prisma } from "../lib/prisma";
-import { ApiError } from "../utils/ApiError";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import * as authService from "../services/authService.js";
+import { prisma } from "../lib/prisma.js";
+import { ApiError } from "../utils/ApiError.js";
 
 const PROFILE_SELECT = {
   id: true,

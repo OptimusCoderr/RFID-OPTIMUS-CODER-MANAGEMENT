@@ -1,5 +1,5 @@
 import { OperationStatus, OperationType, Prisma } from "@prisma/client";
-import { prisma } from "../lib/prisma";
+import { prisma } from "../lib/prisma.js";
 
 interface LogInput {
   companyId: string;

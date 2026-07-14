@@ -1,10 +1,10 @@
 import { Router } from "express";
-import * as cardController from "../controllers/cardController";
-import { authenticate } from "../middleware/auth";
-import { requireRole } from "../middleware/rbac";
-import { validate } from "../middleware/validate";
-import { registerCardBody, updateCardBody, assignCardBody, cardListQuery, cardEncodersBody } from "../validators/card";
-import { idParams } from "../validators/common";
+import * as cardController from "../controllers/cardController.js";
+import { authenticate } from "../middleware/auth.js";
+import { requireRole } from "../middleware/rbac.js";
+import { validate } from "../middleware/validate.js";
+import { registerCardBody, updateCardBody, assignCardBody, cardListQuery, cardEncodersBody } from "../validators/card.js";
+import { idParams } from "../validators/common.js";
 
 const router = Router();
 

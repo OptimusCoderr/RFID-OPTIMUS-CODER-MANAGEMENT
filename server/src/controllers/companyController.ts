@@ -1,8 +1,8 @@
 import { Request, Response } from "express";
-import { prisma } from "../lib/prisma";
-import { asyncHandler } from "../utils/asyncHandler";
-import { ApiError } from "../utils/ApiError";
-import { assertCompanyAccess } from "../middleware/rbac";
+import { prisma } from "../lib/prisma.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import { ApiError } from "../utils/ApiError.js";
+import { assertCompanyAccess } from "../middleware/rbac.js";
 
 export const listCompanies = asyncHandler(async (req: Request, res: Response) => {
   // Non-super-admins only ever see their own company.
