@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Badge } from "@/components/ui/Badge";
+import { CardDataPanel } from "@/components/CardDataPanel";
 import { useSocket } from "@/context/SocketContext";
 import { CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
 import type { Card, CardType, DesfireFileType, Encoder, EncoderStatus, PaginatedResponse } from "@/types";
@@ -491,6 +492,17 @@ export default function LiveEncodePage() {
           </form>
         </div>
       </div>
+
+      {matchedCard && (
+        <div className="mb-6">
+          <CardDataPanel
+            card={matchedCard}
+            socket={socket}
+            encoderId={encoderId}
+            disabled={liveStatus !== "ONLINE" || cardRestrictedToOtherEncoders}
+          />
+        </div>
+      )}
 
       <div className="card p-5">
         <h3 className="mb-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Live event log</h3>

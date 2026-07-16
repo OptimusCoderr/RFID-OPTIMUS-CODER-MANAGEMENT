@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { encryptSecret, decryptSecret, generateAgentKey } from "./crypto.js";
+import { encryptSecret, decryptSecret, generateAgentKey, generateMifareKey } from "./crypto.js";
 
 describe("crypto", () => {
   it("round-trips plaintext through encrypt/decrypt", () => {
@@ -33,5 +33,12 @@ describe("crypto", () => {
     const key2 = generateAgentKey();
     expect(key1).not.toBe(key2);
     expect(key1).toMatch(/^[0-9a-f]{48}$/);
+  });
+
+  it("generates 6-byte MIFARE keys", () => {
+    const key1 = generateMifareKey();
+    const key2 = generateMifareKey();
+    expect(key1).not.toBe(key2);
+    expect(key1).toMatch(/^[0-9a-f]{12}$/);
   });
 });

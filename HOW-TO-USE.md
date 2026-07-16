@@ -24,15 +24,16 @@ it* once it's up.
    - [6.2 Card holders](#62-card-holders)
    - [6.3 Card templates](#63-card-templates)
    - [6.4 Registering and encoding cards](#64-registering-and-encoding-cards)
-   - [6.5 Card lifecycle](#65-card-lifecycle-block-unblock-lost-retire)
-   - [6.6 Restricting a card to specific encoders](#66-restricting-a-card-to-specific-encoders)
-   - [6.7 Access zones](#67-access-zones)
-   - [6.8 Bulk actions and CSV import/export](#68-bulk-actions-and-csv-importexport)
-   - [6.9 Notifications](#69-notifications)
-   - [6.10 Dashboard and audit logs](#610-dashboard-and-audit-logs)
-   - [6.11 Your profile and active sessions](#611-your-profile-and-active-sessions)
-   - [6.12 Company settings](#612-company-settings)
-   - [6.13 MIFARE DESFire partitioning (applications & files)](#613-mifare-desfire-partitioning-applications--files)
+   - [6.5 Storing structured data on a card (business/university IDs) and random per-card keys](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)
+   - [6.6 Card lifecycle](#66-card-lifecycle-block-unblock-lost-retire)
+   - [6.7 Restricting a card to specific encoders](#67-restricting-a-card-to-specific-encoders)
+   - [6.8 Access zones](#68-access-zones)
+   - [6.9 Bulk actions and CSV import/export](#69-bulk-actions-and-csv-importexport)
+   - [6.10 Notifications](#610-notifications)
+   - [6.11 Dashboard and audit logs](#611-dashboard-and-audit-logs)
+   - [6.12 Your profile and active sessions](#612-your-profile-and-active-sessions)
+   - [6.13 Company settings](#613-company-settings)
+   - [6.14 MIFARE DESFire partitioning (applications & files)](#614-mifare-desfire-partitioning-applications--files)
 7. [Worked examples by industry](#7-worked-examples-by-industry)
    - [7.1 Hotel](#71-hotel)
    - [7.2 Business / office](#72-business--office)
@@ -71,7 +72,7 @@ platform operators, but day-to-day usage never needs it.
 | **Card holder** | The person a card is *for* — a guest, employee, or student. Not a login; just a record (name, department/room, employee/student ID, photo). |
 | **Card** | A physical RFID/NFC tag: a UID, a type (MIFARE Classic 1K, NTAG213, 125kHz Prox, etc.), a status, optionally assigned to a holder. |
 | **Card template** | A reusable memory layout (which MIFARE sectors/keys, which NTAG pages, or which DESFire applications/files, mean what) applied when a card of that type is registered. |
-| **DESFire application / file** | Real card **partitioning**, specific to MIFARE DESFire: the card's memory is divided into independent, separately-keyed applications (e.g. one for building access, one for a canteen wallet), each containing its own files. Distinct from — and more capable than — MIFARE Classic's sector/key layout. See [6.13](#613-mifare-desfire-partitioning-applications--files). |
+| **DESFire application / file** | Real card **partitioning**, specific to MIFARE DESFire: the card's memory is divided into independent, separately-keyed applications (e.g. one for building access, one for a canteen wallet), each containing its own files. Distinct from — and more capable than — MIFARE Classic's sector/key layout. See [6.14](#614-mifare-desfire-partitioning-applications--files). |
 | **Encoder** | The physical reader/writer device (ACR122U, PN532, OMNIKEY, etc.) that talks to cards. Each encoder authenticates to the API with its own `agentKey`. |
 | **Local agent** | A small process (`npm run agent`) that runs on the machine physically connected to an encoder and bridges it to the cloud dashboard over a websocket. |
 | **Access zone** | An optional grouping of cards by the physical area/system they unlock (e.g. "Pool", "Server Room", "Loading Dock"). |
@@ -275,9 +276,56 @@ pick the card type and optional template/label/notes.
    command and its result appears in the live event log at the bottom, and
    is written to the audit trail.
 
-**C. Bulk import** — see [6.8](#68-bulk-actions-and-csv-importexport).
+**C. Bulk import** — see [6.9](#69-bulk-actions-and-csv-importexport).
 
-### 6.5 Card lifecycle (block, unblock, lost, retire)
+### 6.5 Storing structured data on a card (business/university IDs) and random per-card keys
+
+Beyond just an access token, a MIFARE Classic card can hold a small amount of
+readable data directly on it — enough for a business ID or university ID
+badge to carry a name, employee/student number, or department without a
+network lookup. Two pieces work together for this:
+
+**1. Label the blocks on a template.** On a MIFARE Classic template
+([6.3](#63-card-templates)), each sector's block list takes a `purpose`
+string — e.g. sector 1, block 4 = "Full name," block 5 = "Employee ID." This
+is just a label; it doesn't reserve anything on the card by itself.
+
+**2. Fill them in from Live Encode.** Any card that uses that template shows
+a **Card data** panel underneath the command form once it's on the reader,
+with one plain-text field per labeled block — no hex, no block numbers to
+remember:
+
+- **Read from card** pulls the current value of every labeled block and
+  decodes it back to text.
+- **Write to card** hex-encodes whatever you typed (padded/truncated to the
+  block's 16 bytes) and writes each field to its block in one action.
+
+Text longer than 16 bytes is silently truncated to fit — keep fields short
+(a name, an ID number, a two-letter department code), and use a
+[card holder](#62-card-holders) record instead for anything that needs more
+room or needs to be searchable.
+
+**Random per-card keys.** By default, new cards use whatever Key A/B the
+template specifies (often the MIFARE factory default,
+`FFFFFFFFFFFF`, until you change it) — fine for testing, but every card
+sharing one key means a single leaked card exposes all of them. From a
+card's detail page, `SUPER_ADMIN`/`COMPANY_ADMIN`/`MANAGER` users get a
+**Sector keys** panel:
+
+- **Generate random keys** replaces this card's stored keys with a fresh
+  random Key A/B per sector the template defines, encrypted at rest exactly
+  like any other stored key ([11](#11-security-notes)). Live Encode and the
+  Card data panel automatically pick up the new keys for that card — nothing
+  else to configure.
+- **View keys** re-displays the currently stored keys for that card at any
+  time — useful if you need to key them into another system or verify what
+  was generated.
+
+Regenerating invalidates the previous keys immediately — expect this to be a
+deliberate, occasional action (e.g. re-keying a batch before issuing them),
+not something run on every read.
+
+### 6.6 Card lifecycle (block, unblock, lost, retire)
 
 From a card's detail page (or in bulk from the Cards list):
 
@@ -292,7 +340,7 @@ From a card's detail page (or in bulk from the Cards list):
 - The system also auto-expires cards past their `expiresAt` date via a
   daily background job, and warns admins 7 days ahead of expiry.
 
-### 6.6 Restricting a card to specific encoders
+### 6.7 Restricting a card to specific encoders
 
 By default, **any card can be used with any encoder in your company** — no
 setup needed. If you need tighter control (e.g. a grand-master key that
@@ -316,7 +364,7 @@ kiosk), you can opt a specific card into a restriction:
 This is opt-in per card — you never have to configure it, and a company with
 zero allocations behaves exactly as if the feature didn't exist.
 
-### 6.7 Access zones
+### 6.8 Access zones
 
 Access zones are a lightweight way to model "what does this card open,"
 layered on top of the inventory system (this platform manages the *cards*,
@@ -326,7 +374,7 @@ not physical door hardware itself):
 2. **Grant access to a card** by UID from the zone's card.
 3. A card's detail page lists every zone it currently has access to.
 
-### 6.8 Bulk actions and CSV import/export
+### 6.9 Bulk actions and CSV import/export
 
 From the **Cards** page:
 
@@ -339,7 +387,7 @@ From the **Cards** page:
 - **Select rows** (checkboxes) to block/unblock several cards at once, or
   export just the selection.
 
-### 6.9 Notifications
+### 6.10 Notifications
 
 Company admins and managers automatically get in-app notifications
 (bell icon, top right) — delivered live over websocket and persisted for
@@ -352,7 +400,7 @@ later — when:
 Click a notification to jump straight to the relevant card/encoder; mark
 individual ones read or **mark all as read**.
 
-### 6.10 Dashboard and audit logs
+### 6.11 Dashboard and audit logs
 
 - **Dashboard** — at-a-glance counts of cards by status/type, encoders by
   status, total holders, and recent activity.
@@ -361,7 +409,7 @@ individual ones read or **mark all as read**.
   block, encode command, and more is recorded here with who did it and
   when — this is your compliance/audit record.
 
-### 6.11 Your profile and active sessions
+### 6.12 Your profile and active sessions
 
 From **Profile**:
 
@@ -373,13 +421,13 @@ From **Profile**:
   configured, for local dev) and expires after 1 hour. Resetting revokes
   every other active session as a precaution.
 
-### 6.12 Company settings
+### 6.13 Company settings
 
 `COMPANY_ADMIN`s can update their company's name, contact details, address,
 and logo from **Company Settings**. `SUPER_ADMIN`s manage every company from
 the **Companies** page, including deactivating one without deleting its data.
 
-### 6.13 MIFARE DESFire partitioning (applications & files)
+### 6.14 MIFARE DESFire partitioning (applications & files)
 
 MIFARE Classic's "sectors" and NTAG's "pages" are simple memory layouts —
 useful, but not real isolation. **MIFARE DESFire** (EV1/EV2/EV3) supports
@@ -475,13 +523,18 @@ security-critical:
    desk staff (`OPERATOR`) from **Users**.
 2. Create card holders for every employee (name, department, employee ID).
 3. Define a "Employee Badge" template with your access-control sector
-   layout.
+   layout — label a couple of blocks "Full name" and "Employee ID" if you
+   want the badge itself to carry that data (see
+   [6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)),
+   not just the door-access grant.
 4. Set up **Access zones** per restricted area ("Server Room", "Executive
    Floor") and grant access per badge as needed.
-5. Register each employee's badge, assign it to their holder record.
+5. Register each employee's badge, assign it to their holder record, and
+   use **Generate random keys** on the card so it doesn't share a key with
+   every other badge you issue.
 6. Offboarding: **Unassign** the holder and **Retire** the badge.
 7. For a sensitive area's master override card, use
-   [6.6](#66-restricting-a-card-to-specific-encoders) to lock it to only the
+   [6.7](#67-restricting-a-card-to-specific-encoders) to lock it to only the
    security-desk encoder.
 
 ### 7.3 University
@@ -489,7 +542,10 @@ security-critical:
 1. Register your university (or per-department company if you want fully
    separate inventories).
 2. Create templates for "Student ID (MIFARE DESFire EV2)" and
-   "Visitor Tag (NTAG213)."
+   "Visitor Tag (NTAG213)" — or a MIFARE Classic "Student ID" template if you
+   don't need DESFire's application partitioning, labeling blocks for name
+   and student number so they're readable straight off the card
+   ([6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)).
 3. Register encoders at the registrar's office and library front desk.
 4. Bulk-import a semester's new students via CSV (UID pre-printed by your
    card vendor, or scan-and-register one by one at orientation).
@@ -601,7 +657,7 @@ or passwords, just in-flight JWTs (users simply mint a new one).
   company-scoped request.
 - Auth is handled by [better-auth](https://better-auth.com): passwords are
   hashed with scrypt, sessions are managed and revocable server-side (see
-  [6.11](#611-your-profile-and-active-sessions)), and every app API call /
+  [6.12](#612-your-profile-and-active-sessions)), and every app API call /
   the dashboard websocket authenticates with a separate short-lived (15 min)
   JWT minted from that session and verified statelessly via JWKS (no DB
   round-trip per request).
@@ -616,7 +672,7 @@ or passwords, just in-flight JWTs (users simply mint a new one).
   format card) are role-gated to `MANAGER`+ server-side, on top of the
   existing company-scoping check — a `VIEWER`/`OPERATOR` cannot wipe a card
   or delete another partition even by calling the websocket API directly.
-  See [6.13](#613-mifare-desfire-partitioning-applications--files) for the
+  See [6.14](#614-mifare-desfire-partitioning-applications--files) for the
   DESFire integration's specific cryptographic scope and limits.
 
 ## 12. Troubleshooting
@@ -653,12 +709,12 @@ they're `SUPER_ADMIN`.
 | Card holders | `GET/POST /holders`, `GET/PATCH/DELETE /holders/:id` |
 | Card templates | `GET/POST /templates`, `GET/PATCH/DELETE /templates/:id` |
 | Encoders | `GET/POST /encoders`, `GET/PATCH/DELETE /encoders/:id`, `POST /encoders/:id/rotate-key` |
-| Cards | `GET/POST /cards`, `GET/PATCH/DELETE /cards/:id`, `GET /cards/:id/keys`, `POST /cards/:id/assign`, `POST /cards/:id/unassign`, `POST /cards/:id/block`, `POST /cards/:id/unblock`, `POST /cards/:id/lost`, `POST /cards/:id/retire`, `POST /cards/:id/encoders/grant`, `POST /cards/:id/encoders/revoke`, `GET /cards/export`, `POST /cards/bulk-import` |
+| Cards | `GET/POST /cards`, `GET/PATCH/DELETE /cards/:id`, `GET /cards/:id/keys`, `POST /cards/:id/keys/generate`, `POST /cards/:id/assign`, `POST /cards/:id/unassign`, `POST /cards/:id/block`, `POST /cards/:id/unblock`, `POST /cards/:id/lost`, `POST /cards/:id/retire`, `POST /cards/:id/encoders/grant`, `POST /cards/:id/encoders/revoke`, `GET /cards/export`, `POST /cards/bulk-import` |
 | Access zones | `GET/POST /zones`, `PATCH/DELETE /zones/:id`, `POST /zones/:id/grant`, `POST /zones/:id/revoke` |
 | Notifications | `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all` |
 | Dashboard | `GET /dashboard/stats` |
 | Audit logs | `GET /logs`, `GET /logs/export` |
-| Live encode (websocket, `/dashboard` namespace) | `encoder:command` (emit — includes MIFARE Classic/NTAG commands plus `LIST_APPLICATIONS`/`SELECT_APPLICATION`/`AUTH_APPLICATION`/`READ_FILE`/`WRITE_FILE`/`CREATE_APPLICATION`/`CREATE_FILE`/`DELETE_FILE`/`DELETE_APPLICATION`/`FORMAT_PICC` for DESFire — see [6.13](#613-mifare-desfire-partitioning-applications--files)), `encoder:status` / `card:detected` / `encoder:commandResult` (listen) |
+| Live encode (websocket, `/dashboard` namespace) | `encoder:command` (emit — includes MIFARE Classic/NTAG commands plus `LIST_APPLICATIONS`/`SELECT_APPLICATION`/`AUTH_APPLICATION`/`READ_FILE`/`WRITE_FILE`/`CREATE_APPLICATION`/`CREATE_FILE`/`DELETE_FILE`/`DELETE_APPLICATION`/`FORMAT_PICC` for DESFire — see [6.14](#614-mifare-desfire-partitioning-applications--files)), `encoder:status` / `card:detected` / `encoder:commandResult` (listen) |
 | Hardware agent (websocket, `/agent` namespace) | authenticates with an encoder's `agentKey`; emits `heartbeat`, `card:detected`, `command:result`; listens for `command` |
 
 For a runnable, pre-chained example of the REST calls (login → register a
