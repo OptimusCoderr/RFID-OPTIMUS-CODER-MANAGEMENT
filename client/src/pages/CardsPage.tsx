@@ -66,11 +66,16 @@ export default function CardsPage() {
   useEffect(() => {
     if (!socket || !scanning || !scanEncoderId) return;
 
-    function onCardDetected(payload: { encoderId: string; uid: string }) {
+    function onCardDetected(payload: { encoderId: string; uid?: string }) {
       if (payload.encoderId !== scanEncoderId) return;
-      setForm((f) => ({ ...f, uid: payload.uid.toUpperCase() }));
+      if (!payload.uid) {
+        toast.error("Reader didn't report a UID for that tap — try again");
+        return;
+      }
+      const uid = payload.uid.toUpperCase();
+      setForm((f) => ({ ...f, uid }));
       setScanning(false);
-      toast.success(`UID captured: ${payload.uid.toUpperCase()}`);
+      toast.success(`UID captured: ${uid}`);
     }
 
     socket.on("card:detected", onCardDetected);
