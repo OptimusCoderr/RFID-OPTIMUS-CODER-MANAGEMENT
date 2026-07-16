@@ -7,6 +7,7 @@ import { api, apiErrorMessage } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Badge } from "@/components/ui/Badge";
 import { CardDataPanel } from "@/components/CardDataPanel";
+import { CitizenDataPanel } from "@/components/CitizenDataPanel";
 import { useSocket } from "@/context/SocketContext";
 import { CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
 import type { Card, CardType, DesfireFileType, Encoder, EncoderStatus, PaginatedResponse } from "@/types";
@@ -494,8 +495,14 @@ export default function LiveEncodePage() {
       </div>
 
       {matchedCard && (
-        <div className="mb-6">
+        <div className="mb-6 space-y-6">
           <CardDataPanel
+            card={matchedCard}
+            socket={socket}
+            encoderId={encoderId}
+            disabled={liveStatus !== "ONLINE" || cardRestrictedToOtherEncoders}
+          />
+          <CitizenDataPanel
             card={matchedCard}
             socket={socket}
             encoderId={encoderId}

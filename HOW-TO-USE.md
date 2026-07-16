@@ -38,6 +38,7 @@ it* once it's up.
    - [7.1 Hotel](#71-hotel)
    - [7.2 Business / office](#72-business--office)
    - [7.3 University](#73-university)
+   - [7.4 National ID / government ID](#74-national-id--government-id)
 8. [Setting up a physical encoder](#8-setting-up-a-physical-encoder)
 9. [Configuration reference](#9-configuration-reference)
 10. [Deployment](#10-deployment)
@@ -325,6 +326,57 @@ Regenerating invalidates the previous keys immediately — expect this to be a
 deliberate, occasional action (e.g. re-keying a batch before issuing them),
 not something run on every read.
 
+**Encrypted citizen data (national ID, sensitive PII).** The plain labeled
+blocks above are readable by anyone who knows the sector key — fine for a
+badge name, not appropriate for a national ID number or date of birth. For
+that, a template can define an **encrypted citizen record** instead: a list
+of field names (e.g. `fullName`, `nationalId`, `dob`) plus an ordered list of
+blocks (any sector, mix freely) that together hold one AES-256-GCM encrypted
+blob. Configure it in the same template modal as the plain blocks, in its own
+"Encrypted citizen record" section.
+
+The important difference from the plain blocks: **the encryption key never
+reaches the browser.** Where the plain Card data panel hex-encodes text
+locally and only needs the MIFARE sector key (which Live Encode already
+has to see to authenticate a read/write), the encrypted flow works like
+this instead —
+
+1. You type the field values into the **Encrypted citizen data** panel and
+   click **Encrypt & write**.
+2. The browser sends the plain values to the server, which combines them,
+   encrypts the result with this card's own random data key (generated
+   alongside its sector keys — [above](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)),
+   and returns only opaque ciphertext bytes, split into the configured
+   blocks.
+3. The browser writes those bytes to the card — it never sees the
+   plaintext-to-ciphertext mapping or the key that produced it.
+4. **Read from card** works in reverse: the browser reads the raw
+   (encrypted) bytes off the card and sends them to the server, which
+   decrypts and returns the field values for display.
+
+Because a tampered card fails to decrypt outright (AES-GCM detects it) rather
+than returning corrupted-looking data, this also gives you tamper-evidence
+for free — a cloned or edited block reads back as "could not decrypt," not
+as garbled text.
+
+**Capacity is real and small.** Each block is 16 bytes, and roughly 16 of
+those bytes across the whole record are spent on encryption overhead
+regardless of how many blocks you use — so budget usable space as
+`blocks × 16 − 16` bytes for all fields *combined*, as compact JSON (the
+template editor shows this estimate live as you add blocks). Three blocks
+(48 bytes) leaves about 32 bytes total; six blocks (96 bytes) leaves about
+80. This is the actual capacity of a physical MIFARE Classic card, not a
+software limit — keep field values short (initials, codes, compact date
+formats) and lean on a [card holder](#62-card-holders) record for anything
+that needs to hold more or be searched on. Avoid picking a sector's trailer
+block (block 3 of every 4-block sector) — writing there corrupts that
+sector's own keys.
+
+Both the plain and encrypted panels can be configured on the same template
+and appear together in Live Encode — use plain blocks for anything that's
+fine to be readable (a badge label) and the encrypted record for anything
+that shouldn't be (an ID number).
+
 ### 6.6 Card lifecycle (block, unblock, lost, retire)
 
 From a card's detail page (or in bulk from the Cards list):
@@ -555,6 +607,32 @@ security-critical:
 7. Lost card reported: **Mark lost**, issue a replacement, keep the old
    UID's history intact in the audit log for that student.
 
+### 7.4 National ID / government ID
+
+1. Register your agency as a company; invite verifying officers as
+   `MANAGER` (can view/generate keys) and enrollment clerks as `OPERATOR`
+   (can encode/read citizen data, cannot see raw key material).
+2. Create a MIFARE Classic template with an **encrypted citizen record**
+   ([6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)) —
+   field names like `fullName`, `nationalId`, `dob`, and enough blocks
+   (6+ recommended) to fit them as compact JSON. Keep values short: initials
+   over full middle names, compact date formats (`YYMMDD`), short codes over
+   free text.
+3. At enrollment: register the citizen's card, **Generate random keys** on
+   it (a lost card then only ever exposes its own single record, not every
+   citizen's), then use the **Encrypted citizen data** panel in Live Encode
+   to write their details.
+4. At a checkpoint: tap the card, **Read from card** — the panel decrypts
+   and shows the fields; nothing is exposed if the card is cloned or read by
+   a different tool, since it holds only ciphertext.
+5. Still create a [card holder](#62-card-holders) record with the same
+   details for search, reporting, and audit purposes — the encrypted
+   on-card record is for offline/no-network verification, not a replacement
+   for the database.
+6. Lost or compromised card: **Mark lost**, issue a replacement with freshly
+   generated keys — the old card's data key stays behind on the retired
+   card record and is never reused.
+
 ## 8. Setting up a physical encoder
 
 The cloud dashboard never talks to hardware directly — a small local agent
@@ -664,8 +742,14 @@ or passwords, just in-flight JWTs (users simply mint a new one).
 - Every tenant-scoped endpoint enforces company isolation in middleware,
   independent of what a client sends — a `MANAGER` at one company literally
   cannot address another company's card even by guessing its ID.
-- Card-encoder allocation restrictions (6.6) are enforced in the same
+- Card-encoder allocation restrictions (6.7) are enforced in the same
   server-side layer that handles live encode commands, not just in the UI.
+- Encrypted citizen records (6.5) use a per-card AES-256-GCM key that never
+  leaves the server — the browser only ever handles opaque ciphertext bytes,
+  unlike MIFARE sector keys (needed client-side to authenticate a
+  read/write) or Card data panel text (encoded locally, in the clear).
+  `OPERATOR`+ can encode/decode through this controlled channel; only
+  `MANAGER`+ can view the raw key material itself.
 - Self-service company registration is rate-limited to reduce abuse, and
   slug/email uniqueness is enforced at the database level.
 - DESFire's destructive commands (create/delete application, delete file,
@@ -680,7 +764,7 @@ or passwords, just in-flight JWTs (users simply mint a new one).
 | Symptom | Likely cause / fix |
 |---|---|
 | "Encoder is offline" when sending a command | The local agent for that encoder isn't running or lost connection — restart `npm run agent` on the machine with the reader plugged in. |
-| "This card is not allocated to this encoder" | The card has an active encoder restriction (6.6) that doesn't include the encoder you're using — either add that encoder to its allowlist, or use an allowed one. |
+| "This card is not allocated to this encoder" | The card has an active encoder restriction (6.7) that doesn't include the encoder you're using — either add that encoder to its allowlist, or use an allowed one. |
 | Can't create a second company with the name/slug you want | Slugs are unique platform-wide — pick a different slug (the company name itself can repeat). |
 | Password reset email never arrives | `SMTP_HOST` isn't configured — check the server console log instead; the reset link is printed there in that case. |
 | `groupadd: Permission denied` during local dev setup | You're running as a non-root user on your own machine, which is the normal/expected case — this is handled automatically; if you still see it, make sure you're on the latest version of this repo. |
@@ -709,7 +793,7 @@ they're `SUPER_ADMIN`.
 | Card holders | `GET/POST /holders`, `GET/PATCH/DELETE /holders/:id` |
 | Card templates | `GET/POST /templates`, `GET/PATCH/DELETE /templates/:id` |
 | Encoders | `GET/POST /encoders`, `GET/PATCH/DELETE /encoders/:id`, `POST /encoders/:id/rotate-key` |
-| Cards | `GET/POST /cards`, `GET/PATCH/DELETE /cards/:id`, `GET /cards/:id/keys`, `POST /cards/:id/keys/generate`, `POST /cards/:id/assign`, `POST /cards/:id/unassign`, `POST /cards/:id/block`, `POST /cards/:id/unblock`, `POST /cards/:id/lost`, `POST /cards/:id/retire`, `POST /cards/:id/encoders/grant`, `POST /cards/:id/encoders/revoke`, `GET /cards/export`, `POST /cards/bulk-import` |
+| Cards | `GET/POST /cards`, `GET/PATCH/DELETE /cards/:id`, `GET /cards/:id/keys`, `POST /cards/:id/keys/generate`, `POST /cards/:id/citizen-data/prepare-write`, `POST /cards/:id/citizen-data/decode-read`, `POST /cards/:id/assign`, `POST /cards/:id/unassign`, `POST /cards/:id/block`, `POST /cards/:id/unblock`, `POST /cards/:id/lost`, `POST /cards/:id/retire`, `POST /cards/:id/encoders/grant`, `POST /cards/:id/encoders/revoke`, `GET /cards/export`, `POST /cards/bulk-import` |
 | Access zones | `GET/POST /zones`, `PATCH/DELETE /zones/:id`, `POST /zones/:id/grant`, `POST /zones/:id/revoke` |
 | Notifications | `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all` |
 | Dashboard | `GET /dashboard/stats` |
