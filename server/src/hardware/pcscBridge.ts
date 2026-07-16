@@ -107,11 +107,19 @@ export class PcscBridge {
 
       reader.on("card", (card: any) => {
         this.desfireSession = null;
-        this.onCardDetected?.(reader.reader.name, {
-          uid: card.uid,
-          atr: card.atr ? Buffer.from(card.atr).toString("hex") : undefined,
-          standard: card.standard,
-        });
+        // With autoProcessing off, nfc-pcsc never issues its own Get UID
+        // command (it's bundled into the auto-read path we deliberately
+        // skip to avoid it auto-selecting an AID on DESFire cards), so
+        // card.uid is always undefined here — fetch it ourselves instead.
+        this.fetchUid(reader)
+          .then((uid) => {
+            this.onCardDetected?.(reader.reader.name, {
+              uid,
+              atr: card.atr ? Buffer.from(card.atr).toString("hex") : undefined,
+              standard: card.standard,
+            });
+          })
+          .catch((err) => this.onError?.(err instanceof Error ? err : new Error(String(err))));
       });
 
       reader.on("card.off", () => {
@@ -180,11 +188,23 @@ export class PcscBridge {
 
   // --- Generic ------------------------------------------------------------
 
+  // Standard PC/SC "Get Data" pseudo-APDU for the currently presented card's
+  // UID — the same command nfc-pcsc's own auto-read path would issue, done
+  // manually here since that auto-read path is deliberately disabled (see
+  // the `reader.autoProcessing = false` comment in start()).
+  private async fetchUid(reader: any): Promise<string> {
+    const response = await this.transmit(reader, Buffer.from([0xff, 0xca, 0x00, 0x00, 0x00]), 12);
+    const statusCode = response.subarray(-2).readUInt16BE(0);
+    if (statusCode !== 0x9000) {
+      throw new Error(`Could not read card UID (status 0x${statusCode.toString(16).padStart(4, "0")})`);
+    }
+    return response.subarray(0, -2).toString("hex");
+  }
+
   async readUid(readerName?: string): Promise<string> {
-    // The UID is captured on the `card` event; this just confirms a card is present.
     const reader = this.getReader(readerName);
     if (!reader?.card) throw new Error("No card present on reader");
-    return reader.card.uid;
+    return this.fetchUid(reader);
   }
 
   // --- MIFARE DESFire (EV1/EV2/EV3) — application/file partitioning -------

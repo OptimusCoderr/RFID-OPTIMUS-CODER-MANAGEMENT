@@ -95,8 +95,12 @@ export default function LiveEncodePage() {
       queryClient.invalidateQueries({ queryKey: ["encoders"] });
     }
 
-    function onCardDetected(payload: { encoderId: string; uid: string; cardType?: string; atr?: string }) {
+    function onCardDetected(payload: { encoderId: string; uid?: string; cardType?: string; atr?: string }) {
       if (payload.encoderId !== encoderId) return;
+      if (!payload.uid) {
+        pushLog("Card detected but the reader didn't report a UID — try tapping again", "FAILED");
+        return;
+      }
       setDetectedUid(payload.uid);
       pushLog(`Card detected: ${payload.uid}`, "SUCCESS");
       lookupCard(payload.uid);
