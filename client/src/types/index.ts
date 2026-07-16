@@ -247,6 +247,23 @@ export interface OperationLog {
   performedAt: string;
 }
 
+export type AttendanceType = "CHECK_IN" | "CHECK_OUT";
+
+export interface AttendanceRecord {
+  id: string;
+  companyId: string;
+  cardId: string;
+  card?: { id: string; uid: string; label?: string | null } | null;
+  holderId?: string | null;
+  holder?: { id: string; fullName: string; department?: string | null; employeeId?: string | null } | null;
+  zoneId?: string | null;
+  zone?: { id: string; name: string } | null;
+  encoderId?: string | null;
+  encoder?: { id: string; name: string } | null;
+  type: AttendanceType;
+  recordedAt: string;
+}
+
 export interface PaginatedResponse<T> {
   data: T[];
   pagination: { page: number; pageSize: number; total: number; totalPages: number };

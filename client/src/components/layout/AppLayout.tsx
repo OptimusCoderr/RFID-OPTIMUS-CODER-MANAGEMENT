@@ -11,6 +11,7 @@ import {
   Radio,
   ShieldCheck,
   ScrollText,
+  ClipboardCheck,
   LogOut,
   Sun,
   Moon,
@@ -44,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/encoders", label: "Encoders", icon: Wifi },
   { to: "/live-encode", label: "Live Encode", icon: Radio },
   { to: "/zones", label: "Access Zones", icon: ShieldCheck },
+  { to: "/attendance", label: "Attendance", icon: ClipboardCheck },
   { to: "/logs", label: "Audit Logs", icon: ScrollText },
 ];
 

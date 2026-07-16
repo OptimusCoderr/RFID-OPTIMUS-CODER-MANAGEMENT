@@ -34,6 +34,7 @@ it* once it's up.
    - [6.12 Your profile and active sessions](#612-your-profile-and-active-sessions)
    - [6.13 Company settings](#613-company-settings)
    - [6.14 MIFARE DESFire partitioning (applications & files)](#614-mifare-desfire-partitioning-applications--files)
+   - [6.15 Attendance (check-in / check-out)](#615-attendance-check-in--check-out)
 7. [Worked examples by industry](#7-worked-examples-by-industry)
    - [7.1 Hotel](#71-hotel)
    - [7.2 Business / office](#72-business--office)
@@ -551,6 +552,38 @@ security-critical:
   against physical DESFire hardware. Test thoroughly with your actual cards
   and reader before any production rollout.
 
+### 6.15 Attendance (check-in / check-out)
+
+The **Attendance** page turns a card tap into a check-in/check-out record —
+useful for lecture attendance, shift clock-in/out, or event entry, without
+building anything on top of the raw card. It doesn't require any special
+card template or on-card storage; it works with any card that's assigned to
+a [card holder](#62-card-holders).
+
+1. Pick the **Encoder** the tap will come from, and optionally a **Zone /
+   session** — leave it as "General" for company-wide attendance, or pick an
+   [access zone](#68-access-zones) to scope attendance to one room/class.
+   Zone and general attendance track independently: a student's lecture-hall
+   check-in state doesn't affect their library check-in state.
+2. As cards are tapped on the selected encoder, each tap **alternates**
+   check-in and check-out for that holder automatically — no separate
+   "start session" step, and a missed tap just leaves the next one correctly
+   reversed. The live feed shows each tap as it happens; results are also
+   written to the **Records** table below with full filtering (zone,
+   check-in/out) and CSV export.
+3. A card that's blocked, lost, retired, or not yet assigned to a holder is
+   rejected with a clear reason in the feed rather than silently recording
+   junk — you'll want cards properly registered and assigned before using
+   this page.
+4. Recording attendance is available to any `OPERATOR`+ role (front-desk or
+   gate staff); anyone authenticated in the company can view and export the
+   records.
+
+Attendance records are separate from the [audit log](#611-dashboard-and-audit-logs) —
+the audit log tracks system operations (registrations, blocks, encodes);
+attendance tracks physical presence over time and is the right place to
+pull a term's/shift's attendance history from.
+
 ## 7. Worked examples by industry
 
 ### 7.1 Hotel
@@ -606,6 +639,11 @@ security-critical:
 6. Use **Access zones** for dorms, labs, and libraries.
 7. Lost card reported: **Mark lost**, issue a replacement, keep the old
    UID's history intact in the audit log for that student.
+8. Lecture attendance: on the [**Attendance**](#615-attendance-check-in--check-out)
+   page, select the lecture hall's encoder and its zone, then have students
+   tap in as they arrive — no separate roll call needed, and each session's
+   record set is independent of the last, so a student forgetting to "check
+   out" doesn't affect the next lecture's attendance.
 
 ### 7.4 National ID / government ID
 
@@ -795,6 +833,7 @@ they're `SUPER_ADMIN`.
 | Encoders | `GET/POST /encoders`, `GET/PATCH/DELETE /encoders/:id`, `POST /encoders/:id/rotate-key` |
 | Cards | `GET/POST /cards`, `GET/PATCH/DELETE /cards/:id`, `GET /cards/:id/keys`, `POST /cards/:id/keys/generate`, `POST /cards/:id/citizen-data/prepare-write`, `POST /cards/:id/citizen-data/decode-read`, `POST /cards/:id/assign`, `POST /cards/:id/unassign`, `POST /cards/:id/block`, `POST /cards/:id/unblock`, `POST /cards/:id/lost`, `POST /cards/:id/retire`, `POST /cards/:id/encoders/grant`, `POST /cards/:id/encoders/revoke`, `GET /cards/export`, `POST /cards/bulk-import` |
 | Access zones | `GET/POST /zones`, `PATCH/DELETE /zones/:id`, `POST /zones/:id/grant`, `POST /zones/:id/revoke` |
+| Attendance | `GET /attendance`, `GET /attendance/export`, `POST /attendance` |
 | Notifications | `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all` |
 | Dashboard | `GET /dashboard/stats` |
 | Audit logs | `GET /logs`, `GET /logs/export` |

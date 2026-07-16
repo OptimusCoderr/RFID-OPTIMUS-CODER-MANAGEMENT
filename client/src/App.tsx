@@ -18,6 +18,7 @@ import EncodersPage from "@/pages/EncodersPage";
 import EncoderDetailPage from "@/pages/EncoderDetailPage";
 import LiveEncodePage from "@/pages/LiveEncodePage";
 import ZonesPage from "@/pages/ZonesPage";
+import AttendancePage from "@/pages/AttendancePage";
 import LogsPage from "@/pages/LogsPage";
 import ProfilePage from "@/pages/ProfilePage";
 import CompanySettingsPage from "@/pages/CompanySettingsPage";
@@ -50,6 +51,7 @@ export default function App() {
           <Route path="/encoders/:id" element={<EncoderDetailPage />} />
           <Route path="/live-encode" element={<LiveEncodePage />} />
           <Route path="/zones" element={<ZonesPage />} />
+          <Route path="/attendance" element={<AttendancePage />} />
           <Route path="/logs" element={<LogsPage />} />
           <Route path="/profile" element={<ProfilePage />} />
         </Route>

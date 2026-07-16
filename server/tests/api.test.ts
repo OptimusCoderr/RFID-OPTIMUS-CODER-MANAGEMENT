@@ -21,7 +21,7 @@ const SUPER_ADMIN_PASSWORD = "SuperSecret123!";
 async function resetDb() {
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
-      operation_logs, notifications, card_access_zones, verifications,
+      operation_logs, notifications, card_access_zones, attendance_records, verifications,
       sessions, accounts, jwks, cards, card_templates, access_zones, card_holders,
       encoders, users, companies
     RESTART IDENTITY CASCADE
@@ -187,6 +187,110 @@ describe("company + card lifecycle happy path", () => {
       const res = await request(app).get("/api/cards").set("Authorization", `Bearer ${otherCompanyAdminToken}`);
       expect(res.status).toBe(200);
       expect(res.body.data.some((c: { id: string }) => c.id === cardId)).toBe(false);
+    });
+  });
+
+  describe("attendance", () => {
+    let attendeeCardId: string;
+
+    beforeAll(async () => {
+      const holderRes = await request(app)
+        .post("/api/holders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ fullName: "Attendance Test Student" });
+      const holderId = holderRes.body.id;
+
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04A77E4D01", cardType: "NTAG213" });
+      attendeeCardId = cardRes.body.id;
+
+      await request(app)
+        .post(`/api/cards/${attendeeCardId}/assign`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId });
+    });
+
+    it("rejects recording attendance for a blocked card", async () => {
+      const res = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId }); // blocked in an earlier test in this file
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects recording attendance for a card with no holder assigned", async () => {
+      const unassignedCardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04B0B0B0B0", cardType: "NTAG213" });
+
+      const res = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: unassignedCardRes.body.id });
+      expect(res.status).toBe(400);
+    });
+
+    it("checks a holder in on first tap", async () => {
+      const res = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: attendeeCardId });
+      expect(res.status).toBe(201);
+      expect(res.body.type).toBe("CHECK_IN");
+    });
+
+    it("checks the same holder out on the next tap", async () => {
+      const res = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: attendeeCardId });
+      expect(res.status).toBe(201);
+      expect(res.body.type).toBe("CHECK_OUT");
+    });
+
+    it("tracks a zone's check-in state independently from the general one", async () => {
+      const zoneRes = await request(app)
+        .post("/api/zones")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Lecture Hall A" });
+      const zoneId = zoneRes.body.id;
+
+      const res = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: attendeeCardId, zoneId });
+      expect(res.status).toBe(201);
+      expect(res.body.type).toBe("CHECK_IN"); // independent of the general CHECK_OUT state above
+    });
+
+    it("lists recorded attendance for the company", async () => {
+      const res = await request(app).get("/api/attendance").set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBeGreaterThanOrEqual(3);
+      expect(res.body.data.every((r: { holder: { id: string } }) => r.holder)).toBe(true);
+    });
+
+    it("rejects an operator-below role (VIEWER) from recording attendance", async () => {
+      await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          email: "viewer@integration-test-co.example",
+          password: "ViewerOnly123!",
+          fullName: "Integration Viewer",
+          role: "VIEWER",
+          companyId,
+        });
+      const viewerToken = await loginAs("viewer@integration-test-co.example", "ViewerOnly123!");
+
+      const res = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${viewerToken}`)
+        .send({ cardId: attendeeCardId });
+      expect(res.status).toBe(403);
     });
   });
 });
