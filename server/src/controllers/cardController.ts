@@ -4,7 +4,7 @@ import { prisma } from "../lib/prisma.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { assertCompanyAccess, scopedCompanyId } from "../middleware/rbac.js";
-import { encryptSecret, decryptSecret } from "../utils/crypto.js";
+import { encryptSecret, decryptSecret, generateMifareKey } from "../utils/crypto.js";
 import { logOperation } from "../services/operationLogService.js";
 import { notifyCompanyAdmins } from "../services/notificationService.js";
 import { toCsv } from "../utils/csv.js";
@@ -78,6 +78,45 @@ export const getCardKeys = asyncHandler(async (req: Request, res: Response) => {
   assertCompanyAccess(req, card.companyId);
   if (!card.keysEncrypted) return res.json({ keys: null });
   const keys = JSON.parse(decryptSecret(card.keysEncrypted));
+  res.json({ keys });
+});
+
+const MIFARE_CLASSIC_TYPES = new Set(["MIFARE_CLASSIC_1K", "MIFARE_CLASSIC_4K", "MIFARE_CLASSIC_MINI"]);
+
+// Replaces this card's stored sector keys with freshly generated random ones —
+// one Key A + Key B per sector the card's template defines (or just sector 0
+// if it has none), so distinct cards don't share a guessable/default key.
+// Keys are named `${sector}A` / `${sector}B` in the stored map, matching what
+// the Live Encode "card data" flow looks up per block.
+export const generateCardKeys = asyncHandler(async (req: Request, res: Response) => {
+  const card = await prisma.card.findUnique({ where: { id: req.params.id }, include: { template: true } });
+  if (!card) throw ApiError.notFound("Card not found");
+  assertCompanyAccess(req, card.companyId);
+
+  if (!MIFARE_CLASSIC_TYPES.has(card.cardType)) {
+    throw ApiError.badRequest("Random key generation only applies to MIFARE Classic cards");
+  }
+
+  const sectors = ((card.template?.layout as any)?.sectors as { sector: number }[] | undefined)?.map((s) => s.sector) ?? [0];
+
+  const keys: Record<string, string> = {};
+  for (const sector of new Set(sectors)) {
+    keys[`${sector}A`] = generateMifareKey();
+    keys[`${sector}B`] = generateMifareKey();
+  }
+
+  await prisma.card.update({ where: { id: card.id }, data: { keysEncrypted: encryptSecret(JSON.stringify(keys)) } });
+
+  await logOperation({
+    companyId: card.companyId,
+    cardId: card.id,
+    userId: req.user!.id,
+    operationType: "UPDATE",
+    status: "SUCCESS",
+    // Never log the actual key material — just which sectors were touched.
+    details: { action: "generate_keys", sectors: Array.from(new Set(sectors)) },
+  });
+
   res.json({ keys });
 });
 

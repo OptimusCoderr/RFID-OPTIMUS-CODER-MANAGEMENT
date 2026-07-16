@@ -17,6 +17,12 @@ router.get("/", validate({ query: cardListQuery }), cardController.listCards);
 router.get("/export", validate({ query: cardListQuery }), cardController.exportCards);
 router.get("/:id", validate({ params: idParams }), cardController.getCard);
 router.get("/:id/keys", requireRole(...MANAGER_UP), validate({ params: idParams }), cardController.getCardKeys);
+router.post(
+  "/:id/keys/generate",
+  requireRole(...MANAGER_UP),
+  validate({ params: idParams }),
+  cardController.generateCardKeys
+);
 
 router.post("/", requireRole(...OPERATOR_UP), validate({ body: registerCardBody }), cardController.registerCard);
 router.post("/bulk-import", requireRole(...OPERATOR_UP), cardController.bulkImportCards);

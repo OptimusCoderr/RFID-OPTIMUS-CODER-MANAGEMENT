@@ -7,14 +7,20 @@ import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
+import { useAuth } from "@/context/AuthContext";
 import { formatEnum } from "@/lib/constants";
 import type { Card, CardHolder, Encoder, OperationLog, PaginatedResponse } from "@/types";
 
+const MIFARE_CLASSIC_TYPES = new Set(["MIFARE_CLASSIC_1K", "MIFARE_CLASSIC_4K", "MIFARE_CLASSIC_MINI"]);
+const KEY_MANAGER_ROLES = new Set(["SUPER_ADMIN", "COMPANY_ADMIN", "MANAGER"]);
+
 export default function CardDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [holderId, setHolderId] = useState("");
   const [encoderToGrant, setEncoderToGrant] = useState("");
+  const [revealedKeys, setRevealedKeys] = useState<Record<string, string> | null>(null);
 
   const { data: card, isLoading } = useQuery({
     queryKey: ["card", id],
@@ -76,6 +82,22 @@ export default function CardDetailPage() {
     mutationFn: async (path: string) => api.post(`/cards/${id}/${path}`),
     onSuccess: (_res, path) => {
       toast.success(`Card ${path.replace("un", "un-")}${path === "unassign" ? "ed" : "ed"}`);
+      invalidate();
+    },
+    onError: (err) => toast.error(apiErrorMessage(err)),
+  });
+
+  const viewKeys = useMutation({
+    mutationFn: async () => (await api.get<{ keys: Record<string, string> | null }>(`/cards/${id}/keys`)).data.keys,
+    onSuccess: (keys) => setRevealedKeys(keys ?? {}),
+    onError: (err) => toast.error(apiErrorMessage(err)),
+  });
+
+  const generateKeys = useMutation({
+    mutationFn: async () => (await api.post<{ keys: Record<string, string> }>(`/cards/${id}/keys/generate`)).data.keys,
+    onSuccess: (keys) => {
+      setRevealedKeys(keys);
+      toast.success("Generated new random keys for this card");
       invalidate();
     },
     onError: (err) => toast.error(apiErrorMessage(err)),
@@ -220,6 +242,49 @@ export default function CardDetailPage() {
           <Row label="Issued" value={card.issuedAt ? new Date(card.issuedAt).toLocaleDateString() : "—"} />
           <Row label="Expires" value={card.expiresAt ? new Date(card.expiresAt).toLocaleDateString() : "—"} />
           <Row label="Notes" value={card.notes ?? "—"} />
+
+          {user && KEY_MANAGER_ROLES.has(user.role) && MIFARE_CLASSIC_TYPES.has(card.cardType) && (
+            <>
+              <h3 className="pt-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Sector keys</h3>
+              <p className="text-xs text-slate-400">
+                Random per-card keys mean a lost card doesn't expose every other card's key. Generating replaces the
+                stored keys — commands sent from Live Encode will need the new values.
+              </p>
+              <div className="flex gap-2">
+                <button className="btn-secondary" disabled={viewKeys.isPending} onClick={() => viewKeys.mutate()}>
+                  View keys
+                </button>
+                <button
+                  className="btn-secondary"
+                  disabled={generateKeys.isPending}
+                  onClick={() => {
+                    if (confirm("Generate new random keys for this card? Any previously stored key stops working.")) {
+                      generateKeys.mutate();
+                    }
+                  }}
+                >
+                  Generate random keys
+                </button>
+              </div>
+              {revealedKeys && (
+                <div className="rounded-lg border border-slate-100 p-3 font-mono text-xs dark:border-slate-800">
+                  {Object.keys(revealedKeys).length === 0 ? (
+                    <p className="text-slate-400">No keys stored yet.</p>
+                  ) : (
+                    Object.entries(revealedKeys).map(([name, value]) => (
+                      <div key={name} className="flex justify-between gap-4 py-0.5">
+                        <span className="text-slate-400">Sector {name.slice(0, -1)}, Key {name.slice(-1)}</span>
+                        <span>{value}</span>
+                      </div>
+                    ))
+                  )}
+                  <button className="mt-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200" onClick={() => setRevealedKeys(null)}>
+                    Hide
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
 

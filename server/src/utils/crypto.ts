@@ -39,3 +39,8 @@ export function decryptSecret(payload: string): string {
 export function generateAgentKey(): string {
   return crypto.randomBytes(24).toString("hex");
 }
+
+// A MIFARE Classic sector key is exactly 6 bytes (Key A or Key B).
+export function generateMifareKey(): string {
+  return crypto.randomBytes(6).toString("hex");
+}
