@@ -90,6 +90,7 @@ export function CardDataPanel({
               {assignableTemplates.map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
+                  {t.layout.citizenRecord ? " (encrypted record)" : ""}
                 </option>
               ))}
             </select>

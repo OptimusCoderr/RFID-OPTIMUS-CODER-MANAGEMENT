@@ -279,6 +279,7 @@ export default function LiveEncodePage() {
                   {registerableTemplates.map((t) => (
                     <option key={t.id} value={t.id}>
                       {t.name}
+                      {t.layout.citizenRecord ? " (encrypted record)" : ""}
                     </option>
                   ))}
                 </select>
@@ -330,6 +331,7 @@ export default function LiveEncodePage() {
                   socket={socket}
                   encoderId={encoderId}
                   disabled={liveStatus !== "ONLINE" || cardRestrictedToOtherEncoders}
+                  onCardUpdated={setMatchedCard}
                 />
               )}
             </div>

@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/context/AuthContext";
 import { hasModule } from "@/lib/modules";
 import { CARD_TYPE_OPTIONS, formatEnum, NATIONAL_ID_PRESET_FIELDS, PATIENT_ID_PRESET_FIELDS } from "@/lib/constants";
+import { CITIZEN_RECORD_OVERHEAD_BYTES, estimateNeededBlocks, pickFreeCitizenBlocks } from "@/lib/citizenRecord";
 import type {
   CardTemplate,
   CardType,
@@ -172,7 +173,13 @@ export default function TemplatesPage() {
             <SectorEditor sectors={sectors} setSectors={setSectors} />
           )}
           {isMifareClassic(cardType) && citizenDataEnabled && (
-            <CitizenRecordEditor fields={citizenFields} setFields={setCitizenFields} blocks={citizenBlocks} setBlocks={setCitizenBlocks} />
+            <CitizenRecordEditor
+              fields={citizenFields}
+              setFields={setCitizenFields}
+              blocks={citizenBlocks}
+              setBlocks={setCitizenBlocks}
+              plainSectors={sectors}
+            />
           )}
           {isPageBased(cardType) && <PageEditor pages={pages} setPages={setPages} />}
           {isDesfire(cardType) && <ApplicationEditor applications={applications} setApplications={setApplications} />}
@@ -303,24 +310,34 @@ function BlockEditor({
   );
 }
 
-// Nonce + tag overhead the server reserves per encrypted record — see
-// CARD_RECORD_OVERHEAD_BYTES in server/src/utils/crypto.ts. Duplicated here
-// purely so the template editor can show a live capacity estimate; the
-// server is the actual source of truth and re-validates on write.
-const CITIZEN_RECORD_OVERHEAD_BYTES = 16;
-
 function CitizenRecordEditor({
   fields,
   setFields,
   blocks,
   setBlocks,
+  plainSectors,
 }: {
   fields: string[];
   setFields: (f: string[]) => void;
   blocks: { sector: number; block: number }[];
   setBlocks: (b: { sector: number; block: number }[]) => void;
+  plainSectors: MifareSectorLayout[];
 }) {
   const capacity = blocks.length * 16 - CITIZEN_RECORD_OVERHEAD_BYTES;
+
+  // Picks free blocks for the given field set, avoiding anything already
+  // claimed by the template's plain labeled blocks above. In append mode
+  // (the standalone "Auto-fill blocks" button) it tops up the existing
+  // block list rather than replacing it, so re-running it after adding one
+  // more field doesn't reshuffle blocks already in use.
+  function autoFillBlocksFor(fieldList: string[], appendMode: boolean) {
+    const needed = estimateNeededBlocks(fieldList);
+    const usedFromPlainSectors = plainSectors.flatMap((s) => (s.blocks ?? []).map((b) => ({ sector: s.sector, block: b.block })));
+    const baseBlocks = appendMode ? blocks : [];
+    const stillNeeded = Math.max(0, needed - baseBlocks.length);
+    const picked = pickFreeCitizenBlocks(stillNeeded, [...usedFromPlainSectors, ...baseBlocks]);
+    setBlocks([...baseBlocks, ...picked]);
+  }
 
   return (
     <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
@@ -338,16 +355,22 @@ function CitizenRecordEditor({
             <button
               type="button"
               className="btn-secondary"
-              title="Fill in the standard National ID field set"
-              onClick={() => setFields(NATIONAL_ID_PRESET_FIELDS)}
+              title="Fill in the standard National ID field set and pick blocks to fit it"
+              onClick={() => {
+                setFields(NATIONAL_ID_PRESET_FIELDS);
+                autoFillBlocksFor(NATIONAL_ID_PRESET_FIELDS, false);
+              }}
             >
               Load National ID preset
             </button>
             <button
               type="button"
               className="btn-secondary"
-              title="Fill in a patient identification field set"
-              onClick={() => setFields(PATIENT_ID_PRESET_FIELDS)}
+              title="Fill in a patient identification field set and pick blocks to fit it"
+              onClick={() => {
+                setFields(PATIENT_ID_PRESET_FIELDS);
+                autoFillBlocksFor(PATIENT_ID_PRESET_FIELDS, false);
+              }}
             >
               Load Patient ID preset
             </button>
@@ -383,9 +406,20 @@ function CitizenRecordEditor({
       <div>
         <div className="mb-1 flex items-center justify-between">
           <span className="text-xs font-medium text-slate-500">Blocks (sector + block, in write order)</span>
-          <button type="button" className="btn-secondary" onClick={() => setBlocks([...blocks, { sector: 0, block: blocks.length }])}>
-            <Plus size={12} /> Add block
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="btn-secondary"
+              title="Pick enough free blocks to fit the fields above, without touching blocks already chosen"
+              disabled={fields.length === 0}
+              onClick={() => autoFillBlocksFor(fields, true)}
+            >
+              Auto-fill blocks
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => setBlocks([...blocks, { sector: 0, block: blocks.length }])}>
+              <Plus size={12} /> Add block
+            </button>
+          </div>
         </div>
         <div className="space-y-1.5">
           {blocks.map((b, i) => (

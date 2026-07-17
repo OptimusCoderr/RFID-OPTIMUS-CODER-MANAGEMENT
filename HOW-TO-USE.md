@@ -427,7 +427,14 @@ that, a template can define an **encrypted citizen record** instead: a list
 of field names (e.g. `fullName`, `nationalId`, `dob`) plus an ordered list of
 blocks (any sector, mix freely) that together hold one AES-256-GCM encrypted
 blob. Configure it in the same template modal as the plain blocks, in its own
-"Encrypted citizen record" section.
+"Encrypted citizen record" section — **Load National ID preset** /
+**Load Patient ID preset** fill in both the field list and a working set of
+blocks in one click (an **Auto-fill blocks** button does the same for a
+custom field list), so setting one up doesn't require hand-computing MIFARE
+sector/block numbers. The suggested blocks stay fully editable and are
+capped at the same 16-block maximum the server enforces — none of this
+changes what's actually written to the card or how it's encrypted, it just
+picks a starting layout for you.
 
 The important difference from the plain blocks: **the encryption key never
 reaches the browser.** Where the plain Card data panel hex-encodes text
@@ -436,7 +443,9 @@ has to see to authenticate a read/write), the encrypted flow works like
 this instead —
 
 1. You type the field values into the **Encrypted citizen data** panel and
-   click **Encrypt & write**.
+   click **Encrypt & write**. A live "X / Y bytes used" line under the
+   fields tracks capacity as you type, so an oversized record is obvious
+   before you try to write it, not after.
 2. The browser sends the plain values to the server, which combines them,
    encrypts the result with this card's own random data key (generated
    alongside its sector keys — [above](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)),
@@ -447,6 +456,12 @@ this instead —
 4. **Read from card** works in reverse: the browser reads the raw
    (encrypted) bytes off the card and sends them to the server, which
    decrypts and returns the field values for display.
+
+A card that's never had its keys generated has no data key yet, so writing
+citizen data to it would fail — the **Encrypted citizen data** panel checks
+for this and shows a **Generate keys** button right there instead of a
+failed write, calling the same key generation as the Sector keys panel
+above (still random, still server-side, still per card).
 
 Because a tampered card fails to decrypt outright (AES-GCM detects it) rather
 than returning corrupted-looking data, this also gives you tamper-evidence
@@ -861,24 +876,29 @@ actions if you want to prevent it being used while out of service.
 2. Create a MIFARE Classic template with an **encrypted citizen record**
    ([6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)).
    Click **Load National ID preset** in the citizen record editor to fill in
-   the standard field set — full name, National Identity Number (NIN), date
-   of birth, state of origin, licensed-to-vote, licensed-to-drive, and
-   government-worker-ID flags — then adjust field names/order as your
-   scheme needs. You still choose the sector/block layout yourself (which
-   sectors are free depends on your card stock and lock hardware); 6+ blocks
-   is a reasonable starting point to fit the preset's fields as compact
-   JSON. Keep values short: initials over full middle names, compact date
-   formats (`YYMMDD`), short codes over free text.
+   both the standard field set — full name, National Identity Number (NIN),
+   date of birth, state of origin, licensed-to-vote, licensed-to-drive, and
+   government-worker-ID flags — and a starting block layout sized to fit it,
+   in one click; adjust field names/order and the suggested blocks as your
+   scheme needs (which sectors are actually free depends on your card stock
+   and lock hardware — re-run **Auto-fill blocks** after editing the field
+   list). Keep values short regardless: initials over full middle names,
+   compact date formats (`YYMMDD`), short codes over free text — the 16-block
+   maximum leaves real but limited room once compact JSON overhead is
+   accounted for, and the citizen data panel shows a live byte count as you
+   fill in values so you'll see it coming rather than finding out on write.
    **The preset deliberately doesn't include fingerprint data** — this
    platform talks to RFID/NFC PC/SC encoders, not fingerprint scanners, so
    there's no hardware path to capture or verify a print. If your scheme
    needs biometric verification, that requires separate fingerprint
    hardware and its own integration; don't fake it with a placeholder
    field.
-3. At enrollment: register the citizen's card, **Generate random keys** on
-   it (a lost card then only ever exposes its own single record, not every
-   citizen's), then use the **Encrypted citizen data** panel in Live Encode
-   to write their details.
+3. At enrollment: register the citizen's card (picking this template inline
+   registers it template-and-all), then open the **Encrypted citizen data**
+   panel in Live Encode. A card that's never had its keys generated shows a
+   **Generate keys** button right there (a lost card then only ever exposes
+   its own single record, not every citizen's) — generate them, then write
+   their details.
 4. At a checkpoint: tap the card, **Read from card** — the panel decrypts
    and shows the fields; nothing is exposed if the card is cloned or read by
    a different tool, since it holds only ciphertext.
