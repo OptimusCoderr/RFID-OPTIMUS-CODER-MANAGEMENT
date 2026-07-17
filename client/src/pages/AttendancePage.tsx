@@ -1,10 +1,11 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { Download, Radio, Play, Square, RotateCcw, Save } from "lucide-react";
+import { Download, Radio, Play, Square, RotateCcw, Plus, Pencil, Trash2, Save } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage, downloadCsv } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Modal } from "@/components/ui/Modal";
 import { Badge } from "@/components/ui/Badge";
 import { FullPageSpinner, Spinner } from "@/components/ui/Spinner";
 import { useSocket } from "@/context/SocketContext";
@@ -19,18 +20,28 @@ const STATE_LABELS: Record<AttendanceSession["state"]["reason"], string> = {
   manual_closed: "Stopped manually",
   scheduled_open: "Within scheduled hours",
   scheduled_closed: "Outside scheduled hours",
-  no_schedule: "No schedule set — always open",
+  no_schedule: "No days/times set — always open",
 };
 
 interface ScheduleFormState {
+  encoderId: string;
   zoneId: string;
   label: string;
+  description: string;
   daysOfWeek: number[];
   startTime: string;
   endTime: string;
 }
 
-const EMPTY_SCHEDULE: ScheduleFormState = { zoneId: "", label: "", daysOfWeek: [], startTime: "", endTime: "" };
+const EMPTY_SCHEDULE: ScheduleFormState = {
+  encoderId: "",
+  zoneId: "",
+  label: "",
+  description: "",
+  daysOfWeek: [],
+  startTime: "",
+  endTime: "",
+};
 
 interface FeedEntry {
   id: string;
@@ -66,68 +77,99 @@ export default function AttendancePage() {
     if (!encoderId) setEncoderId(encoders[0].id);
   }, [encoders, encoderId]);
 
-  const { data: session } = useQuery({
-    queryKey: ["attendance-session", encoderId],
-    queryFn: async () => (await api.get<AttendanceSession | null>(`/attendance-sessions/${encoderId}`)).data,
-    enabled: !!encoderId,
-    // Re-fetches itself right around the next open/close boundary so the
-    // isOpen/reason/badge stay correct without polling constantly.
+  // One encoder can host many independent schedules — like a lecture hall
+  // with several different courses through the week. This list is the
+  // single source of truth for both the "Take attendance" closed-banner and
+  // the "Saved schedules" table below.
+  const { data: allSessions } = useQuery({
+    queryKey: ["attendance-sessions"],
+    queryFn: async () => (await api.get<AttendanceSession[]>("/attendance-sessions")).data,
+    // Re-fetches itself right around the next schedule to flip open/closed
+    // anywhere in the list, so badges/countdowns stay correct without
+    // polling constantly.
     refetchInterval: (query) => {
-      const boundary = query.state.data?.state.nextBoundaryAt;
-      if (!boundary) return false;
-      const ms = new Date(boundary).getTime() - Date.now();
+      const sessions = query.state.data;
+      if (!sessions || sessions.length === 0) return false;
+      const boundaries = sessions
+        .map((s) => s.state.nextBoundaryAt)
+        .filter((b): b is string => Boolean(b))
+        .map((b) => new Date(b).getTime());
+      if (boundaries.length === 0) return false;
+      const ms = Math.min(...boundaries) - Date.now();
       return ms > 0 ? ms + 250 : 500;
     },
   });
 
+  const encoderSessions = useMemo(() => allSessions?.filter((s) => s.encoderId === encoderId) ?? [], [allSessions, encoderId]);
+  const encoderClosed = encoderSessions.length > 0 && !encoderSessions.some((s) => s.state.isOpen);
+
+  // --- Schedule CRUD (New schedule / Edit modal) ---
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [scheduleForm, setScheduleForm] = useState<ScheduleFormState>(EMPTY_SCHEDULE);
 
-  useEffect(() => {
-    if (session) {
-      setScheduleForm({
-        zoneId: session.zoneId ?? "",
-        label: session.label ?? "",
-        daysOfWeek: session.daysOfWeek,
-        startTime: session.startTime ?? "",
-        endTime: session.endTime ?? "",
-      });
-    } else {
-      setScheduleForm(EMPTY_SCHEDULE);
-    }
-  }, [session, encoderId]);
+  function openCreateModal() {
+    setEditingId(null);
+    setScheduleForm({ ...EMPTY_SCHEDULE, encoderId });
+    setModalOpen(true);
+  }
+
+  function openEditModal(s: AttendanceSession) {
+    setEditingId(s.id);
+    setScheduleForm({
+      encoderId: s.encoderId,
+      zoneId: s.zoneId ?? "",
+      label: s.label,
+      description: s.description ?? "",
+      daysOfWeek: s.daysOfWeek,
+      startTime: s.startTime ?? "",
+      endTime: s.endTime ?? "",
+    });
+    setModalOpen(true);
+  }
 
   const saveSchedule = useMutation({
-    mutationFn: async () =>
-      (
-        await api.put<AttendanceSession>(`/attendance-sessions/${encoderId}`, {
-          zoneId: scheduleForm.zoneId || null,
-          label: scheduleForm.label || null,
-          daysOfWeek: scheduleForm.daysOfWeek,
-          startTime: scheduleForm.startTime || null,
-          endTime: scheduleForm.endTime || null,
-        })
-      ).data,
+    mutationFn: async () => {
+      const body = {
+        encoderId: scheduleForm.encoderId,
+        zoneId: scheduleForm.zoneId || null,
+        label: scheduleForm.label.trim(),
+        description: scheduleForm.description.trim() || null,
+        daysOfWeek: scheduleForm.daysOfWeek,
+        startTime: scheduleForm.startTime || null,
+        endTime: scheduleForm.endTime || null,
+      };
+      return editingId
+        ? (await api.patch<AttendanceSession>(`/attendance-sessions/${editingId}`, body)).data
+        : (await api.post<AttendanceSession>("/attendance-sessions", body)).data;
+    },
     onSuccess: () => {
-      toast.success("Session schedule saved");
-      queryClient.invalidateQueries({ queryKey: ["attendance-session", encoderId] });
+      toast.success(editingId ? "Schedule updated" : "Schedule created");
+      queryClient.invalidateQueries({ queryKey: ["attendance-sessions"] });
+      setModalOpen(false);
     },
     onError: (err) => toast.error(apiErrorMessage(err, "Could not save schedule")),
   });
 
-  const setOverride = useMutation({
-    mutationFn: async (manualOverride: ManualOverride) =>
-      (await api.patch<AttendanceSession>(`/attendance-sessions/${encoderId}/override`, { manualOverride })).data,
-    onSuccess: (_data, manualOverride) => {
-      toast.success(
-        manualOverride === "FORCE_OPEN"
-          ? "Attendance started"
-          : manualOverride === "FORCE_CLOSED"
-            ? "Attendance stopped"
-            : "Resumed the saved schedule"
-      );
-      queryClient.invalidateQueries({ queryKey: ["attendance-session", encoderId] });
+  const deleteSchedule = useMutation({
+    mutationFn: async (id: string) => api.delete(`/attendance-sessions/${id}`),
+    onSuccess: () => {
+      toast.success("Schedule deleted");
+      queryClient.invalidateQueries({ queryKey: ["attendance-sessions"] });
     },
-    onError: (err) => toast.error(apiErrorMessage(err, "Could not update the session")),
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not delete schedule")),
+  });
+
+  const setOverride = useMutation({
+    mutationFn: async ({ id, manualOverride }: { id: string; manualOverride: ManualOverride }) =>
+      (await api.patch<AttendanceSession>(`/attendance-sessions/${id}/override`, { manualOverride })).data,
+    onSuccess: (_data, { manualOverride }) => {
+      toast.success(
+        manualOverride === "FORCE_OPEN" ? "Schedule started" : manualOverride === "FORCE_CLOSED" ? "Schedule stopped" : "Schedule resumed"
+      );
+      queryClient.invalidateQueries({ queryKey: ["attendance-sessions"] });
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not update the schedule")),
   });
 
   function handleScheduleSubmit(e: FormEvent) {
@@ -143,7 +185,6 @@ export default function AttendancePage() {
   }
 
   const now = useNow(1000);
-  const countdownMs = session?.state.nextBoundaryAt ? new Date(session.state.nextBoundaryAt).getTime() - now.getTime() : null;
 
   function pushFeed(message: string, tone: FeedEntry["tone"]) {
     setFeed((prev) => [{ id: crypto.randomUUID(), at: new Date(), message, tone }, ...prev].slice(0, 50));
@@ -230,8 +271,8 @@ export default function AttendancePage() {
         description="Tap cards to check holders in/out — for lecture attendance, shift tracking, or event entry."
       />
 
-      <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="card p-5 lg:col-span-1">
+      <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="card p-5">
           <h3 className="mb-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Take attendance</h3>
           <label className="label">Encoder</label>
           <select className="input mb-3" value={encoderId} onChange={(e) => setEncoderId(e.target.value)}>
@@ -255,9 +296,9 @@ export default function AttendancePage() {
             <Badge tone={selectedEncoder?.status}>{selectedEncoder?.status ?? "—"}</Badge>
             <span className="text-xs text-slate-400">{connected ? "Live updates connected" : "Connecting..."}</span>
           </div>
-          {session && !session.state.isOpen && (
+          {encoderClosed && (
             <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-              Attendance is currently closed for this encoder — taps will be rejected until it opens or you start it manually.
+              None of this encoder's schedules are currently open — taps will be rejected until one opens or you start one manually below.
             </div>
           )}
           <div className="mt-4 flex items-center gap-2 text-sm text-slate-500">
@@ -269,98 +310,7 @@ export default function AttendancePage() {
           </p>
         </div>
 
-        <div className="card p-5 lg:col-span-1">
-          <h3 className="mb-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Session schedule</h3>
-          {!encoderId ? (
-            <p className="text-sm text-slate-400">Select an encoder to configure its schedule.</p>
-          ) : (
-            <>
-              <div className="mb-3 flex items-center gap-2">
-                <Badge tone={session?.state.isOpen ? "ACTIVE" : "BLOCKED"}>{session?.state.isOpen ? "Open" : "Closed"}</Badge>
-                <span className="text-xs text-slate-400">{session ? STATE_LABELS[session.state.reason] : "No schedule set — always open"}</span>
-              </div>
-              {countdownMs !== null && countdownMs > 0 && (
-                <p className="mb-3 font-mono text-lg text-slate-700 dark:text-slate-200">
-                  {formatCountdown(countdownMs)}
-                  <span className="ml-2 text-xs font-sans text-slate-400">until {session?.state.isOpen ? "close" : "open"}</span>
-                </p>
-              )}
-
-              <div className="mb-3 flex flex-wrap gap-2">
-                {session?.manualOverride !== "FORCE_OPEN" && (
-                  <button className="btn-secondary" onClick={() => setOverride.mutate("FORCE_OPEN")} disabled={setOverride.isPending}>
-                    <Play size={14} /> Start now
-                  </button>
-                )}
-                {session?.manualOverride !== "FORCE_CLOSED" && (
-                  <button className="btn-secondary" onClick={() => setOverride.mutate("FORCE_CLOSED")} disabled={setOverride.isPending}>
-                    <Square size={14} /> Stop now
-                  </button>
-                )}
-                {session && session.manualOverride !== "NONE" && (
-                  <button className="btn-secondary" onClick={() => setOverride.mutate("NONE")} disabled={setOverride.isPending}>
-                    <RotateCcw size={14} /> Resume schedule
-                  </button>
-                )}
-              </div>
-
-              <form onSubmit={handleScheduleSubmit} className="space-y-3 border-t border-slate-100 pt-3 dark:border-slate-800">
-                <div>
-                  <label className="label">Days</label>
-                  <div className="flex flex-wrap gap-1">
-                    {DAY_LABELS.map((d, i) => (
-                      <button
-                        key={d}
-                        type="button"
-                        className={scheduleForm.daysOfWeek.includes(i) ? "btn-primary px-2 py-1 text-xs" : "btn-secondary px-2 py-1 text-xs"}
-                        onClick={() => toggleDay(i)}
-                      >
-                        {d}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <label className="label">Start time</label>
-                    <input
-                      type="time"
-                      className="input"
-                      value={scheduleForm.startTime}
-                      onChange={(e) => setScheduleForm((f) => ({ ...f, startTime: e.target.value }))}
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="label">End time</label>
-                    <input
-                      type="time"
-                      className="input"
-                      value={scheduleForm.endTime}
-                      onChange={(e) => setScheduleForm((f) => ({ ...f, endTime: e.target.value }))}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="label">Label (optional)</label>
-                  <input
-                    className="input"
-                    placeholder="e.g. CS101 Lecture"
-                    value={scheduleForm.label}
-                    onChange={(e) => setScheduleForm((f) => ({ ...f, label: e.target.value }))}
-                  />
-                </div>
-                <button type="submit" className="btn-primary w-full" disabled={saveSchedule.isPending}>
-                  {saveSchedule.isPending ? <Spinner className="h-4 w-4 text-white" /> : <Save size={16} />} Save schedule
-                </button>
-                <p className="text-xs text-slate-400">
-                  Leave days and times blank for an always-open encoder. Start/Stop above overrides the schedule until resumed.
-                </p>
-              </form>
-            </>
-          )}
-        </div>
-
-        <div className="card p-5 lg:col-span-1">
+        <div className="card p-5">
           <h3 className="mb-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Live feed</h3>
           <div className="max-h-72 space-y-1 overflow-y-auto font-mono text-xs">
             {feed.map((entry) => (
@@ -372,6 +322,121 @@ export default function AttendancePage() {
             {feed.length === 0 && <p className="text-slate-400">No taps yet.</p>}
           </div>
         </div>
+      </div>
+
+      <div className="card mb-6 overflow-hidden">
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-300">Saved schedules</h3>
+            <p className="text-xs text-slate-400">
+              One encoder can host several independent schedules — like a lecture hall with different courses through
+              the week.
+            </p>
+          </div>
+          <button className="btn-primary whitespace-nowrap" onClick={openCreateModal}>
+            <Plus size={16} /> New schedule
+          </button>
+        </div>
+        <table className="w-full text-sm">
+          <thead className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">
+            <tr>
+              <th className="px-4 py-3">Label</th>
+              <th className="px-4 py-3">Description</th>
+              <th className="px-4 py-3">Encoder</th>
+              <th className="px-4 py-3">Days</th>
+              <th className="px-4 py-3">Time</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            {allSessions?.map((s) => {
+              const countdownMs = s.state.nextBoundaryAt ? new Date(s.state.nextBoundaryAt).getTime() - now.getTime() : null;
+              return (
+                <tr key={s.id}>
+                  <td className="px-4 py-3 font-medium">{s.label}</td>
+                  <td className="max-w-xs truncate px-4 py-3 text-slate-500" title={s.description ?? undefined}>
+                    {s.description || "—"}
+                  </td>
+                  <td className="px-4 py-3 text-slate-500">{s.encoder?.name ?? "—"}</td>
+                  <td className="px-4 py-3 text-slate-500">
+                    {s.daysOfWeek.length > 0 ? s.daysOfWeek.map((d) => DAY_LABELS[d]).join(", ") : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-slate-500">
+                    {s.startTime && s.endTime ? `${s.startTime}–${s.endTime}` : "—"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span title={STATE_LABELS[s.state.reason]}>
+                      <Badge tone={s.state.isOpen ? "ACTIVE" : "BLOCKED"}>{s.state.isOpen ? "Open" : "Closed"}</Badge>
+                    </span>
+                    {countdownMs !== null && countdownMs > 0 && (
+                      <div className="mt-0.5 font-mono text-xs text-slate-400">
+                        {formatCountdown(countdownMs)} {s.state.isOpen ? "left" : "to open"}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      {s.manualOverride !== "FORCE_OPEN" && (
+                        <button
+                          className="text-slate-400 hover:text-emerald-600"
+                          title="Start now"
+                          disabled={setOverride.isPending}
+                          onClick={() => setOverride.mutate({ id: s.id, manualOverride: "FORCE_OPEN" })}
+                        >
+                          <Play size={15} />
+                        </button>
+                      )}
+                      {s.manualOverride !== "FORCE_CLOSED" && (
+                        <button
+                          className="text-slate-400 hover:text-red-600"
+                          title="Stop now"
+                          disabled={setOverride.isPending}
+                          onClick={() => setOverride.mutate({ id: s.id, manualOverride: "FORCE_CLOSED" })}
+                        >
+                          <Square size={15} />
+                        </button>
+                      )}
+                      {s.manualOverride !== "NONE" && (
+                        <button
+                          className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                          title="Resume schedule"
+                          disabled={setOverride.isPending}
+                          onClick={() => setOverride.mutate({ id: s.id, manualOverride: "NONE" })}
+                        >
+                          <RotateCcw size={15} />
+                        </button>
+                      )}
+                      <button
+                        className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                        title="Edit schedule"
+                        onClick={() => openEditModal(s)}
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        className="text-slate-400 hover:text-red-600"
+                        title="Delete schedule"
+                        onClick={() => {
+                          if (confirm(`Delete "${s.label}"? This cannot be undone.`)) deleteSchedule.mutate(s.id);
+                        }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {allSessions?.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
+                  No schedules saved yet — click "New schedule" to add one.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -462,6 +527,107 @@ export default function AttendancePage() {
           )}
         </div>
       )}
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? "Edit schedule" : "New schedule"}>
+        <form onSubmit={handleScheduleSubmit} className="space-y-3">
+          <div>
+            <label className="label">Encoder</label>
+            <select
+              className="input"
+              required
+              value={scheduleForm.encoderId}
+              onChange={(e) => setScheduleForm((f) => ({ ...f, encoderId: e.target.value }))}
+            >
+              <option value="">Select an encoder…</option>
+              {encoders?.map((enc) => (
+                <option key={enc.id} value={enc.id}>
+                  {enc.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Label</label>
+            <input
+              className="input"
+              required
+              placeholder="e.g. CS101 Lecture, or Front Desk Shift"
+              value={scheduleForm.label}
+              onChange={(e) => setScheduleForm((f) => ({ ...f, label: e.target.value }))}
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              Required — identifies this schedule, e.g. the subject or department taking attendance.
+            </p>
+          </div>
+          <div>
+            <label className="label">Description (optional)</label>
+            <textarea
+              className="input"
+              rows={2}
+              placeholder="e.g. Room 204, Tuesdays/Thursdays only during exam weeks"
+              value={scheduleForm.description}
+              onChange={(e) => setScheduleForm((f) => ({ ...f, description: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="label">Zone / session (optional)</label>
+            <select className="input" value={scheduleForm.zoneId} onChange={(e) => setScheduleForm((f) => ({ ...f, zoneId: e.target.value }))}>
+              <option value="">General (no zone)</option>
+              {zones?.map((z) => (
+                <option key={z.id} value={z.id}>
+                  {z.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Days</label>
+            <div className="flex flex-wrap gap-1">
+              {DAY_LABELS.map((d, i) => (
+                <button
+                  key={d}
+                  type="button"
+                  className={scheduleForm.daysOfWeek.includes(i) ? "btn-primary px-2 py-1 text-xs" : "btn-secondary px-2 py-1 text-xs"}
+                  onClick={() => toggleDay(i)}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="label">Start time</label>
+              <input
+                type="time"
+                className="input"
+                value={scheduleForm.startTime}
+                onChange={(e) => setScheduleForm((f) => ({ ...f, startTime: e.target.value }))}
+              />
+            </div>
+            <div className="flex-1">
+              <label className="label">End time</label>
+              <input
+                type="time"
+                className="input"
+                value={scheduleForm.endTime}
+                onChange={(e) => setScheduleForm((f) => ({ ...f, endTime: e.target.value }))}
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            className="btn-primary w-full"
+            disabled={saveSchedule.isPending || !scheduleForm.encoderId || !scheduleForm.label.trim()}
+          >
+            {saveSchedule.isPending ? <Spinner className="h-4 w-4 text-white" /> : <Save size={16} />}
+            {editingId ? "Save changes" : "Create schedule"}
+          </button>
+          <p className="text-xs text-slate-400">
+            Leave days and times blank for a schedule that's always open until you stop it manually.
+          </p>
+        </form>
+      </Modal>
     </div>
   );
 }

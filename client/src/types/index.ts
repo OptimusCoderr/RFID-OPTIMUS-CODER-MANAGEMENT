@@ -297,7 +297,8 @@ export interface AttendanceSession {
   encoder?: { id: string; name: string } | null;
   zoneId?: string | null;
   zone?: { id: string; name: string } | null;
-  label?: string | null;
+  label: string;
+  description?: string | null;
   daysOfWeek: number[];
   startTime?: string | null;
   endTime?: string | null;

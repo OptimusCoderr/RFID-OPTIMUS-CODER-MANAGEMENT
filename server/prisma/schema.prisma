@@ -353,11 +353,11 @@ model Encoder {
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
 
-  cardsRegistered   Card[]                  @relation("RegisteredByEncoder")
-  operationLogs     OperationLog[]
-  cardAllocations   CardEncoderAllocation[]
-  attendanceRecords AttendanceRecord[]
-  attendanceSession AttendanceSession?
+  cardsRegistered    Card[]                  @relation("RegisteredByEncoder")
+  operationLogs      OperationLog[]
+  cardAllocations    CardEncoderAllocation[]
+  attendanceRecords  AttendanceRecord[]
+  attendanceSessions AttendanceSession[]
 
   @@index([companyId])
   @@map("encoders")
@@ -538,29 +538,36 @@ model AttendanceRecord {
   @@map("attendance_records")
 }
 
-// A recurring class/shift schedule for one encoder (e.g. "CS101 Lecture,
-// Mon/Wed/Fri 09:00-10:00") plus a manual override — the "start at will /
-// stop at will" buttons on the Attendance page. Whether the encoder is
-// currently accepting attendance taps is computed live from these fields
-// (see computeSessionState in attendanceSessionService.ts), not by a
-// background job flipping a stored flag — the same live-check pattern
-// already used for Card.expiresAt and CardEncoderAllocation.expiresAt,
-// which avoids a manual override being clobbered by the next cron tick.
-// Optional per encoder: an encoder with no session row is unrestricted
-// (any tap is accepted), matching every other opt-in restriction in this
-// app.
+// A recurring class/shift schedule (e.g. "CS101 Lecture, Mon/Wed/Fri
+// 09:00-10:00") plus its own manual override — the "start at will / stop at
+// will" buttons on the Attendance page. One encoder can have many of these,
+// like a university lecture hall hosting several different courses through
+// the week — each schedule is independently named, edited, deleted, and
+// started/stopped; encoderId is deliberately NOT unique. Whether a given
+// schedule is currently open is computed live from its own fields (see
+// computeSessionState in attendanceSessionService.ts), not by a background
+// job flipping a stored flag — the same live-check pattern already used for
+// Card.expiresAt and CardEncoderAllocation.expiresAt, which avoids a manual
+// override being clobbered by the next cron tick. Whether the *encoder* as
+// a whole currently accepts a tap is the OR of all its schedules' states
+// (see computeEncoderOpenState) — an encoder with zero saved schedules is
+// unrestricted, matching every other opt-in restriction in this app.
 model AttendanceSession {
   id        String  @id @default(uuid())
   companyId String
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  encoderId String  @unique
+  encoderId String
   encoder   Encoder @relation(fields: [encoderId], references: [id], onDelete: Cascade)
 
   zoneId String?
   zone   AccessZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
 
-  label String?
+  // Required — this is the only thing that tells two schedules apart in the
+  // saved-schedules table (e.g. "CS101 Lecture" vs "Front Desk Shift"), so a
+  // blank one would make that list useless.
+  label       String
+  description String?
 
   // 0 = Sunday .. 6 = Saturday. Empty means no recurring schedule is
   // configured (only the manual override applies).
@@ -577,6 +584,7 @@ model AttendanceSession {
   updatedAt DateTime @updatedAt
 
   @@index([companyId])
+  @@index([encoderId])
   @@map("attendance_sessions")
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeSessionState, type SessionScheduleInput } from "./attendanceSessionService.js";
+import { computeSessionState, computeEncoderOpenState, type SessionScheduleInput } from "./attendanceSessionService.js";
 
 // Wednesday, 10:00 local time — a fixed reference point so schedule math
 // (day-of-week, minutes-of-day) doesn't depend on when the suite runs.
@@ -77,5 +77,32 @@ describe("computeSessionState", () => {
     );
     // Wednesday's window already passed today, so the next one is tomorrow (Thursday).
     expect(state.nextBoundaryAt).toEqual(new Date(2026, 0, 8, 7, 0, 0));
+  });
+});
+
+describe("computeEncoderOpenState", () => {
+  it("an encoder with zero schedules is unrestricted", () => {
+    expect(computeEncoderOpenState([], WEDNESDAY_10AM)).toEqual({ isOpen: true, openSessionId: null });
+  });
+
+  it("is open if any one of several schedules is open — like a lecture hall hosting multiple courses", () => {
+    const closedCourse = { id: "cs101", ...schedule({ daysOfWeek: [WEDNESDAY], startTime: "07:00", endTime: "08:00" }) };
+    const openCourse = { id: "math201", ...schedule({ daysOfWeek: [WEDNESDAY], startTime: "09:00", endTime: "11:00" }) };
+    const state = computeEncoderOpenState([closedCourse, openCourse], WEDNESDAY_10AM);
+    expect(state).toEqual({ isOpen: true, openSessionId: "math201" });
+  });
+
+  it("is closed only when every schedule is closed", () => {
+    const courseA = { id: "cs101", ...schedule({ daysOfWeek: [WEDNESDAY], startTime: "07:00", endTime: "08:00" }) };
+    const courseB = { id: "math201", ...schedule({ daysOfWeek: [WEDNESDAY], startTime: "14:00", endTime: "16:00" }) };
+    const state = computeEncoderOpenState([courseA, courseB], WEDNESDAY_10AM);
+    expect(state).toEqual({ isOpen: false, openSessionId: null });
+  });
+
+  it("a manually stopped schedule doesn't prevent a sibling schedule from being open", () => {
+    const stopped = { id: "cs101", ...schedule({ manualOverride: "FORCE_CLOSED", daysOfWeek: [WEDNESDAY], startTime: "09:00", endTime: "11:00" }) };
+    const open = { id: "math201", ...schedule({ daysOfWeek: [WEDNESDAY], startTime: "09:00", endTime: "11:00" }) };
+    const state = computeEncoderOpenState([stopped, open], WEDNESDAY_10AM);
+    expect(state).toEqual({ isOpen: true, openSessionId: "math201" });
   });
 });

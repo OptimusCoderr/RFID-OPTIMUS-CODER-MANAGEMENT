@@ -16,62 +16,80 @@ function withState<T extends { daysOfWeek: number[]; startTime: string | null; e
   return { ...session, state: computeSessionState(session) };
 }
 
+async function loadEncoder(req: Request, encoderId: string) {
+  const encoder = await prisma.encoder.findUnique({ where: { id: encoderId } });
+  if (!encoder) throw ApiError.notFound("Encoder not found");
+  assertCompanyAccess(req, encoder.companyId);
+  return encoder;
+}
+
+async function loadSession(req: Request, id: string) {
+  const session = await prisma.attendanceSession.findUnique({ where: { id } });
+  if (!session) throw ApiError.notFound("Schedule not found");
+  assertCompanyAccess(req, session.companyId);
+  return session;
+}
+
+async function assertZoneBelongsToCompany(zoneId: string | null | undefined, companyId: string) {
+  if (!zoneId) return;
+  const zone = await prisma.accessZone.findUnique({ where: { id: zoneId } });
+  if (!zone || zone.companyId !== companyId) {
+    throw ApiError.badRequest("Zone does not belong to this company");
+  }
+}
+
 export const listAttendanceSessions = asyncHandler(async (req: Request, res: Response) => {
   const companyId = scopedCompanyId(req);
+  const { encoderId } = req.query as { encoderId?: string };
   const sessions = await prisma.attendanceSession.findMany({
-    where: companyId ? { companyId } : {},
+    where: { ...(companyId ? { companyId } : {}), ...(encoderId ? { encoderId } : {}) },
     include: SESSION_INCLUDE,
     orderBy: { createdAt: "asc" },
   });
   res.json(sessions.map(withState));
 });
 
-export const getAttendanceSession = asyncHandler(async (req: Request, res: Response) => {
-  const encoder = await prisma.encoder.findUnique({ where: { id: req.params.encoderId } });
-  if (!encoder) throw ApiError.notFound("Encoder not found");
-  assertCompanyAccess(req, encoder.companyId);
+export const createAttendanceSession = asyncHandler(async (req: Request, res: Response) => {
+  const { encoderId, zoneId, label, description, daysOfWeek, startTime, endTime } = req.body;
+  const encoder = await loadEncoder(req, encoderId);
+  await assertZoneBelongsToCompany(zoneId, encoder.companyId);
 
-  const session = await prisma.attendanceSession.findUnique({
-    where: { encoderId: req.params.encoderId },
-    include: SESSION_INCLUDE,
-  });
-  if (!session) {
-    res.json(null);
-    return;
-  }
-  res.json(withState(session));
-});
-
-export const upsertAttendanceSession = asyncHandler(async (req: Request, res: Response) => {
-  const encoder = await prisma.encoder.findUnique({ where: { id: req.params.encoderId } });
-  if (!encoder) throw ApiError.notFound("Encoder not found");
-  assertCompanyAccess(req, encoder.companyId);
-
-  const { zoneId, label, daysOfWeek, startTime, endTime } = req.body;
-  if (zoneId) {
-    const zone = await prisma.accessZone.findUnique({ where: { id: zoneId } });
-    if (!zone || zone.companyId !== encoder.companyId) {
-      throw ApiError.badRequest("Zone does not belong to this company");
-    }
-  }
-
-  const session = await prisma.attendanceSession.upsert({
-    where: { encoderId: req.params.encoderId },
-    create: {
+  const session = await prisma.attendanceSession.create({
+    data: {
       companyId: encoder.companyId,
       encoderId: encoder.id,
       zoneId: zoneId ?? undefined,
-      label: label ?? undefined,
+      label,
+      description: description ?? undefined,
       daysOfWeek,
       startTime: startTime ?? undefined,
       endTime: endTime ?? undefined,
     },
-    update: {
-      zoneId: zoneId ?? null,
-      label: label ?? null,
-      daysOfWeek,
-      startTime: startTime ?? null,
-      endTime: endTime ?? null,
+    include: SESSION_INCLUDE,
+  });
+
+  res.status(201).json(withState(session));
+});
+
+export const updateAttendanceSession = asyncHandler(async (req: Request, res: Response) => {
+  const existing = await loadSession(req, req.params.id);
+  const { encoderId, zoneId, label, description, daysOfWeek, startTime, endTime } = req.body;
+
+  // Moving a schedule to a different encoder ("this course changed rooms")
+  // — optional, and re-validated against the same company either way.
+  const companyId = encoderId ? (await loadEncoder(req, encoderId)).companyId : existing.companyId;
+  if (zoneId !== undefined) await assertZoneBelongsToCompany(zoneId, companyId);
+
+  const session = await prisma.attendanceSession.update({
+    where: { id: existing.id },
+    data: {
+      encoderId: encoderId ?? undefined,
+      zoneId: zoneId === undefined ? undefined : zoneId,
+      label: label ?? undefined,
+      description: description === undefined ? undefined : description,
+      daysOfWeek: daysOfWeek ?? undefined,
+      startTime: startTime === undefined ? undefined : startTime,
+      endTime: endTime === undefined ? undefined : endTime,
     },
     include: SESSION_INCLUDE,
   });
@@ -80,23 +98,12 @@ export const upsertAttendanceSession = asyncHandler(async (req: Request, res: Re
 });
 
 export const setAttendanceSessionOverride = asyncHandler(async (req: Request, res: Response) => {
-  const encoder = await prisma.encoder.findUnique({ where: { id: req.params.encoderId } });
-  if (!encoder) throw ApiError.notFound("Encoder not found");
-  assertCompanyAccess(req, encoder.companyId);
-
+  const existing = await loadSession(req, req.params.id);
   const { manualOverride } = req.body;
-  // A session row may not exist yet if the encoder has no recurring
-  // schedule saved — Start Now / Stop Now must still work standalone, so
-  // this creates an override-only row (empty daysOfWeek) in that case.
-  const session = await prisma.attendanceSession.upsert({
-    where: { encoderId: req.params.encoderId },
-    create: {
-      companyId: encoder.companyId,
-      encoderId: encoder.id,
-      daysOfWeek: [],
-      manualOverride,
-    },
-    update: { manualOverride },
+
+  const session = await prisma.attendanceSession.update({
+    where: { id: existing.id },
+    data: { manualOverride },
     include: SESSION_INCLUDE,
   });
 
@@ -104,10 +111,7 @@ export const setAttendanceSessionOverride = asyncHandler(async (req: Request, re
 });
 
 export const deleteAttendanceSession = asyncHandler(async (req: Request, res: Response) => {
-  const encoder = await prisma.encoder.findUnique({ where: { id: req.params.encoderId } });
-  if (!encoder) throw ApiError.notFound("Encoder not found");
-  assertCompanyAccess(req, encoder.companyId);
-
-  await prisma.attendanceSession.deleteMany({ where: { encoderId: req.params.encoderId } });
+  const existing = await loadSession(req, req.params.id);
+  await prisma.attendanceSession.delete({ where: { id: existing.id } });
   res.status(204).send();
 });

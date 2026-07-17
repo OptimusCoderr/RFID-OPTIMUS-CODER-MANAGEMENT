@@ -1,14 +1,18 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Socket } from "socket.io-client";
-import { Download, Upload, Lock, KeyRound } from "lucide-react";
+import { Download, Upload, Lock, KeyRound, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
 import { sendCommandAwait } from "@/lib/encoderCommand";
 import { citizenRecordCapacityBytes, citizenRecordPlaintextBytes } from "@/lib/citizenRecord";
+import { useAuth } from "@/context/AuthContext";
 import type { Card, CardTemplate } from "@/types";
 
 const DEFAULT_KEY = "FFFFFFFFFFFF";
+// Matches KEY_MANAGER_ROLES in CardDetailPage.tsx — deleting citizen data is
+// at least as sensitive as viewing/regenerating its encryption keys.
+const DELETE_ROLES = new Set(["SUPER_ADMIN", "COMPANY_ADMIN", "MANAGER"]);
 
 // Companion to CardDataPanel, for templates that configure an encrypted
 // "citizen record" (national ID, employee PII, etc). Unlike CardDataPanel,
@@ -32,8 +36,10 @@ export function CitizenDataPanel({
   onCardUpdated?: (card: Card) => void;
 }) {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const canDelete = Boolean(user && DELETE_ROLES.has(user.role));
   const [values, setValues] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState<"read" | "write" | null>(null);
+  const [busy, setBusy] = useState<"read" | "write" | "delete" | null>(null);
 
   const { data: template } = useQuery({
     queryKey: ["template", card.templateId],
@@ -63,13 +69,19 @@ export function CitizenDataPanel({
 
   if (!record) return null;
 
-  async function writeToCard() {
+  // `fieldsOverride` is used by the Delete flow below: it writes a freshly
+  // re-encrypted blank record (every field "") rather than touching raw
+  // bytes directly, so a card that's had its data deleted still reads back
+  // as a valid, decryptable (just empty) record instead of "could not
+  // decrypt" garbage.
+  async function writeToCard(fieldsOverride?: Record<string, string>) {
     if (!socket) return;
-    setBusy("write");
+    const isClear = Boolean(fieldsOverride);
+    setBusy(isClear ? "delete" : "write");
     try {
       const { data } = await api.post<{ blocks: { sector: number; block: number; dataHex: string }[] }>(
         `/cards/${card.id}/citizen-data/prepare-write`,
-        { fields: values }
+        { fields: fieldsOverride ?? values }
       );
 
       const keys = (await api.get<{ keys: Record<string, string> | null }>(`/cards/${card.id}/keys`)).data.keys;
@@ -80,17 +92,35 @@ export function CitizenDataPanel({
           socket,
           encoderId,
           "WRITE_BLOCK",
-          { block: b.block, data: b.dataHex, key, keyType: "A" },
+          { block: b.block, data: b.dataHex, key, keyType: "A", clear: isClear },
           card.id
         );
         if (!outcome.success) throw new Error(outcome.error ?? `Failed writing block ${b.block}`);
       }
-      toast.success("Encrypted citizen data written to card");
+      if (isClear) {
+        setValues({});
+        toast.success("Citizen data deleted");
+      } else {
+        toast.success("Encrypted citizen data written to card");
+      }
     } catch (err) {
-      toast.error(apiErrorMessage(err, "Could not write citizen data"));
+      toast.error(apiErrorMessage(err, isClear ? "Could not delete citizen data" : "Could not write citizen data"));
     } finally {
       setBusy(null);
     }
+  }
+
+  function deleteData() {
+    if (!record) return;
+    if (
+      !confirm(
+        `Delete all encrypted citizen data (${record.fields.length} field${record.fields.length === 1 ? "" : "s"})? This overwrites it with a blank encrypted record and cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    const blank = Object.fromEntries(record.fields.map((f) => [f, ""]));
+    writeToCard(blank);
   }
 
   async function readFromCard() {
@@ -131,10 +161,21 @@ export function CitizenDataPanel({
             type="button"
             className="btn-primary"
             disabled={disabled || Boolean(busy) || overCapacity || !card.hasStoredKeys}
-            onClick={writeToCard}
+            onClick={() => writeToCard()}
           >
             <Upload size={14} /> {busy === "write" ? "Encrypting..." : "Encrypt & write"}
           </button>
+          {canDelete && (
+            <button
+              type="button"
+              className="btn-danger"
+              title="Overwrite the encrypted record with blank field values"
+              disabled={disabled || Boolean(busy) || !card.hasStoredKeys}
+              onClick={deleteData}
+            >
+              <Trash2 size={14} /> {busy === "delete" ? "Deleting..." : "Delete citizen data"}
+            </button>
+          )}
         </div>
       </div>
 
