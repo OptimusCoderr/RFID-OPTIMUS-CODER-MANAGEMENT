@@ -1,18 +1,14 @@
-import type { CardStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { notifyCompanyAdmins } from "../services/notificationService.js";
+import { NON_TERMINAL_CARD_STATUSES } from "../utils/cardStatus.js";
 
 const WARNING_WINDOW_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-// Cards not yet in a terminal state — includes UNASSIGNED so Visitors
-// quick-issue passes (see VisitorsPage), which never get past that status,
-// are still picked up here. Live enforcement of a card's expiry doesn't
-// depend on this job (see the direct expiresAt checks in
-// websocket/index.ts and attendanceService.ts) — this job only handles the
-// once-a-day notification/status-cleanup side, which is too coarse-grained
-// to be the actual access-control mechanism.
-const NON_TERMINAL_STATUSES: CardStatus[] = ["UNASSIGNED", "ACTIVE", "ASSIGNED"];
+// Live enforcement of a card's expiry doesn't depend on this job (see the
+// direct expiresAt checks in websocket/index.ts and attendanceService.ts)
+// — this job only handles the once-a-day notification/status-cleanup side,
+// which is too coarse-grained to be the actual access-control mechanism.
 
 // Flags cards expiring within the warning window (once per 24h per card) and
 // auto-retires anything already past its expiry date.
@@ -22,7 +18,7 @@ export async function checkExpiringCards() {
   const dedupeSince = new Date(now.getTime() - DAY_MS);
 
   const expiringCards = await prisma.card.findMany({
-    where: { expiresAt: { gte: now, lte: horizon }, status: { in: NON_TERMINAL_STATUSES } },
+    where: { expiresAt: { gte: now, lte: horizon }, status: { in: NON_TERMINAL_CARD_STATUSES } },
     select: { id: true, uid: true, label: true, companyId: true, expiresAt: true },
   });
 
@@ -59,7 +55,7 @@ export async function checkExpiringCards() {
   }
 
   const justExpired = await prisma.card.findMany({
-    where: { expiresAt: { lt: now }, status: { in: NON_TERMINAL_STATUSES } },
+    where: { expiresAt: { lt: now }, status: { in: NON_TERMINAL_CARD_STATUSES } },
     select: { id: true, uid: true, label: true, companyId: true },
   });
 

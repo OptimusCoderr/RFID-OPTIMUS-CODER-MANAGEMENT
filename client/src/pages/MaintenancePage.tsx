@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Wrench, CheckCircle2, PlayCircle, RotateCcw } from "lucide-react";
@@ -18,14 +18,20 @@ const STATUS_TONE: Record<MaintenanceStatus, string> = {
 export default function MaintenancePage() {
   const queryClient = useQueryClient();
   const [cardSearch, setCardSearch] = useState("");
+  const [debouncedCardSearch, setDebouncedCardSearch] = useState("");
   const [cardId, setCardId] = useState("");
   const [description, setDescription] = useState("");
   const [statusFilter, setStatusFilter] = useState<MaintenanceStatus | "">("");
 
+  useEffect(() => {
+    const timeout = setTimeout(() => setDebouncedCardSearch(cardSearch), 250);
+    return () => clearTimeout(timeout);
+  }, [cardSearch]);
+
   const { data: cardOptions } = useQuery({
-    queryKey: ["cards", "maintenance-picker", cardSearch],
+    queryKey: ["cards", "maintenance-picker", debouncedCardSearch],
     queryFn: async () =>
-      (await api.get<PaginatedResponse<Card>>("/cards", { params: { search: cardSearch || undefined, pageSize: 25 } })).data,
+      (await api.get<PaginatedResponse<Card>>("/cards", { params: { search: debouncedCardSearch || undefined, pageSize: 25 } })).data,
   });
 
   const { data, isLoading } = useQuery({

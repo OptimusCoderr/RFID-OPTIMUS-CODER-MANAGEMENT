@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { CreditCard, Wifi, UserRound, Building2, type LucideIcon } from "lucide-react";
+import { CreditCard, Wifi, UserRound, Building2, UserPlus, Wrench, type LucideIcon } from "lucide-react";
 import { api } from "@/lib/api";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Badge } from "@/components/ui/Badge";
+import { hasModule } from "@/lib/modules";
 import type { DashboardStats } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 
@@ -64,6 +65,12 @@ export default function DashboardPage() {
         <StatTile label="Encoders" value={data.totalEncoders} icon={Wifi} />
         <StatTile label="Card holders" value={data.totalHolders} icon={UserRound} />
         {user?.role === "SUPER_ADMIN" && <StatTile label="Companies" value={data.totalCompanies} icon={Building2} />}
+        {hasModule(user, "VISITORS") && (
+          <StatTile label="Active visitor passes" value={data.activeVisitorPasses} icon={UserPlus} />
+        )}
+        {hasModule(user, "MAINTENANCE") && (
+          <StatTile label="Open maintenance tickets" value={data.openMaintenanceTickets} icon={Wrench} />
+        )}
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-3">

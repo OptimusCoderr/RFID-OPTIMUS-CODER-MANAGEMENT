@@ -310,6 +310,8 @@ export interface DashboardStats {
   totalHolders: number;
   totalCompanies: number;
   recentActivity: OperationLog[];
+  activeVisitorPasses: number;
+  openMaintenanceTickets: number;
 }
 
 export type NotificationType =

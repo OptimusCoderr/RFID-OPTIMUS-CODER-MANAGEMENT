@@ -532,7 +532,9 @@ individual ones read or **mark all as read**.
 ### 6.11 Dashboard and audit logs
 
 - **Dashboard** — at-a-glance counts of cards by status/type, encoders by
-  status, total holders, and recent activity.
+  status, total holders, and recent activity. Companies with the Visitors
+  or Maintenance module enabled also see a live count of active visitor
+  passes and open maintenance tickets.
 - **Logs** — the full, filterable audit trail (by card, encoder, user,
   operation type, date range), exportable to CSV. Every register, assign,
   block, encode command, and more is recorded here with who did it and

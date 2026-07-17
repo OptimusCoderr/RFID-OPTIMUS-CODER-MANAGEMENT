@@ -829,4 +829,29 @@ describe("company + card lifecycle happy path", () => {
       expect(res.body.data.every((t: { status: string }) => t.status === "OPEN")).toBe(true);
     });
   });
+
+  describe("dashboard stats", () => {
+    it("counts active visitor passes and open maintenance tickets", async () => {
+      const before = await request(app).get("/api/dashboard/stats").set("Authorization", `Bearer ${companyAdminToken}`);
+
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          uid: "04915170E5",
+          cardType: "NTAG213",
+          label: "Dashboard stats visitor",
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        });
+      await request(app)
+        .post("/api/maintenance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: cardRes.body.id, description: "Dashboard stats ticket" });
+
+      const after = await request(app).get("/api/dashboard/stats").set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(after.status).toBe(200);
+      expect(after.body.activeVisitorPasses).toBe(before.body.activeVisitorPasses + 1);
+      expect(after.body.openMaintenanceTickets).toBe(before.body.openMaintenanceTickets + 1);
+    });
+  });
 });
