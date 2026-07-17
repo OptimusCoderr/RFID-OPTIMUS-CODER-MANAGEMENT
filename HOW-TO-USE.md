@@ -331,23 +331,47 @@ re-decide it every time you register one:
 
 1. From **Templates**, click **New template**.
 2. Optionally pick **Start from a preset** first — ready-made starting
-   points grouped by industry (University: Student ID, Staff/Faculty ID,
-   Library Card; Inventory: Asset Tag, Equipment Check-out Tag; Business:
-   Employee Badge, Visitor Badge; Hotel: Room Key Card, Staff Master Key;
-   e-Government: Government Worker ID; e-Healthcare: Hospital Staff Badge,
-   Hospital Visitor Pass). Picking one fills in the name, card type, and a
-   starting set of labeled blocks — everything stays fully editable
-   afterward, and it's just a head start, not a locked-in choice. Pick
-   **Start from scratch** to skip it.
+   points grouped by industry:
+   - **University**: Student ID (plain, or **Encrypted**), Staff/Faculty
+     ID, Library Card
+   - **Inventory**: Asset Tag, Equipment Check-out Tag
+   - **Business**: Employee Badge (plain, or **Encrypted**), Visitor
+     Badge, and three **Secure Access Card** presets — one each for
+     MIFARE DESFire EV1, EV2, and EV3, using AES mutual authentication
+   - **Hotel**: Room Key Card, Staff Master Key
+   - **e-Government**: Government Worker ID (plain), National ID Card
+     (**Encrypted**)
+   - **e-Healthcare**: Hospital Staff Badge (plain), Hospital Visitor
+     Pass, Patient ID Card (**Encrypted**)
+
+   Picking one fills in the name, card type, and a starting set of
+   labeled blocks, DESFire applications/files, or (for **Encrypted**
+   presets) an AES-256-GCM encrypted record — everything stays fully
+   editable afterward, and it's just a head start, not a locked-in
+   choice. Pick **Start from scratch** to skip it. The **Encrypted**
+   presets only appear if your company has the "National ID / citizen
+   data" module enabled (see [4.4](#44-industries-and-modules)) — that's
+   what makes them usable afterward in Live Encode; everyone else sees
+   the plain-field version of the same preset where one exists.
 3. Pick the card type. For MIFARE Classic types you define per-sector
-   Key A/Key B; for NTAG/Ultralight types you define page ranges and their
-   purpose (e.g. pages 4–6 = NDEF message).
-4. Optionally mark it **default for this card type** — it'll be
+   Key A/Key B and label individual data blocks; for NTAG/Ultralight
+   types you define page ranges and their purpose (e.g. pages 4–6 = NDEF
+   message); for DESFire types you define applications and files (see
+   [6.14](#614-mifare-desfire-partitioning-applications--files)).
+4. **Protected MIFARE Classic blocks.** Every sector's last block is a
+   key/access-bits trailer, and block 0 (inside sector 0) is the card's
+   factory-locked manufacturer block — labeling either one shows a red
+   inline warning and is rejected on submit, both here and for an
+   encrypted record's block list. This is enforced server-side too (at
+   template-creation time, and again at the moment Live Encode actually
+   writes a block, including from the raw "Send command" console), not
+   just hinted at in this form.
+5. Optionally mark it **default for this card type** — it'll be
    pre-selected whenever you register a new card of that type.
-5. Templates are informational/configuration metadata; the actual
+6. Templates are informational/configuration metadata; the actual
    encode/write happens from the **Live Encode** page using whichever
    template you attach to a card.
-6. Templates you create from a preset are ordinary templates — edit or
+7. Templates you create from a preset are ordinary templates — edit or
    **delete** (trash icon) them the same as any other; nothing about
    starting from a preset restricts what you can do with it afterward.
 
