@@ -9,8 +9,9 @@ import { Modal } from "@/components/ui/Modal";
 import { FullPageSpinner, Spinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
 import { ENCODER_CONNECTION_OPTIONS, ENCODER_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
-import type { Encoder, EncoderConnectionType, EncoderType } from "@/types";
+import type { Company, Encoder, EncoderConnectionType, EncoderType } from "@/types";
 import { formatDistanceToNow } from "date-fns";
+import { useAuth } from "@/context/AuthContext";
 
 interface EncoderFormState {
   name: string;
@@ -18,11 +19,20 @@ interface EncoderFormState {
   connectionType: EncoderConnectionType;
   location: string;
   serialNumber: string;
+  companyId: string;
 }
 
-const EMPTY_FORM: EncoderFormState = { name: "", type: "ACR122U", connectionType: "USB", location: "", serialNumber: "" };
+const EMPTY_FORM: EncoderFormState = {
+  name: "",
+  type: "ACR122U",
+  connectionType: "USB",
+  location: "",
+  serialNumber: "",
+  companyId: "",
+};
 
 export default function EncodersPage() {
+  const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<EncoderFormState>(EMPTY_FORM);
@@ -36,6 +46,12 @@ export default function EncodersPage() {
     refetchInterval: 15_000,
   });
 
+  const { data: companies } = useQuery({
+    queryKey: ["companies"],
+    queryFn: async () => (await api.get<Company[]>("/companies")).data,
+    enabled: currentUser?.role === "SUPER_ADMIN",
+  });
+
   const createEncoder = useMutation({
     mutationFn: async (payload: EncoderFormState) =>
       (
@@ -43,6 +59,7 @@ export default function EncodersPage() {
           ...payload,
           location: payload.location || undefined,
           serialNumber: payload.serialNumber || undefined,
+          companyId: currentUser?.role === "SUPER_ADMIN" ? payload.companyId : undefined,
         })
       ).data,
     onSuccess: (encoder) => {
@@ -184,6 +201,26 @@ export default function EncodersPage() {
             <label className="label">Serial number</label>
             <input className="input" value={form.serialNumber} onChange={(e) => setForm((f) => ({ ...f, serialNumber: e.target.value }))} />
           </div>
+          {currentUser?.role === "SUPER_ADMIN" && (
+            <div>
+              <label className="label">Company</label>
+              <select
+                className="input"
+                required
+                value={form.companyId}
+                onChange={(e) => setForm((f) => ({ ...f, companyId: e.target.value }))}
+              >
+                <option value="" disabled>
+                  Select a company
+                </option>
+                {companies?.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <button type="submit" className="btn-primary w-full" disabled={createEncoder.isPending}>
             Register encoder
           </button>

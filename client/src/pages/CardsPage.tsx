@@ -11,8 +11,9 @@ import { Modal } from "@/components/ui/Modal";
 import { FullPageSpinner, Spinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
 import { useSocket } from "@/context/SocketContext";
+import { useAuth } from "@/context/AuthContext";
 import { CARD_STATUS_OPTIONS, CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
-import type { Card, CardTemplate, CardType, Encoder, PaginatedResponse } from "@/types";
+import type { Card, CardTemplate, CardType, Company, Encoder, PaginatedResponse } from "@/types";
 
 interface BulkImportResult {
   created: number;
@@ -26,11 +27,20 @@ interface RegisterFormState {
   label: string;
   notes: string;
   templateId: string;
+  companyId: string;
 }
 
-const EMPTY_FORM: RegisterFormState = { uid: "", cardType: "MIFARE_CLASSIC_1K", label: "", notes: "", templateId: "" };
+const EMPTY_FORM: RegisterFormState = {
+  uid: "",
+  cardType: "MIFARE_CLASSIC_1K",
+  label: "",
+  notes: "",
+  templateId: "",
+  companyId: "",
+};
 
 export default function CardsPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const { socket } = useSocket();
   const [modalOpen, setModalOpen] = useState(false);
@@ -42,9 +52,16 @@ export default function CardsPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [importRows, setImportRows] = useState<Record<string, string>[]>([]);
   const [importResult, setImportResult] = useState<BulkImportResult | null>(null);
+  const [importCompanyId, setImportCompanyId] = useState("");
   const [exporting, setExporting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: companies } = useQuery({
+    queryKey: ["companies"],
+    queryFn: async () => (await api.get<Company[]>("/companies")).data,
+    enabled: user?.role === "SUPER_ADMIN",
+  });
 
   const [scanEncoderId, setScanEncoderId] = useState("");
   const [scanning, setScanning] = useState(false);
@@ -114,6 +131,7 @@ export default function CardsPage() {
           label: payload.label || undefined,
           notes: payload.notes || undefined,
           templateId: payload.templateId || undefined,
+          companyId: user?.role === "SUPER_ADMIN" ? payload.companyId : undefined,
         })
       ).data,
     onSuccess: () => {
@@ -134,6 +152,7 @@ export default function CardsPage() {
             cardType: r.cardType ?? r.CardType ?? r["Card Type"],
             label: r.label ?? r.Label,
           })),
+          companyId: user?.role === "SUPER_ADMIN" ? importCompanyId : undefined,
         })
       ).data,
     onSuccess: (result) => {
@@ -457,6 +476,26 @@ export default function CardsPage() {
             <label className="label">Notes</label>
             <textarea className="input" rows={2} value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
           </div>
+          {user?.role === "SUPER_ADMIN" && (
+            <div>
+              <label className="label">Company</label>
+              <select
+                className="input"
+                required
+                value={form.companyId}
+                onChange={(e) => setForm((f) => ({ ...f, companyId: e.target.value }))}
+              >
+                <option value="" disabled>
+                  Select a company
+                </option>
+                {companies?.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <button type="submit" className="btn-primary w-full" disabled={registerCard.isPending}>
             Register card
           </button>
@@ -469,6 +508,7 @@ export default function CardsPage() {
           setImportOpen(false);
           setImportRows([]);
           setImportResult(null);
+          setImportCompanyId("");
         }}
         title="Import cards from CSV"
         wide
@@ -478,6 +518,21 @@ export default function CardsPage() {
             CSV with columns <code className="font-mono text-xs">uid, cardType, label</code> (header row required). Card type must
             match one of the supported types, e.g. <code className="font-mono text-xs">MIFARE_CLASSIC_1K</code>.
           </p>
+          {user?.role === "SUPER_ADMIN" && (
+            <div>
+              <label className="label">Company</label>
+              <select className="input" required value={importCompanyId} onChange={(e) => setImportCompanyId(e.target.value)}>
+                <option value="" disabled>
+                  Select a company
+                </option>
+                {companies?.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <input
             ref={fileInputRef}
             type="file"
@@ -509,7 +564,11 @@ export default function CardsPage() {
                   </tbody>
                 </table>
               </div>
-              <button className="btn-primary mt-3 w-full" onClick={() => bulkImport.mutate(importRows)} disabled={bulkImport.isPending}>
+              <button
+                className="btn-primary mt-3 w-full"
+                onClick={() => bulkImport.mutate(importRows)}
+                disabled={bulkImport.isPending || (user?.role === "SUPER_ADMIN" && !importCompanyId)}
+              >
                 {bulkImport.isPending ? <Spinner className="h-4 w-4 text-white" /> : `Import ${importRows.length} card(s)`}
               </button>
             </div>
@@ -538,6 +597,7 @@ export default function CardsPage() {
                   setImportOpen(false);
                   setImportRows([]);
                   setImportResult(null);
+                  setImportCompanyId("");
                   if (fileInputRef.current) fileInputRef.current.value = "";
                 }}
               >

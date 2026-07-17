@@ -10,9 +10,10 @@ import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { FullPageSpinner, Spinner } from "@/components/ui/Spinner";
 import { useSocket } from "@/context/SocketContext";
+import { useAuth } from "@/context/AuthContext";
 import { useNow } from "@/hooks/useNow";
 import { CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
-import type { Card, CardType, Encoder, PaginatedResponse } from "@/types";
+import type { Card, CardType, Company, Encoder, PaginatedResponse } from "@/types";
 
 const DURATION_PRESETS: { label: string; hours: number }[] = [
   { label: "1 hour", hours: 1 },
@@ -27,9 +28,17 @@ interface FormState {
   label: string;
   durationHours: number;
   customExpiresAt: string;
+  companyId: string;
 }
 
-const EMPTY_FORM: FormState = { uid: "", cardType: "NTAG213", label: "", durationHours: 24, customExpiresAt: "" };
+const EMPTY_FORM: FormState = {
+  uid: "",
+  cardType: "NTAG213",
+  label: "",
+  durationHours: 24,
+  customExpiresAt: "",
+  companyId: "",
+};
 
 interface EditDurationState {
   durationHours: number;
@@ -39,9 +48,16 @@ interface EditDurationState {
 const EMPTY_EDIT: EditDurationState = { durationHours: 24, customExpiresAt: "" };
 
 export default function VisitorsPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const { socket } = useSocket();
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+
+  const { data: companies } = useQuery({
+    queryKey: ["companies"],
+    queryFn: async () => (await api.get<Company[]>("/companies")).data,
+    enabled: user?.role === "SUPER_ADMIN",
+  });
 
   const [scanEncoderId, setScanEncoderId] = useState("");
   const [scanning, setScanning] = useState(false);
@@ -94,6 +110,7 @@ export default function VisitorsPage() {
           cardType: form.cardType,
           label: form.label || undefined,
           expiresAt,
+          companyId: user?.role === "SUPER_ADMIN" ? form.companyId : undefined,
         })
       ).data;
     },
@@ -256,6 +273,26 @@ export default function VisitorsPage() {
                 onChange={(e) => setForm((f) => ({ ...f, customExpiresAt: e.target.value }))}
               />
             </div>
+            {user?.role === "SUPER_ADMIN" && (
+              <div>
+                <label className="label">Company</label>
+                <select
+                  className="input"
+                  required
+                  value={form.companyId}
+                  onChange={(e) => setForm((f) => ({ ...f, companyId: e.target.value }))}
+                >
+                  <option value="" disabled>
+                    Select a company
+                  </option>
+                  {companies?.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <button type="submit" className="btn-primary w-full" disabled={issuePass.isPending}>
               {issuePass.isPending ? <Spinner className="h-4 w-4 text-white" /> : <UserPlus size={16} />} Issue pass
             </button>

@@ -11,10 +11,12 @@ import { useAuth } from "@/context/AuthContext";
 import { hasModule } from "@/lib/modules";
 import { CARD_TYPE_OPTIONS, formatEnum, NATIONAL_ID_PRESET_FIELDS, PATIENT_ID_PRESET_FIELDS } from "@/lib/constants";
 import { CITIZEN_RECORD_OVERHEAD_BYTES, estimateNeededBlocks, pickFreeCitizenBlocks } from "@/lib/citizenRecord";
+import { INDUSTRY_PRESET_LABELS, TEMPLATE_PRESETS } from "@/lib/templatePresets";
 import type {
   CardTemplate,
   CardType,
   CitizenRecordLayout,
+  Company,
   DesfireApplicationLayout,
   DesfireFileLayout,
   DesfireFileType,
@@ -42,10 +44,18 @@ export default function TemplatesPage() {
   const [citizenFields, setCitizenFields] = useState<string[]>([]);
   const [citizenBlocks, setCitizenBlocks] = useState<{ sector: number; block: number }[]>([]);
   const [isDefault, setIsDefault] = useState(false);
+  const [companyId, setCompanyId] = useState("");
+  const [presetId, setPresetId] = useState("");
 
   const { data: templates, isLoading } = useQuery({
     queryKey: ["templates"],
     queryFn: async () => (await api.get<CardTemplate[]>("/templates")).data,
+  });
+
+  const { data: companies } = useQuery({
+    queryKey: ["companies"],
+    queryFn: async () => (await api.get<Company[]>("/companies")).data,
+    enabled: user?.role === "SUPER_ADMIN",
   });
 
   const createTemplate = useMutation({
@@ -56,6 +66,7 @@ export default function TemplatesPage() {
           cardType,
           description: description || undefined,
           isDefault,
+          companyId: user?.role === "SUPER_ADMIN" ? companyId : undefined,
           layout: {
             sectors: isMifareClassic(cardType) ? sectors : undefined,
             pages: isPageBased(cardType) ? pages : undefined,
@@ -95,6 +106,29 @@ export default function TemplatesPage() {
     setCitizenFields([]);
     setCitizenBlocks([]);
     setIsDefault(false);
+    setCompanyId("");
+    setPresetId("");
+  }
+
+  // Pre-fills the same editable fields below from a starter preset — nothing
+  // about the result is locked, it's just a head start. Picking "Start from
+  // scratch" clears the layout back to blank.
+  function applyPreset(id: string) {
+    setPresetId(id);
+    const preset = TEMPLATE_PRESETS.find((p) => p.id === id);
+    setApplications([]);
+    setCitizenFields([]);
+    setCitizenBlocks([]);
+    if (!preset) {
+      setSectors([]);
+      setPages([]);
+      return;
+    }
+    setName(preset.name);
+    setDescription(preset.description);
+    setCardType(preset.cardType);
+    setSectors(preset.sectors ?? []);
+    setPages(preset.pages ?? []);
   }
 
   function handleSubmit(e: FormEvent) {
@@ -148,6 +182,25 @@ export default function TemplatesPage() {
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="New card template" wide>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <label className="label">Start from a preset (optional)</label>
+            <select className="input" value={presetId} onChange={(e) => applyPreset(e.target.value)}>
+              <option value="">Start from scratch</option>
+              {(Object.keys(INDUSTRY_PRESET_LABELS) as (keyof typeof INDUSTRY_PRESET_LABELS)[]).map((industry) => (
+                <optgroup key={industry} label={INDUSTRY_PRESET_LABELS[industry]}>
+                  {TEMPLATE_PRESETS.filter((p) => p.industry === industry).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-slate-400">
+              Fills in a name, card type, and a starting set of labeled blocks for a common use case — everything
+              below stays fully editable, and you can always add, remove, or delete templates afterward.
+            </p>
+          </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label">Name</label>
@@ -168,6 +221,22 @@ export default function TemplatesPage() {
             <label className="label">Description</label>
             <textarea className="input" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
           </div>
+
+          {user?.role === "SUPER_ADMIN" && (
+            <div>
+              <label className="label">Company</label>
+              <select className="input" required value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+                <option value="" disabled>
+                  Select a company
+                </option>
+                {companies?.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {isMifareClassic(cardType) && (
             <SectorEditor sectors={sectors} setSectors={setSectors} />

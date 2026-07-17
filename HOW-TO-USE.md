@@ -275,6 +275,12 @@ data — this is enforced on the server for every request, not just hidden in
 the UI, so even a crafted API call can't reach across companies (unless
 you're `SUPER_ADMIN`).
 
+A `SUPER_ADMIN` isn't attached to any single company, so every "create"
+form that makes a company-scoped record (encoders, templates, zones, card
+holders, cards, visitor passes) shows an extra required **Company** field
+for them to pick which company the new record belongs to. Everyone else
+doesn't see that field — their own company is used automatically.
+
 ## 6. Everyday workflows
 
 ### 6.1 Managing your team (Users)
@@ -324,14 +330,26 @@ Templates capture *what a card's memory means* so you don't have to
 re-decide it every time you register one:
 
 1. From **Templates**, click **New template**.
-2. Pick the card type. For MIFARE Classic types you define per-sector
+2. Optionally pick **Start from a preset** first — ready-made starting
+   points grouped by industry (University: Student ID, Staff/Faculty ID,
+   Library Card; Inventory: Asset Tag, Equipment Check-out Tag; Business:
+   Employee Badge, Visitor Badge; Hotel: Room Key Card, Staff Master Key;
+   e-Government: Government Worker ID; e-Healthcare: Hospital Staff Badge,
+   Hospital Visitor Pass). Picking one fills in the name, card type, and a
+   starting set of labeled blocks — everything stays fully editable
+   afterward, and it's just a head start, not a locked-in choice. Pick
+   **Start from scratch** to skip it.
+3. Pick the card type. For MIFARE Classic types you define per-sector
    Key A/Key B; for NTAG/Ultralight types you define page ranges and their
    purpose (e.g. pages 4–6 = NDEF message).
-3. Optionally mark it **default for this card type** — it'll be
+4. Optionally mark it **default for this card type** — it'll be
    pre-selected whenever you register a new card of that type.
-4. Templates are informational/configuration metadata; the actual
+5. Templates are informational/configuration metadata; the actual
    encode/write happens from the **Live Encode** page using whichever
    template you attach to a card.
+6. Templates you create from a preset are ordinary templates — edit or
+   **delete** (trash icon) them the same as any other; nothing about
+   starting from a preset restricts what you can do with it afterward.
 
 ### 6.4 Registering and encoding cards
 

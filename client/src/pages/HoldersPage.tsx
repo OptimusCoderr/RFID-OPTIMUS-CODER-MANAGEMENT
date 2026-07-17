@@ -7,7 +7,8 @@ import { api, apiErrorMessage } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Modal } from "@/components/ui/Modal";
 import { FullPageSpinner } from "@/components/ui/Spinner";
-import type { CardHolder } from "@/types";
+import { useAuth } from "@/context/AuthContext";
+import type { CardHolder, Company } from "@/types";
 
 interface HolderFormState {
   fullName: string;
@@ -15,11 +16,13 @@ interface HolderFormState {
   phone: string;
   employeeId: string;
   department: string;
+  companyId: string;
 }
 
-const EMPTY_FORM: HolderFormState = { fullName: "", email: "", phone: "", employeeId: "", department: "" };
+const EMPTY_FORM: HolderFormState = { fullName: "", email: "", phone: "", employeeId: "", department: "", companyId: "" };
 
 export default function HoldersPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<HolderFormState>(EMPTY_FORM);
@@ -27,6 +30,12 @@ export default function HoldersPage() {
   const { data: holders, isLoading } = useQuery({
     queryKey: ["holders"],
     queryFn: async () => (await api.get<CardHolder[]>("/holders")).data,
+  });
+
+  const { data: companies } = useQuery({
+    queryKey: ["companies"],
+    queryFn: async () => (await api.get<Company[]>("/companies")).data,
+    enabled: user?.role === "SUPER_ADMIN",
   });
 
   const createHolder = useMutation({
@@ -38,6 +47,7 @@ export default function HoldersPage() {
           phone: payload.phone || undefined,
           employeeId: payload.employeeId || undefined,
           department: payload.department || undefined,
+          companyId: user?.role === "SUPER_ADMIN" ? payload.companyId : undefined,
         })
       ).data,
     onSuccess: () => {
@@ -143,6 +153,26 @@ export default function HoldersPage() {
             <label className="label">Phone</label>
             <input className="input" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} />
           </div>
+          {user?.role === "SUPER_ADMIN" && (
+            <div>
+              <label className="label">Company</label>
+              <select
+                className="input"
+                required
+                value={form.companyId}
+                onChange={(e) => setForm((f) => ({ ...f, companyId: e.target.value }))}
+              >
+                <option value="" disabled>
+                  Select a company
+                </option>
+                {companies?.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <button type="submit" className="btn-primary w-full" disabled={createHolder.isPending}>
             Add card holder
           </button>
