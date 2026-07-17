@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, Server } from "http";
 import request from "supertest";
+import { io as ioClient, Socket as ClientSocket } from "socket.io-client";
 import { createApp } from "../src/app.js";
 import { prisma } from "../src/lib/prisma.js";
 import { auth } from "../src/auth/index.js";
 import { env } from "../src/config/env.js";
+import { initWebsocket } from "../src/websocket/index.js";
 
 const app = createApp();
 
@@ -47,6 +49,7 @@ beforeAll(async () => {
     server = createServer(app);
     server.listen(env.port, resolve);
   });
+  initWebsocket(server);
   await auth.api.signUpEmail({
     body: {
       name: "Test Super Admin",
@@ -394,6 +397,124 @@ describe("company + card lifecycle happy path", () => {
         .set("Authorization", `Bearer ${viewerToken}`)
         .send({ cardId: attendeeCardId });
       expect(res.status).toBe(403);
+    });
+  });
+
+  describe("hotel: time-limited encoder allocation", () => {
+    let encoderAId: string;
+    let encoderBId: string;
+    let restrictedCardId: string;
+
+    async function connectDashboard(token: string): Promise<ClientSocket> {
+      const socket = ioClient(`http://127.0.0.1:${env.port}/dashboard`, { auth: { token }, forceNew: true });
+      await new Promise<void>((resolve, reject) => {
+        socket.on("connect", () => resolve());
+        socket.on("connect_error", reject);
+      });
+      return socket;
+    }
+
+    function sendCommand(
+      socket: ClientSocket,
+      body: { encoderId: string; cardId: string; command: string }
+    ): Promise<{ ok: boolean; error?: string }> {
+      return new Promise((resolve) => socket.emit("encoder:command", body, resolve));
+    }
+
+    beforeAll(async () => {
+      const encoderARes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Room Door Encoder", type: "ACR122U" });
+      encoderAId = encoderARes.body.id;
+
+      const encoderBRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Lobby Encoder", type: "ACR122U" });
+      encoderBId = encoderBRes.body.id;
+
+      // No real agent connects in this suite; mark both ONLINE directly so
+      // the websocket handler's offline check doesn't short-circuit before
+      // reaching the allocation logic under test.
+      await prisma.encoder.updateMany({ where: { id: { in: [encoderAId, encoderBId] } }, data: { status: "ONLINE" } });
+
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04B0AC1000", cardType: "NTAG213" });
+      restrictedCardId = cardRes.body.id;
+    });
+
+    it("grants an encoder allocation with a checkout-style expiry", async () => {
+      const expiresAt = new Date(Date.now() + 60_000).toISOString();
+      const res = await request(app)
+        .post(`/api/cards/${restrictedCardId}/encoders/grant`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ encoderIds: [encoderAId], expiresAt });
+      expect(res.status).toBe(204);
+
+      const getRes = await request(app)
+        .get(`/api/cards/${restrictedCardId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(getRes.body.encoderAllocations).toHaveLength(1);
+      expect(new Date(getRes.body.encoderAllocations[0].expiresAt).toISOString()).toBe(expiresAt);
+    });
+
+    it("re-granting the same encoder extends/replaces its expiry instead of no-op-ing", async () => {
+      const laterExpiry = new Date(Date.now() + 3_600_000).toISOString();
+      const res = await request(app)
+        .post(`/api/cards/${restrictedCardId}/encoders/grant`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ encoderIds: [encoderAId], expiresAt: laterExpiry });
+      expect(res.status).toBe(204);
+
+      const getRes = await request(app)
+        .get(`/api/cards/${restrictedCardId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(getRes.body.encoderAllocations).toHaveLength(1); // still one row, not a duplicate
+      expect(new Date(getRes.body.encoderAllocations[0].expiresAt).toISOString()).toBe(laterExpiry);
+    });
+
+    it("allows a live-encode command against the allocated, non-expired encoder", async () => {
+      const socket = await connectDashboard(companyAdminToken);
+      const ack = await sendCommand(socket, { encoderId: encoderAId, cardId: restrictedCardId, command: "READ" });
+      socket.close();
+      expect(ack.ok).toBe(true);
+    });
+
+    it("rejects a live-encode command against an encoder the card was never allocated to", async () => {
+      const socket = await connectDashboard(companyAdminToken);
+      const ack = await sendCommand(socket, { encoderId: encoderBId, cardId: restrictedCardId, command: "READ" });
+      socket.close();
+      expect(ack.ok).toBe(false);
+      expect(ack.error).toMatch(/not allocated/i);
+    });
+
+    it("rejects a command once the allocation's expiry has passed, without falling back to unrestricted", async () => {
+      await prisma.cardEncoderAllocation.update({
+        where: { cardId_encoderId: { cardId: restrictedCardId, encoderId: encoderAId } },
+        data: { expiresAt: new Date(Date.now() - 60_000) },
+      });
+
+      const socket = await connectDashboard(companyAdminToken);
+      const ack = await sendCommand(socket, { encoderId: encoderAId, cardId: restrictedCardId, command: "READ" });
+      socket.close();
+      expect(ack.ok).toBe(false);
+      expect(ack.error).toMatch(/expired/i);
+    });
+
+    it("revoking the allocation returns the card to unrestricted use on any company encoder", async () => {
+      await request(app)
+        .post(`/api/cards/${restrictedCardId}/encoders/revoke`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ encoderIds: [encoderAId] })
+        .expect(204);
+
+      const socket = await connectDashboard(companyAdminToken);
+      const ack = await sendCommand(socket, { encoderId: encoderBId, cardId: restrictedCardId, command: "READ" });
+      socket.close();
+      expect(ack.ok).toBe(true);
     });
   });
 });

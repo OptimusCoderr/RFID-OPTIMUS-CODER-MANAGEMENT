@@ -413,12 +413,17 @@ model CardAccessZone {
 // ---------------------------------------------------------------------------
 
 model CardEncoderAllocation {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   cardId    String
-  card      Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  card      Card      @relation(fields: [cardId], references: [id], onDelete: Cascade)
   encoderId String
-  encoder   Encoder  @relation(fields: [encoderId], references: [id], onDelete: Cascade)
-  grantedAt DateTime @default(now())
+  encoder   Encoder   @relation(fields: [encoderId], references: [id], onDelete: Cascade)
+  grantedAt DateTime  @default(now())
+  // Optional — e.g. a hotel room key granted only until guest checkout.
+  // Null means the grant never expires. An allocation row past this time is
+  // NOT treated as "no restriction" (the card still has other/expired rows,
+  // so it's clearly meant to be restricted) — see websocket/index.ts.
+  expiresAt DateTime?
 
   @@unique([cardId, encoderId])
   @@map("card_encoder_allocations")

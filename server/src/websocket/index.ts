@@ -112,11 +112,20 @@ export function initWebsocket(httpServer: HttpServer): Server {
           if (payload.cardId) {
             const card = await prisma.card.findUnique({
               where: { id: payload.cardId },
-              include: { encoderAllocations: { select: { encoderId: true } } },
+              include: { encoderAllocations: { select: { encoderId: true, expiresAt: true } } },
             });
+            // Any allocation row at all — expired or not — means this card is
+            // meant to be restricted, not left open to every encoder. An
+            // allocation that's expired (e.g. a hotel room key past
+            // checkout) must revoke access, never silently fall back to
+            // "unrestricted" just because its one valid row lapsed.
             if (card && card.encoderAllocations.length > 0) {
-              const allowed = card.encoderAllocations.some((a) => a.encoderId === encoder.id);
-              if (!allowed) throw new Error("This card is not allocated to this encoder");
+              const now = new Date();
+              const match = card.encoderAllocations.find((a) => a.encoderId === encoder.id);
+              if (!match) throw new Error("This card is not allocated to this encoder");
+              if (match.expiresAt && match.expiresAt <= now) {
+                throw new Error("This card's access to this encoder has expired");
+              }
             }
           }
 

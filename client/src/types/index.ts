@@ -223,7 +223,7 @@ export interface Card {
   hasStoredKeys?: boolean;
   lastReadData?: unknown;
   accessZones?: { zone: { id: string; name: string } }[];
-  encoderAllocations?: { encoder: { id: string; name: string } }[];
+  encoderAllocations?: { encoder: { id: string; name: string }; expiresAt?: string | null }[];
   issuedAt?: string | null;
   expiresAt?: string | null;
   lastSeenAt?: string | null;

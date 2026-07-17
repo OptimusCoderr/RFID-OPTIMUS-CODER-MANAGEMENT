@@ -401,18 +401,28 @@ should only ever be written at the security office, never at a guest-facing
 kiosk), you can opt a specific card into a restriction:
 
 1. Open the card's detail page.
-2. Under **Allowed encoders**, pick an encoder from the dropdown and click
-   **Add**. The card is now restricted — it can only be used with the
-   encoder(s) you've explicitly allowed.
+2. Under **Allowed encoders**, optionally set an **expiry date/time** — e.g.
+   a hotel guest's checkout time — then pick an encoder from the dropdown
+   and click **Add**. The card is now restricted — it can only be used with
+   the encoder(s) you've explicitly allowed, and only until the expiry you
+   set (leave the date/time blank for access that never expires).
 3. Add more encoders the same way, or remove one by clicking the **×** on
    its badge. Removing the *last* allocation makes the card unrestricted
    again.
-4. This is enforced **server-side**, not just hidden in the UI: if someone
+4. To extend or shorten access (e.g. a guest extending their stay), just
+   add the same encoder again with a new expiry — it updates the existing
+   allocation rather than creating a duplicate.
+5. This is enforced **server-side**, not just hidden in the UI: if someone
    tries to run a command against a restricted card from a non-allowed
    encoder (via Live Encode or directly over the websocket API), the
    command is rejected with `"This card is not allocated to this encoder"`.
-   The Live Encode page also proactively warns and disables the send button
-   when the currently selected encoder isn't on a detected card's allowlist.
+   Once an allocation's expiry passes, commands against that encoder are
+   rejected too, with `"This card's access to this encoder has expired"` —
+   an expired allocation does **not** fall back to unrestricted access, even
+   if it was the card's only allocation. The Live Encode page also
+   proactively warns and disables the send button when the currently
+   selected encoder isn't on a detected card's current (non-expired)
+   allowlist.
 
 This is opt-in per card — you never have to configure it, and a company with
 zero allocations behaves exactly as if the feature didn't exist.
@@ -598,8 +608,14 @@ pull a term's/shift's attendance history from.
    as a label.
 5. At check-in: tap a blank card on **Live Encode**, register it with the
    room-key template, write the room code via **Send command**, and hand it
-   over.
+   over. On the card's detail page, restrict it to the guest's room-door
+   encoder with an expiry set to the checkout date/time
+   ([6.7](#67-restricting-a-card-to-specific-encoders)) — the key
+   automatically stops working the moment checkout passes, even if the
+   guest never returns it.
 6. At check-out: **Block** the card (or **Retire** if it won't be reused).
+   Guest extending their stay? Re-add the same encoder allocation with a
+   later expiry instead.
 7. Lost a key mid-stay? **Mark lost**, then register/write a replacement.
 
 ### 7.2 Business / office
@@ -803,6 +819,7 @@ or passwords, just in-flight JWTs (users simply mint a new one).
 |---|---|
 | "Encoder is offline" when sending a command | The local agent for that encoder isn't running or lost connection — restart `npm run agent` on the machine with the reader plugged in. |
 | "This card is not allocated to this encoder" | The card has an active encoder restriction (6.7) that doesn't include the encoder you're using — either add that encoder to its allowlist, or use an allowed one. |
+| "This card's access to this encoder has expired" | The card's allocation to that encoder (6.7) had an expiry — e.g. a hotel guest's checkout time — and it has passed. Re-add the encoder with a new expiry to restore access. |
 | Can't create a second company with the name/slug you want | Slugs are unique platform-wide — pick a different slug (the company name itself can repeat). |
 | Password reset email never arrives | `SMTP_HOST` isn't configured — check the server console log instead; the reset link is printed there in that case. |
 | `groupadd: Permission denied` during local dev setup | You're running as a non-root user on your own machine, which is the normal/expected case — this is handled automatically; if you still see it, make sure you're on the latest version of this repo. |

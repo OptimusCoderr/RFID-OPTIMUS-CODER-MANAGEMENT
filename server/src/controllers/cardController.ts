@@ -558,12 +558,16 @@ export const grantCardEncoders = asyncHandler(async (req: Request, res: Response
     throw ApiError.badRequest("One or more encoders do not belong to this company");
   }
 
+  const expiresAt = req.body.expiresAt ?? null;
+
   await prisma.$transaction(
     encoders.map((encoder) =>
       prisma.cardEncoderAllocation.upsert({
         where: { cardId_encoderId: { cardId: card.id, encoderId: encoder.id } },
-        update: {},
-        create: { cardId: card.id, encoderId: encoder.id },
+        // Re-granting an existing allocation updates its expiry (e.g.
+        // extending a hotel guest's stay) rather than being a no-op.
+        update: { expiresAt },
+        create: { cardId: card.id, encoderId: encoder.id, expiresAt },
       })
     )
   );
@@ -574,7 +578,7 @@ export const grantCardEncoders = asyncHandler(async (req: Request, res: Response
     userId: req.user!.id,
     operationType: "UPDATE",
     status: "SUCCESS",
-    details: { action: "grant_encoder_allocation", encoderIds: req.body.encoderIds },
+    details: { action: "grant_encoder_allocation", encoderIds: req.body.encoderIds, expiresAt },
   });
 
   res.status(204).send();

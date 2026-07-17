@@ -28,6 +28,10 @@ export const assignCardBody = z.object({
 
 export const cardEncodersBody = z.object({
   encoderIds: z.array(z.string().uuid()).min(1),
+  // e.g. a hotel room key granted only until guest checkout. Applies to
+  // every encoder in this same grant call; omit for a grant that never
+  // expires.
+  expiresAt: z.coerce.date().optional(),
 });
 
 export const prepareCitizenWriteBody = z.object({
