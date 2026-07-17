@@ -27,7 +27,12 @@ export function clearTokens() {
   localStorage.removeItem(JWT_KEY);
 }
 
-export const api = axios.create({ baseURL: "/api" });
+// Without a timeout, a stalled request (server hang, dropped connection)
+// leaves whatever button triggered it stuck in its loading state forever —
+// the only recovery is a page reload. 20s comfortably covers every real
+// operation here (CSV export/bulk import are both row-capped, agent-package
+// download zips a small prebuilt folder) without cutting off anything valid.
+export const api = axios.create({ baseURL: "/api", timeout: 20_000 });
 
 api.interceptors.request.use((config) => {
   // A caller-supplied Authorization header wins — used for the handful of

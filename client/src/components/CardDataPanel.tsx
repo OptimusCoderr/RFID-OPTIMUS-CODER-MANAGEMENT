@@ -75,6 +75,8 @@ export function CardDataPanel({
       // won't have stored keys available and falls back to the default below.
     }
 
+    let failures = 0;
+
     for (const b of blocks) {
       setStatus((prev) => ({ ...prev, [b.block]: { state: "pending" } }));
       const key = keys?.[`${b.sector}A`] ?? DEFAULT_KEY;
@@ -92,6 +94,7 @@ export function CardDataPanel({
               );
 
         if (!outcome.success) {
+          failures++;
           setStatus((prev) => ({ ...prev, [b.block]: { state: "failed", error: outcome.error } }));
           continue;
         }
@@ -102,6 +105,7 @@ export function CardDataPanel({
         }
         setStatus((prev) => ({ ...prev, [b.block]: { state: "success" } }));
       } catch (err) {
+        failures++;
         setStatus((prev) => ({
           ...prev,
           [b.block]: { state: "failed", error: err instanceof Error ? err.message : "Unknown error" },
@@ -110,8 +114,10 @@ export function CardDataPanel({
     }
 
     setBusy(null);
-    if (direction === "read") toast.success("Read card data");
-    else toast.success("Wrote card data");
+    const verb = direction === "read" ? "Read" : "Wrote";
+    if (failures === 0) toast.success(`${verb} card data`);
+    else if (failures === blocks.length) toast.error(`Failed to ${direction} any card data — see field errors below`);
+    else toast.error(`${verb} ${blocks.length - failures}/${blocks.length} fields — ${failures} failed, see below`);
   }
 
   return (

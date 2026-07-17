@@ -190,6 +190,95 @@ describe("company + card lifecycle happy path", () => {
     });
   });
 
+  describe("templates", () => {
+    it("rejects a citizen record with a repeated block number", async () => {
+      const res = await request(app)
+        .post("/api/templates")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          name: "Bad Citizen Template",
+          cardType: "MIFARE_CLASSIC_1K",
+          layout: {
+            citizenRecord: {
+              fields: ["name"],
+              blocks: [
+                { sector: 1, block: 4 },
+                { sector: 1, block: 4 },
+              ],
+            },
+          },
+        });
+      expect(res.status).toBe(400);
+    });
+
+    it("accepts a valid citizen record", async () => {
+      const res = await request(app)
+        .post("/api/templates")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          name: "Good Citizen Template",
+          cardType: "MIFARE_CLASSIC_1K",
+          layout: {
+            citizenRecord: {
+              fields: ["name"],
+              blocks: [
+                { sector: 1, block: 4 },
+                { sector: 1, block: 5 },
+              ],
+            },
+          },
+        });
+      expect(res.status).toBe(201);
+    });
+  });
+
+  describe("bulk import", () => {
+    it("creates valid rows, skips existing UIDs, reports per-row errors, and drops foreign templateIds", async () => {
+      const otherCompanyRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Bulk Import Other Co", slug: "bulk-import-other-co" });
+      const foreignTemplateRes = await request(app)
+        .post("/api/templates")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Foreign Template", cardType: "NTAG213", companyId: otherCompanyRes.body.id, layout: {} });
+
+      const res = await request(app)
+        .post("/api/cards/bulk-import")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          rows: [
+            { uid: "04B01C0001", cardType: "NTAG213" },
+            { uid: "04B01C0002", cardType: "NTAG213", templateId: foreignTemplateRes.body.id },
+            { uid: "04B01C0001", cardType: "NTAG213" }, // duplicate within the batch
+            { uid: "not-hex", cardType: "NTAG213" },
+            { uid: "04B01C0003" }, // missing cardType
+            { uid: "04DEADBEEF", cardType: "NTAG213" }, // already registered in an earlier test
+          ],
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.created).toBe(2);
+      expect(res.body.skipped).toBe(1);
+      expect(res.body.errors).toHaveLength(3);
+      expect(res.body.errors.map((e: { error: string }) => e.error)).toEqual(
+        expect.arrayContaining([
+          "Duplicate UID within this import",
+          "Invalid or missing UID (expected 8-20 hex characters)",
+          "Missing cardType",
+        ])
+      );
+
+      const listRes = await request(app)
+        .get("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ search: "04B01C0002" });
+      const imported = listRes.body.data.find((c: { uid: string }) => c.uid === "04B01C0002");
+      expect(imported).toBeTruthy();
+      expect(imported.templateId).toBeNull(); // foreign templateId silently dropped, not attached
+    });
+  });
+
   describe("attendance", () => {
     let attendeeCardId: string;
 
@@ -218,6 +307,20 @@ describe("company + card lifecycle happy path", () => {
         .set("Authorization", `Bearer ${companyAdminToken}`)
         .send({ cardId }); // blocked in an earlier test in this file
       expect(res.status).toBe(400);
+    });
+
+    it("rejects recording attendance for an expired card", async () => {
+      // EXPIRED is only ever set by the background expiry job, not reachable
+      // via any API — set it directly to exercise the check.
+      await prisma.card.update({ where: { id: attendeeCardId }, data: { status: "EXPIRED" } });
+
+      const res = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: attendeeCardId });
+      expect(res.status).toBe(400);
+
+      await prisma.card.update({ where: { id: attendeeCardId }, data: { status: "ASSIGNED" } });
     });
 
     it("rejects recording attendance for a card with no holder assigned", async () => {

@@ -251,6 +251,13 @@ export const registerCard = asyncHandler(async (req: Request, res: Response) => 
 
   const { uid, cardType, label, notes, templateId, registeredByEncoderId, keys } = req.body;
 
+  if (templateId) {
+    const template = await prisma.cardTemplate.findUnique({ where: { id: templateId } });
+    if (!template || template.companyId !== companyId) {
+      throw ApiError.badRequest("Template does not belong to this company");
+    }
+  }
+
   const existing = await prisma.card.findUnique({ where: { companyId_uid: { companyId, uid } } });
   if (existing) throw ApiError.conflict("A card with this UID is already registered for this company");
 
@@ -288,6 +295,13 @@ export const updateCard = asyncHandler(async (req: Request, res: Response) => {
   const existing = await prisma.card.findUnique({ where: { id: req.params.id } });
   if (!existing) throw ApiError.notFound("Card not found");
   assertCompanyAccess(req, existing.companyId);
+
+  if (req.body.templateId) {
+    const template = await prisma.cardTemplate.findUnique({ where: { id: req.body.templateId } });
+    if (!template || template.companyId !== existing.companyId) {
+      throw ApiError.badRequest("Template does not belong to this company");
+    }
+  }
 
   const { keys, ...rest } = req.body;
   const data: Prisma.CardUpdateInput = { ...rest };
@@ -449,9 +463,9 @@ export const bulkImportCards = asyncHandler(async (req: Request, res: Response) 
   if (!Array.isArray(rows) || rows.length === 0) throw ApiError.badRequest("rows must be a non-empty array");
   if (rows.length > MAX_BULK_IMPORT_ROWS) throw ApiError.badRequest(`A single import is limited to ${MAX_BULK_IMPORT_ROWS} rows`);
 
-  let created = 0;
-  let skipped = 0;
   const errors: { row: number; uid?: string; error: string }[] = [];
+  const candidates: { row: number; uid: string; cardType: string; label?: string; templateId?: string }[] = [];
+  const seenUids = new Set<string>();
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -464,35 +478,65 @@ export const bulkImportCards = asyncHandler(async (req: Request, res: Response) 
       errors.push({ row: i + 1, uid, error: "Missing cardType" });
       continue;
     }
+    if (seenUids.has(uid)) {
+      errors.push({ row: i + 1, uid, error: "Duplicate UID within this import" });
+      continue;
+    }
+    seenUids.add(uid);
+    candidates.push({ row: i + 1, uid, cardType: row.cardType, label: row.label, templateId: row.templateId });
+  }
 
-    try {
-      const existing = await prisma.card.findUnique({ where: { companyId_uid: { companyId, uid } } });
-      if (existing) {
-        skipped += 1;
-        continue;
-      }
-      const card = await prisma.card.create({
-        data: {
+  let created = 0;
+  let skipped = 0;
+
+  // Batched instead of one query per row — a full 500-row import used to
+  // mean up to ~1500 sequential round-trips (existence check + create + log
+  // per row); this brings it down to a handful of queries total.
+  if (candidates.length > 0) {
+    const existing = await prisma.card.findMany({
+      where: { companyId, uid: { in: candidates.map((c) => c.uid) } },
+      select: { uid: true },
+    });
+    const existingUids = new Set(existing.map((c) => c.uid));
+
+    // A templateId that doesn't belong to this company is dropped rather
+    // than failing the row — the card still gets created, just without a
+    // template, instead of a stray cross-tenant reference silently leaking
+    // another company's template name onto this card later.
+    const requestedTemplateIds = [...new Set(candidates.map((c) => c.templateId).filter((id): id is string => Boolean(id)))];
+    const validTemplates =
+      requestedTemplateIds.length > 0
+        ? await prisma.cardTemplate.findMany({ where: { id: { in: requestedTemplateIds }, companyId }, select: { id: true } })
+        : [];
+    const validTemplateIds = new Set(validTemplates.map((t) => t.id));
+
+    const toCreate = candidates.filter((c) => !existingUids.has(c.uid));
+    skipped = candidates.length - toCreate.length;
+
+    if (toCreate.length > 0) {
+      const createdCards = await prisma.card.createManyAndReturn({
+        data: toCreate.map((c) => ({
           companyId,
-          uid,
-          cardType: row.cardType as any,
-          label: row.label || undefined,
-          templateId: row.templateId || undefined,
+          uid: c.uid,
+          cardType: c.cardType as any,
+          label: c.label || undefined,
+          templateId: c.templateId && validTemplateIds.has(c.templateId) ? c.templateId : undefined,
           status: "UNASSIGNED",
           issuedAt: new Date(),
-        },
+        })),
       });
-      await logOperation({
-        companyId,
-        cardId: card.id,
-        userId: req.user!.id,
-        operationType: "REGISTER",
-        status: "SUCCESS",
-        details: { uid, cardType: row.cardType, source: "bulk_import" },
+      created = createdCards.length;
+
+      await prisma.operationLog.createMany({
+        data: createdCards.map((card) => ({
+          companyId,
+          cardId: card.id,
+          userId: req.user!.id,
+          operationType: "REGISTER" as const,
+          status: "SUCCESS" as const,
+          details: { uid: card.uid, cardType: card.cardType, source: "bulk_import" },
+        })),
       });
-      created += 1;
-    } catch (err) {
-      errors.push({ row: i + 1, uid, error: err instanceof Error ? err.message : "Unknown error" });
     }
   }
 

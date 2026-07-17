@@ -1,63 +1,74 @@
+import { lazy, Suspense } from "react";
 import { Routes, Route } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
+import { FullPageSpinner } from "@/components/ui/Spinner";
 
+// Login and Dashboard are on the critical path for every session (the first
+// screen an unauthenticated user sees, and the first screen after signing
+// in) — kept in the main bundle. Everything else loads on demand: a
+// dashboard app like this is mostly single-page visits per session, so
+// shipping e.g. the DESFire-heavy Live Encode/Templates editors to someone
+// who only ever checks the Dashboard is pure waste.
 import LoginPage from "@/pages/LoginPage";
-import RegisterCompanyPage from "@/pages/RegisterCompanyPage";
-import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
-import ResetPasswordPage from "@/pages/ResetPasswordPage";
 import DashboardPage from "@/pages/DashboardPage";
-import CompaniesPage from "@/pages/CompaniesPage";
-import UsersPage from "@/pages/UsersPage";
-import HoldersPage from "@/pages/HoldersPage";
-import HolderDetailPage from "@/pages/HolderDetailPage";
-import CardsPage from "@/pages/CardsPage";
-import CardDetailPage from "@/pages/CardDetailPage";
-import TemplatesPage from "@/pages/TemplatesPage";
-import EncodersPage from "@/pages/EncodersPage";
-import EncoderDetailPage from "@/pages/EncoderDetailPage";
-import LiveEncodePage from "@/pages/LiveEncodePage";
-import ZonesPage from "@/pages/ZonesPage";
-import AttendancePage from "@/pages/AttendancePage";
-import LogsPage from "@/pages/LogsPage";
-import ProfilePage from "@/pages/ProfilePage";
-import CompanySettingsPage from "@/pages/CompanySettingsPage";
-import NotFoundPage from "@/pages/NotFoundPage";
+
+const RegisterCompanyPage = lazy(() => import("@/pages/RegisterCompanyPage"));
+const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
+const ResetPasswordPage = lazy(() => import("@/pages/ResetPasswordPage"));
+const CompaniesPage = lazy(() => import("@/pages/CompaniesPage"));
+const UsersPage = lazy(() => import("@/pages/UsersPage"));
+const HoldersPage = lazy(() => import("@/pages/HoldersPage"));
+const HolderDetailPage = lazy(() => import("@/pages/HolderDetailPage"));
+const CardsPage = lazy(() => import("@/pages/CardsPage"));
+const CardDetailPage = lazy(() => import("@/pages/CardDetailPage"));
+const TemplatesPage = lazy(() => import("@/pages/TemplatesPage"));
+const EncodersPage = lazy(() => import("@/pages/EncodersPage"));
+const EncoderDetailPage = lazy(() => import("@/pages/EncoderDetailPage"));
+const LiveEncodePage = lazy(() => import("@/pages/LiveEncodePage"));
+const ZonesPage = lazy(() => import("@/pages/ZonesPage"));
+const AttendancePage = lazy(() => import("@/pages/AttendancePage"));
+const LogsPage = lazy(() => import("@/pages/LogsPage"));
+const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
+const CompanySettingsPage = lazy(() => import("@/pages/CompanySettingsPage"));
+const NotFoundPage = lazy(() => import("@/pages/NotFoundPage"));
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterCompanyPage />} />
-      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-      <Route path="/reset-password" element={<ResetPasswordPage />} />
+    <Suspense fallback={<FullPageSpinner />}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterCompanyPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
-      <Route element={<ProtectedRoute />}>
-        <Route element={<AppLayout />}>
-          <Route path="/" element={<DashboardPage />} />
-          <Route element={<ProtectedRoute allow={["SUPER_ADMIN"]} />}>
-            <Route path="/companies" element={<CompaniesPage />} />
+        <Route element={<ProtectedRoute />}>
+          <Route element={<AppLayout />}>
+            <Route path="/" element={<DashboardPage />} />
+            <Route element={<ProtectedRoute allow={["SUPER_ADMIN"]} />}>
+              <Route path="/companies" element={<CompaniesPage />} />
+            </Route>
+            <Route element={<ProtectedRoute allow={["SUPER_ADMIN", "COMPANY_ADMIN"]} />}>
+              <Route path="/users" element={<UsersPage />} />
+              <Route path="/company-settings" element={<CompanySettingsPage />} />
+            </Route>
+            <Route path="/holders" element={<HoldersPage />} />
+            <Route path="/holders/:id" element={<HolderDetailPage />} />
+            <Route path="/cards" element={<CardsPage />} />
+            <Route path="/cards/:id" element={<CardDetailPage />} />
+            <Route path="/templates" element={<TemplatesPage />} />
+            <Route path="/encoders" element={<EncodersPage />} />
+            <Route path="/encoders/:id" element={<EncoderDetailPage />} />
+            <Route path="/live-encode" element={<LiveEncodePage />} />
+            <Route path="/zones" element={<ZonesPage />} />
+            <Route path="/attendance" element={<AttendancePage />} />
+            <Route path="/logs" element={<LogsPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
           </Route>
-          <Route element={<ProtectedRoute allow={["SUPER_ADMIN", "COMPANY_ADMIN"]} />}>
-            <Route path="/users" element={<UsersPage />} />
-            <Route path="/company-settings" element={<CompanySettingsPage />} />
-          </Route>
-          <Route path="/holders" element={<HoldersPage />} />
-          <Route path="/holders/:id" element={<HolderDetailPage />} />
-          <Route path="/cards" element={<CardsPage />} />
-          <Route path="/cards/:id" element={<CardDetailPage />} />
-          <Route path="/templates" element={<TemplatesPage />} />
-          <Route path="/encoders" element={<EncodersPage />} />
-          <Route path="/encoders/:id" element={<EncoderDetailPage />} />
-          <Route path="/live-encode" element={<LiveEncodePage />} />
-          <Route path="/zones" element={<ZonesPage />} />
-          <Route path="/attendance" element={<AttendancePage />} />
-          <Route path="/logs" element={<LogsPage />} />
-          <Route path="/profile" element={<ProfilePage />} />
         </Route>
-      </Route>
 
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </Suspense>
   );
 }

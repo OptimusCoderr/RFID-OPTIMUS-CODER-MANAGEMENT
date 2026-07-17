@@ -22,7 +22,7 @@ export async function recordAttendance(params: {
   if (!card || card.companyId !== params.companyId) {
     throw ApiError.badRequest("Card does not belong to this company");
   }
-  if (card.status === "BLOCKED" || card.status === "LOST" || card.status === "RETIRED") {
+  if (card.status === "BLOCKED" || card.status === "LOST" || card.status === "RETIRED" || card.status === "EXPIRED") {
     throw ApiError.badRequest(`This card is ${card.status.toLowerCase()} and cannot be used for attendance`);
   }
   if (!card.holderId) {
