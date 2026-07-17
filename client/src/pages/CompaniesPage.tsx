@@ -207,6 +207,8 @@ const INDUSTRY_DEFAULT_MODULES: Record<CompanyIndustry, CompanyModule[]> = {
   HOTEL: ["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS"],
   BUSINESS: ["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS"],
   GOVERNMENT_ID: ["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS", "CITIZEN_DATA"],
+  INVENTORY: ["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS"],
+  HEALTHCARE: ["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS", "CITIZEN_DATA"],
 };
 
 function ModuleEditModal({ company, onClose }: { company: Company | null; onClose: () => void }) {

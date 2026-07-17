@@ -9,7 +9,7 @@ import { FullPageSpinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/context/AuthContext";
 import { hasModule } from "@/lib/modules";
-import { CARD_TYPE_OPTIONS, formatEnum, NATIONAL_ID_PRESET_FIELDS } from "@/lib/constants";
+import { CARD_TYPE_OPTIONS, formatEnum, NATIONAL_ID_PRESET_FIELDS, PATIENT_ID_PRESET_FIELDS } from "@/lib/constants";
 import type {
   CardTemplate,
   CardType,
@@ -343,15 +343,24 @@ function CitizenRecordEditor({
             >
               Load National ID preset
             </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              title="Fill in a patient identification field set"
+              onClick={() => setFields(PATIENT_ID_PRESET_FIELDS)}
+            >
+              Load Patient ID preset
+            </button>
             <button type="button" className="btn-secondary" onClick={() => setFields([...fields, ""])}>
               <Plus size={12} /> Add field
             </button>
           </div>
         </div>
         <p className="mb-1.5 text-xs text-amber-600">
-          The preset doesn't include fingerprint data — this platform talks to RFID/NFC encoders, not fingerprint
+          Neither preset includes fingerprint data — this platform talks to RFID/NFC encoders, not fingerprint
           scanners, so there's no hardware to capture or verify a print. Add it yourself only once you've integrated
-          dedicated biometric hardware.
+          dedicated biometric hardware. The Patient ID preset is an identity/lookup card, not a full medical chart —
+          keep clinical detail in a real EHR system, not on a card that can be lost or stolen.
         </p>
         <div className="space-y-1.5">
           {fields.map((f, i) => (

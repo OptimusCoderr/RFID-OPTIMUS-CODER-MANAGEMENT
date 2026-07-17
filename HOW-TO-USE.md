@@ -41,6 +41,8 @@ it* once it's up.
    - [7.2 Business / office](#72-business--office)
    - [7.3 University](#73-university)
    - [7.4 National ID / government ID](#74-national-id--government-id)
+   - [7.5 Inventory / asset tracking](#75-inventory--asset-tracking)
+   - [7.6 e-Healthcare](#76-e-healthcare)
 8. [Setting up a physical encoder](#8-setting-up-a-physical-encoder)
 9. [Configuration reference](#9-configuration-reference)
 10. [Deployment](#10-deployment)
@@ -192,9 +194,10 @@ need to see "National ID data," and a government registrar's office
 probably doesn't need "Attendance."
 
 - **Industry** is a label (`University`, `Hotel`, `Business/Office`,
-  `e-Government — National ID`, or `General`) picked at registration, or set
-  later by a `SUPER_ADMIN`. Picking one seeds a starting **module** list;
-  it's a convenience default, not a hard rule.
+  `e-Government — National ID`, `Inventory / Asset tracking`,
+  `e-Healthcare`, or `General`) picked at registration, or set later by a
+  `SUPER_ADMIN`. Picking one seeds a starting **module** list; it's a
+  convenience default, not a hard rule.
 - **Modules** are the actual gate: Cards, Encoders (+ Live Encode),
   Templates, Card Holders, Access Zones, Attendance, Audit Logs, and
   National ID / citizen data. A company only sees nav links and can only
@@ -206,13 +209,17 @@ probably doesn't need "Attendance."
   ("General"), behaves exactly as the whole app always has. Gating only
   turns on once a `SUPER_ADMIN` (directly, or via an industry pick at
   registration) gives a company a real module list.
-- University, Hotel, and Business/Office all start with the same full core
-  module set (Cards, Encoders, Templates, Card Holders, Access Zones,
-  Attendance, Audit Logs) — nothing about the existing feature set maps
-  cleanly to "exclude this for hotels" yet. **National ID / citizen data**
-  is the one module that isn't on by default: only the e-Government preset
-  includes it, since it's specific to that use case (see
-  [7.4](#74-national-id--government-id)).
+- University, Hotel, Business/Office, and Inventory all start with the same
+  full core module set (Cards, Encoders, Templates, Card Holders, Access
+  Zones, Attendance, Audit Logs) — nothing about the existing feature set
+  maps cleanly to "exclude this for hotels" yet; Inventory reuses the exact
+  same Cards/Holders/Attendance/Zones model for tracking physical items
+  instead of access credentials (see
+  [7.5](#75-inventory--asset-tracking)). **National ID / citizen data** is
+  the one module that isn't on by default: only the e-Government and
+  e-Healthcare presets include it, since both need an encrypted identity
+  record on the card (see [7.4](#74-national-id--government-id) and
+  [7.6](#76-e-healthcare)).
 - A `SUPER_ADMIN` can change any company's industry and individual modules
   from the **Companies** page (the gear icon on a company's card). Picking
   an industry there fills in its defaults as a starting point; the
@@ -752,6 +759,65 @@ pull a term's/shift's attendance history from.
 6. Lost or compromised card: **Mark lost**, issue a replacement with freshly
    generated keys — the old card's data key stays behind on the retired
    card record and is never reused.
+
+### 7.5 Inventory / asset tracking
+
+There's no separate "item" concept in this platform — Inventory reuses the
+same Cards/Card Holders/Attendance/Access Zones model everything else uses,
+just mapped onto physical items instead of people:
+
+1. Register your company, picking **Inventory / Asset tracking** as the
+   industry ([4.4](#44-industries-and-modules)).
+2. A **card** is the tag attached to an item — register one per asset
+   (label it with the item name, e.g. "Projector #4" or "Drill — Bay 3").
+3. A **card holder** is whoever's currently responsible for the item — a
+   person, or a department/team if you don't need to track named
+   individuals. [Assign](#66-card-lifecycle-block-unblock-lost-retire) an
+   item's card to a holder when it's checked out to them; unassign it when
+   it's returned to general stock.
+4. An **access zone** works well as a storage location ("Warehouse A",
+   "Tool Crib", "Server Room Rack 3") — grant a card access to the zone it's
+   currently stored in/expected to be in.
+5. **Attendance**'s check-in/check-out pairing doubles as a borrow/return
+   log: tap an item's card out when it leaves, tap it again when it comes
+   back — [6.15](#615-attendance-check-in--check-out) gives you a
+   chronological record of who had what and when, without building a
+   separate checkout system.
+6. Lost or damaged item: **Mark lost** or **Retire** the card, same as any
+   other lifecycle event.
+7. Use a [card template](#63-card-templates) if you want to write
+   structured data onto the tag itself (asset ID, category, purchase date)
+   for fast offline scanning — otherwise the card's label and holder
+   assignment alone are enough for most inventories.
+
+### 7.6 e-Healthcare
+
+1. Register your clinic/hospital as a company, picking **e-Healthcare** as
+   the industry ([4.4](#44-industries-and-modules)) — this turns on the
+   National ID / citizen data module, used here for patient identification.
+2. Create a MIFARE Classic template with an **encrypted citizen record**
+   ([6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)).
+   Click **Load Patient ID preset** in the citizen record editor to fill in
+   a starting field set — full name, patient ID, date of birth, blood type,
+   known allergies, and emergency contact.
+   **This is an identity/lookup card, not a medical chart.** Keep it to
+   fields useful for fast identification and emergency response; the
+   patient's actual clinical record (diagnoses, treatment history,
+   prescriptions) belongs in a real EHR system, not encoded onto a physical
+   card that can be lost, cloned, or stolen. As with the National ID
+   preset, fingerprint data is deliberately excluded — this platform talks
+   to RFID/NFC encoders, not fingerprint scanners.
+3. At enrollment: register the patient's card, **Generate random keys** on
+   it, then use the **Encrypted citizen data** panel in Live Encode to
+   write their details.
+4. At the point of care: tap the card, **Read from card** to pull up
+   identification fast — useful when the patient can't provide details
+   themselves (unconscious, language barrier) — then look up their full
+   chart in your actual clinical system using the patient ID.
+5. Still create a [card holder](#62-card-holders) record for search and
+   reporting, same as any other card.
+6. Lost card: **Mark lost**, issue a replacement with freshly generated
+   keys.
 
 ## 8. Setting up a physical encoder
 

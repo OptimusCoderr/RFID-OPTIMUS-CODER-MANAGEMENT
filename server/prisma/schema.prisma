@@ -129,6 +129,8 @@ enum CompanyIndustry {
   HOTEL
   BUSINESS
   GOVERNMENT_ID
+  INVENTORY
+  HEALTHCARE
 }
 
 // A slice of the app a company can be granted access to. Gating is

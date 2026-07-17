@@ -555,6 +555,41 @@ describe("company + card lifecycle happy path", () => {
       expect(meRes.body.company.enabledModules).toContain("CITIZEN_DATA");
     });
 
+    it("self-registering with the INVENTORY industry gets the core modules, without CITIZEN_DATA", async () => {
+      const res = await request(app).post("/api/auth/register-company").send({
+        companyName: "Warehouse Assets Co",
+        slug: "warehouse-assets-co",
+        fullName: "Warehouse Manager",
+        email: "manager@warehouse-assets.example",
+        password: "Warehouse123!",
+        industry: "INVENTORY",
+      });
+      expect(res.status).toBe(201);
+
+      const token = await loginAs("manager@warehouse-assets.example", "Warehouse123!");
+      const meRes = await request(app).get("/api/auth/me").set("Authorization", `Bearer ${token}`);
+      expect(meRes.body.company.enabledModules).toEqual(
+        expect.arrayContaining(["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS"])
+      );
+      expect(meRes.body.company.enabledModules).not.toContain("CITIZEN_DATA");
+    });
+
+    it("self-registering with the HEALTHCARE industry includes CITIZEN_DATA", async () => {
+      const res = await request(app).post("/api/auth/register-company").send({
+        companyName: "City Clinic",
+        slug: "city-clinic",
+        fullName: "Clinic Admin",
+        email: "admin@city-clinic.example",
+        password: "CityClinic123!",
+        industry: "HEALTHCARE",
+      });
+      expect(res.status).toBe(201);
+
+      const token = await loginAs("admin@city-clinic.example", "CityClinic123!");
+      const meRes = await request(app).get("/api/auth/me").set("Authorization", `Bearer ${token}`);
+      expect(meRes.body.company.enabledModules).toContain("CITIZEN_DATA");
+    });
+
     it("self-registering without an industry stays unrestricted (empty enabledModules)", async () => {
       const res = await request(app).post("/api/auth/register-company").send({
         companyName: "Generic Co",

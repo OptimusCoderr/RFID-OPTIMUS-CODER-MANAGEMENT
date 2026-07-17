@@ -51,6 +51,8 @@ export const INDUSTRY_OPTIONS: { value: CompanyIndustry | ""; label: string }[] 
   { value: "HOTEL", label: "Hotel" },
   { value: "BUSINESS", label: "Business / Office" },
   { value: "GOVERNMENT_ID", label: "e-Government — National ID" },
+  { value: "INVENTORY", label: "Inventory / Asset tracking" },
+  { value: "HEALTHCARE", label: "e-Healthcare" },
 ];
 
 export const MODULE_OPTIONS: { value: CompanyModule; label: string }[] = [
@@ -84,4 +86,20 @@ export const NATIONAL_ID_PRESET_FIELDS = [
   "Licensed to vote",
   "Licensed to drive",
   "Government worker ID",
+];
+
+// A starting field list for an e-Healthcare patient ID card's encrypted
+// citizen record. This is an identity/lookup card, not an on-card medical
+// chart: it holds enough to identify the patient and handle an emergency
+// (blood type, known allergies) fast and offline, while the actual clinical
+// record stays in a real EHR system this platform doesn't touch — don't
+// grow this preset into a full medical history on a physical card that can
+// be lost or stolen.
+export const PATIENT_ID_PRESET_FIELDS = [
+  "Full name",
+  "Patient ID",
+  "Date of birth",
+  "Blood type",
+  "Known allergies",
+  "Emergency contact",
 ];

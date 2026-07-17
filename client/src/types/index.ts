@@ -1,6 +1,6 @@
 export type Role = "SUPER_ADMIN" | "COMPANY_ADMIN" | "MANAGER" | "OPERATOR" | "VIEWER";
 
-export type CompanyIndustry = "UNIVERSITY" | "HOTEL" | "BUSINESS" | "GOVERNMENT_ID";
+export type CompanyIndustry = "UNIVERSITY" | "HOTEL" | "BUSINESS" | "GOVERNMENT_ID" | "INVENTORY" | "HEALTHCARE";
 
 export type CompanyModule =
   | "CARDS"
