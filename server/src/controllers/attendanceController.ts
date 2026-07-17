@@ -9,10 +9,13 @@ import * as attendanceService from "../services/attendanceService.js";
 
 function buildAttendanceWhere(req: Request): Prisma.AttendanceRecordWhereInput {
   const companyId = scopedCompanyId(req);
-  const { holderId, cardId, zoneId, type, from, to } = req.query as unknown as {
+  const { holderId, cardId, zoneId, encoderId, sessionId, sessionLabel, type, from, to } = req.query as unknown as {
     holderId?: string;
     cardId?: string;
     zoneId?: string;
+    encoderId?: string;
+    sessionId?: string;
+    sessionLabel?: string;
     type?: "CHECK_IN" | "CHECK_OUT";
     from?: Date;
     to?: Date;
@@ -23,6 +26,9 @@ function buildAttendanceWhere(req: Request): Prisma.AttendanceRecordWhereInput {
     ...(holderId ? { holderId } : {}),
     ...(cardId ? { cardId } : {}),
     ...(zoneId ? { zoneId } : {}),
+    ...(encoderId ? { encoderId } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    ...(sessionLabel ? { sessionLabel: { equals: sessionLabel, mode: "insensitive" } } : {}),
     ...(type ? { type } : {}),
     ...(from || to ? { recordedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
   };
@@ -80,6 +86,7 @@ export const exportAttendance = asyncHandler(async (req: Request, res: Response)
     { key: "zone", header: "Zone", value: (r) => r.zone?.name },
     { key: "card", header: "Card", value: (r) => r.card?.label ?? r.card?.uid },
     { key: "encoder", header: "Encoder", value: (r) => r.encoder?.name },
+    { key: "schedule", header: "Schedule", value: (r) => r.sessionLabel },
   ]);
 
   res.setHeader("Content-Type", "text/csv; charset=utf-8");

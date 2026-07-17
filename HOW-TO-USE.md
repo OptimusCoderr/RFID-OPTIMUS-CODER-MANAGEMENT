@@ -749,8 +749,13 @@ a [card holder](#62-card-holders).
    check-in and check-out for that holder automatically — no separate
    "start session" step, and a missed tap just leaves the next one correctly
    reversed. The live feed shows each tap as it happens; results are also
-   written to the **Records** table below with full filtering (zone,
-   check-in/out) and CSV export.
+   written to the **Records** table below with full filtering — by
+   **Schedule** (which saved schedule, e.g. "CS101 Lecture" vs "MATH201
+   Lecture", was open when the tap happened — snapshotted at tap time, so it
+   stays correct even if you later rename or delete that schedule), zone,
+   check-in/out type, and a **From/To** date range — plus CSV export that
+   respects every one of those filters, so you can pull just one class's or
+   one date range's attendance history instead of everything at once.
 3. A card that's blocked, lost, retired, or not yet assigned to a holder is
    rejected with a clear reason in the feed rather than silently recording
    junk — you'll want cards properly registered and assigned before using

@@ -590,6 +590,37 @@ describe("company + card lifecycle happy path", () => {
         .set("Authorization", `Bearer ${companyAdminToken}`)
         .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
       expect(tapRes.status).toBe(201);
+      // The tap snapshots which schedule was open — lets attendance later be
+      // exported/filtered by class/shift, not just by encoder or time range.
+      expect(tapRes.body.sessionId).toBe(sessionId);
+      expect(tapRes.body.sessionLabel).toBe("CS101 Lecture");
+    });
+
+    it("filters attendance records by sessionId and by sessionLabel, and the export includes a Schedule column", async () => {
+      const bySessionId = await request(app)
+        .get("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ sessionId });
+      expect(bySessionId.status).toBe(200);
+      expect(bySessionId.body.data.length).toBeGreaterThan(0);
+      expect(bySessionId.body.data.every((r: { sessionId: string }) => r.sessionId === sessionId)).toBe(true);
+
+      const bySessionLabel = await request(app)
+        .get("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ sessionLabel: "CS101 Lecture" });
+      expect(bySessionLabel.status).toBe(200);
+      expect(bySessionLabel.body.data.length).toBeGreaterThan(0);
+      expect(bySessionLabel.body.data.every((r: { sessionLabel: string }) => r.sessionLabel === "CS101 Lecture")).toBe(true);
+
+      const exportRes = await request(app)
+        .get("/api/attendance/export")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ sessionId });
+      expect(exportRes.status).toBe(200);
+      const [header, ...rows] = exportRes.text.trim().split("\r\n");
+      expect(header).toContain("Schedule");
+      expect(rows.every((row) => row.includes("CS101 Lecture"))).toBe(true);
     });
 
     it("Stop now (FORCE_CLOSED) blocks attendance even during what would be an open window", async () => {

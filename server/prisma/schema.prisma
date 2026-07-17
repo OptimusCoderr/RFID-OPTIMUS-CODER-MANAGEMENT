@@ -527,6 +527,18 @@ model AttendanceRecord {
   encoderId String?
   encoder   Encoder? @relation(fields: [encoderId], references: [id], onDelete: SetNull)
 
+  // Which schedule (see AttendanceSession) was open on the encoder at the
+  // moment this tap was recorded, if any — lets attendance be exported or
+  // filtered by class/shift (e.g. "CS101" vs "MATH201" on the same shared
+  // encoder), not just by encoder or time range. sessionLabel is
+  // denormalized from the session at record time, same pattern as
+  // holderId above, so exports and filters stay meaningful even after the
+  // session is later renamed or deleted; sessionId is kept alongside it
+  // for exact filtering while the session still exists.
+  sessionId    String?
+  session      AttendanceSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  sessionLabel String?
+
   type       AttendanceType
   recordedAt DateTime       @default(now())
 
@@ -534,6 +546,7 @@ model AttendanceRecord {
   @@index([holderId])
   @@index([cardId])
   @@index([zoneId])
+  @@index([sessionId])
   @@index([recordedAt])
   @@map("attendance_records")
 }
@@ -582,6 +595,11 @@ model AttendanceSession {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Back-relation for AttendanceRecord.sessionId — records aren't navigated
+  // from here anywhere in the app (exports/filters query AttendanceRecord
+  // directly), but Prisma requires the field to declare the relation.
+  records AttendanceRecord[]
 
   @@index([companyId])
   @@index([encoderId])

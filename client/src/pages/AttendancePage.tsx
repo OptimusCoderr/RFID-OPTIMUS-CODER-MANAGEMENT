@@ -70,6 +70,9 @@ export default function AttendancePage() {
   const [page, setPage] = useState(1);
   const [filterZoneId, setFilterZoneId] = useState("");
   const [filterType, setFilterType] = useState("");
+  const [filterSessionId, setFilterSessionId] = useState("");
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
@@ -238,12 +241,22 @@ export default function AttendancePage() {
 
   const selectedEncoder = encoders?.find((e) => e.id === encoderId);
 
+  const attendanceFilterParams = {
+    zoneId: filterZoneId || undefined,
+    type: filterType || undefined,
+    sessionId: filterSessionId || undefined,
+    // "To" is a whole-day picker — push it to the end of that day so the
+    // filter includes everything recorded on it, not just up to midnight.
+    from: filterFrom ? `${filterFrom}T00:00:00.000` : undefined,
+    to: filterTo ? `${filterTo}T23:59:59.999` : undefined,
+  };
+
   const { data, isLoading } = useQuery({
-    queryKey: ["attendance", { page, filterZoneId, filterType }],
+    queryKey: ["attendance", { page, ...attendanceFilterParams }],
     queryFn: async () =>
       (
         await api.get<PaginatedResponse<AttendanceRecord>>("/attendance", {
-          params: { page, pageSize: 25, zoneId: filterZoneId || undefined, type: filterType || undefined },
+          params: { page, pageSize: 25, ...attendanceFilterParams },
         })
       ).data,
     placeholderData: (prev) => prev,
@@ -252,11 +265,7 @@ export default function AttendancePage() {
   async function handleExport() {
     setExporting(true);
     try {
-      await downloadCsv(
-        "/attendance/export",
-        { zoneId: filterZoneId || undefined, type: filterType || undefined },
-        `attendance-${new Date().toISOString().slice(0, 10)}.csv`
-      );
+      await downloadCsv("/attendance/export", attendanceFilterParams, `attendance-${new Date().toISOString().slice(0, 10)}.csv`);
     } catch {
       toast.error("Export failed");
     } finally {
@@ -440,7 +449,23 @@ export default function AttendancePage() {
       </div>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <select
+            className="input w-52"
+            value={filterSessionId}
+            onChange={(e) => {
+              setFilterSessionId(e.target.value);
+              setPage(1);
+            }}
+            title="Filter by which saved schedule the attendance was taken under"
+          >
+            <option value="">All schedules</option>
+            {allSessions?.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label} {s.encoder?.name ? `(${s.encoder.name})` : ""}
+              </option>
+            ))}
+          </select>
           <select
             className="input w-52"
             value={filterZoneId}
@@ -468,6 +493,45 @@ export default function AttendancePage() {
             <option value="CHECK_IN">Check-in only</option>
             <option value="CHECK_OUT">Check-out only</option>
           </select>
+          <div className="flex items-center gap-1.5 text-sm text-slate-500">
+            <input
+              type="date"
+              className="input w-40"
+              title="From date"
+              value={filterFrom}
+              onChange={(e) => {
+                setFilterFrom(e.target.value);
+                setPage(1);
+              }}
+            />
+            <span>–</span>
+            <input
+              type="date"
+              className="input w-40"
+              title="To date"
+              value={filterTo}
+              onChange={(e) => {
+                setFilterTo(e.target.value);
+                setPage(1);
+              }}
+            />
+          </div>
+          {(filterSessionId || filterZoneId || filterType || filterFrom || filterTo) && (
+            <button
+              type="button"
+              className="text-xs text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+              onClick={() => {
+                setFilterSessionId("");
+                setFilterZoneId("");
+                setFilterType("");
+                setFilterFrom("");
+                setFilterTo("");
+                setPage(1);
+              }}
+            >
+              Clear filters
+            </button>
+          )}
         </div>
         <button className="btn-secondary" onClick={handleExport} disabled={exporting}>
           {exporting ? <Spinner className="h-4 w-4" /> : <Download size={16} />} Export CSV
@@ -484,6 +548,7 @@ export default function AttendancePage() {
                 <th className="px-4 py-3">When</th>
                 <th className="px-4 py-3">Holder</th>
                 <th className="px-4 py-3">Type</th>
+                <th className="px-4 py-3">Schedule</th>
                 <th className="px-4 py-3">Zone</th>
                 <th className="px-4 py-3">Card</th>
               </tr>
@@ -496,13 +561,14 @@ export default function AttendancePage() {
                   <td className="px-4 py-3">
                     <Badge tone={r.type === "CHECK_IN" ? "ACTIVE" : undefined}>{r.type === "CHECK_IN" ? "Check-in" : "Check-out"}</Badge>
                   </td>
+                  <td className="px-4 py-3 text-slate-500">{r.sessionLabel ?? "—"}</td>
                   <td className="px-4 py-3 text-slate-500">{r.zone?.name ?? "General"}</td>
                   <td className="px-4 py-3 text-slate-500">{r.card?.label ?? r.card?.uid ?? "—"}</td>
                 </tr>
               ))}
               {data?.data.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
                     No attendance records match these filters.
                   </td>
                 </tr>
