@@ -233,6 +233,65 @@ describe("company + card lifecycle happy path", () => {
         });
       expect(res.status).toBe(201);
     });
+
+    it("rejects a citizen record block that lands on a sector trailer", async () => {
+      const res = await request(app)
+        .post("/api/templates")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          name: "Bad Trailer Citizen Template",
+          cardType: "MIFARE_CLASSIC_1K",
+          layout: {
+            citizenRecord: {
+              fields: ["name"],
+              blocks: [{ sector: 1, block: 7 }], // sector 1's trailer
+            },
+          },
+        });
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects a plain labeled block that lands on the manufacturer block", async () => {
+      const res = await request(app)
+        .post("/api/templates")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          name: "Bad Manufacturer Block Template",
+          cardType: "MIFARE_CLASSIC_1K",
+          layout: {
+            sectors: [{ sector: 0, blocks: [{ block: 0, purpose: "Should be rejected" }] }],
+          },
+        });
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects a plain labeled block that lands on a sector trailer", async () => {
+      const res = await request(app)
+        .post("/api/templates")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          name: "Bad Trailer Block Template",
+          cardType: "MIFARE_CLASSIC_1K",
+          layout: {
+            sectors: [{ sector: 1, blocks: [{ block: 7, purpose: "Should be rejected" }] }],
+          },
+        });
+      expect(res.status).toBe(400);
+    });
+
+    it("accepts a plain labeled block on an ordinary sector data block", async () => {
+      const res = await request(app)
+        .post("/api/templates")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          name: "Good Plain Block Template",
+          cardType: "MIFARE_CLASSIC_1K",
+          layout: {
+            sectors: [{ sector: 1, blocks: [{ block: 4, purpose: "Full Name" }] }],
+          },
+        });
+      expect(res.status).toBe(201);
+    });
   });
 
   describe("bulk import", () => {
@@ -758,6 +817,32 @@ describe("company + card lifecycle happy path", () => {
       });
       socket.close();
       expect(ack.ok).toBe(true);
+    });
+
+    it("rejects a WRITE_BLOCK targeting the manufacturer block, even for a MANAGER", async () => {
+      const socket = await connectDashboard(managerToken);
+      const ack = await sendCommand(socket, {
+        encoderId: clearEncoderId,
+        cardId: clearCardId,
+        command: "WRITE_BLOCK",
+        args: { block: 0, data: "00".repeat(16), key: "FFFFFFFFFFFF", keyType: "A" },
+      });
+      socket.close();
+      expect(ack.ok).toBe(false);
+      expect(ack.error).toMatch(/protected/i);
+    });
+
+    it("rejects a WRITE_BLOCK targeting a sector trailer, even for a MANAGER", async () => {
+      const socket = await connectDashboard(managerToken);
+      const ack = await sendCommand(socket, {
+        encoderId: clearEncoderId,
+        cardId: clearCardId,
+        command: "WRITE_BLOCK",
+        args: { block: 7, data: "00".repeat(16), key: "FFFFFFFFFFFF", keyType: "A" },
+      });
+      socket.close();
+      expect(ack.ok).toBe(false);
+      expect(ack.error).toMatch(/protected/i);
     });
 
     it("allows a clear-write from a MANAGER, and logs it as WRITE (not READ) in the audit trail", async () => {

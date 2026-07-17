@@ -12,6 +12,7 @@ import { hasModule } from "@/lib/modules";
 import { CARD_TYPE_OPTIONS, formatEnum, NATIONAL_ID_PRESET_FIELDS, PATIENT_ID_PRESET_FIELDS } from "@/lib/constants";
 import { CITIZEN_RECORD_OVERHEAD_BYTES, estimateNeededBlocks, pickFreeCitizenBlocks } from "@/lib/citizenRecord";
 import { INDUSTRY_PRESET_LABELS, TEMPLATE_PRESETS } from "@/lib/templatePresets";
+import { mifareBlockIssue, nextFreeMifareBlock } from "@/lib/mifare";
 import type {
   CardTemplate,
   CardType,
@@ -116,12 +117,12 @@ export default function TemplatesPage() {
   function applyPreset(id: string) {
     setPresetId(id);
     const preset = TEMPLATE_PRESETS.find((p) => p.id === id);
-    setApplications([]);
-    setCitizenFields([]);
-    setCitizenBlocks([]);
     if (!preset) {
       setSectors([]);
       setPages([]);
+      setApplications([]);
+      setCitizenFields([]);
+      setCitizenBlocks([]);
       return;
     }
     setName(preset.name);
@@ -129,10 +130,25 @@ export default function TemplatesPage() {
     setCardType(preset.cardType);
     setSectors(preset.sectors ?? []);
     setPages(preset.pages ?? []);
+    setApplications(preset.applications ?? []);
+    if (preset.citizenFields) {
+      setCitizenFields(preset.citizenFields);
+      setCitizenBlocks(pickFreeCitizenBlocks(estimateNeededBlocks(preset.citizenFields), []));
+    } else {
+      setCitizenFields([]);
+      setCitizenBlocks([]);
+    }
   }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    const plainBlocks = sectors.flatMap((s) => (s.blocks ?? []).map((b) => b.block));
+    const encryptedBlocks = citizenBlocks.map((b) => b.block);
+    const badBlock = [...plainBlocks, ...encryptedBlocks].find((block) => mifareBlockIssue(block) !== null);
+    if (badBlock !== undefined) {
+      toast.error(mifareBlockIssue(badBlock) ?? `Block ${badBlock} can't be written to`);
+      return;
+    }
     createTemplate.mutate();
   }
 
@@ -186,15 +202,21 @@ export default function TemplatesPage() {
             <label className="label">Start from a preset (optional)</label>
             <select className="input" value={presetId} onChange={(e) => applyPreset(e.target.value)}>
               <option value="">Start from scratch</option>
-              {(Object.keys(INDUSTRY_PRESET_LABELS) as (keyof typeof INDUSTRY_PRESET_LABELS)[]).map((industry) => (
-                <optgroup key={industry} label={INDUSTRY_PRESET_LABELS[industry]}>
-                  {TEMPLATE_PRESETS.filter((p) => p.industry === industry).map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
+              {(Object.keys(INDUSTRY_PRESET_LABELS) as (keyof typeof INDUSTRY_PRESET_LABELS)[]).map((industry) => {
+                const options = TEMPLATE_PRESETS.filter(
+                  (p) => p.industry === industry && (!p.citizenFields || citizenDataEnabled)
+                );
+                if (options.length === 0) return null;
+                return (
+                  <optgroup key={industry} label={INDUSTRY_PRESET_LABELS[industry]}>
+                    {options.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                );
+              })}
             </select>
             <p className="mt-1 text-xs text-slate-400">
               Fills in a name, card type, and a starting set of labeled blocks for a common use case — everything
@@ -323,6 +345,7 @@ function SectorEditor({
             </div>
 
             <BlockEditor
+              sector={s.sector}
               blocks={s.blocks ?? []}
               setBlocks={(blocks) => setSectors(sectors.map((row, idx) => (idx === i ? { ...row, blocks } : row)))}
             />
@@ -334,40 +357,55 @@ function SectorEditor({
   );
 }
 
-// Labels specific data blocks within a sector (e.g. block 4 = "Full name") so
-// Live Encode's Card Data panel can show a plain-text field for it instead of
-// requiring raw hex. Block 3 of every 4-block sector is a key/access-bits
-// trailer — writing card data there would corrupt the sector's own keys.
+// Labels specific data blocks within a sector (e.g. block 4 = "Full name",
+// the first data block of sector 1 — block numbers are absolute across the
+// card, see client/src/lib/mifare.ts) so Live Encode's Card Data panel can
+// show a plain-text field for it instead of requiring raw hex. Every
+// sector's last block is a key/access-bits trailer, and block 0 is the
+// card's manufacturer block — writing card data to either would corrupt the
+// card, so both are flagged inline and rejected on submit.
 function BlockEditor({
+  sector,
   blocks,
   setBlocks,
 }: {
+  sector: number;
   blocks: { block: number; purpose: string }[];
   setBlocks: (b: { block: number; purpose: string }[]) => void;
 }) {
   return (
     <div className="mt-2 ml-2 space-y-1.5 border-l border-slate-100 pl-3 dark:border-slate-800">
-      {blocks.map((b, i) => (
-        <div key={i} className="flex items-center gap-2 text-sm">
-          <input
-            type="number"
-            className="input w-16"
-            title="Block number"
-            value={b.block}
-            onChange={(e) => setBlocks(blocks.map((row, idx) => (idx === i ? { ...row, block: Number(e.target.value) } : row)))}
-          />
-          <input
-            className="input flex-1"
-            placeholder="Purpose (e.g. Full name)"
-            value={b.purpose}
-            onChange={(e) => setBlocks(blocks.map((row, idx) => (idx === i ? { ...row, purpose: e.target.value } : row)))}
-          />
-          <button type="button" className="text-slate-400 hover:text-red-600" onClick={() => setBlocks(blocks.filter((_, idx) => idx !== i))}>
-            <X size={14} />
-          </button>
-        </div>
-      ))}
-      <button type="button" className="btn-secondary" onClick={() => setBlocks([...blocks, { block: blocks.length, purpose: "" }])}>
+      {blocks.map((b, i) => {
+        const issue = mifareBlockIssue(b.block);
+        return (
+          <div key={i}>
+            <div className="flex items-center gap-2 text-sm">
+              <input
+                type="number"
+                className={`input w-16 ${issue ? "border-red-400" : ""}`}
+                title="Block number"
+                value={b.block}
+                onChange={(e) => setBlocks(blocks.map((row, idx) => (idx === i ? { ...row, block: Number(e.target.value) } : row)))}
+              />
+              <input
+                className="input flex-1"
+                placeholder="Purpose (e.g. Full name)"
+                value={b.purpose}
+                onChange={(e) => setBlocks(blocks.map((row, idx) => (idx === i ? { ...row, purpose: e.target.value } : row)))}
+              />
+              <button type="button" className="text-slate-400 hover:text-red-600" onClick={() => setBlocks(blocks.filter((_, idx) => idx !== i))}>
+                <X size={14} />
+              </button>
+            </div>
+            {issue && <p className="mt-1 text-xs text-red-600">{issue}</p>}
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        className="btn-secondary"
+        onClick={() => setBlocks([...blocks, { block: nextFreeMifareBlock(sector, blocks), purpose: "" }])}
+      >
         <Plus size={12} /> Label a data block
       </button>
       {blocks.length === 0 && (
@@ -485,35 +523,48 @@ function CitizenRecordEditor({
             >
               Auto-fill blocks
             </button>
-            <button type="button" className="btn-secondary" onClick={() => setBlocks([...blocks, { sector: 0, block: blocks.length }])}>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => {
+                const sector = 1; // sector 0 is skipped — it holds the card-wide manufacturer block
+                setBlocks([...blocks, { sector, block: nextFreeMifareBlock(sector, blocks.filter((b) => b.sector === sector)) }]);
+              }}
+            >
               <Plus size={12} /> Add block
             </button>
           </div>
         </div>
         <div className="space-y-1.5">
-          {blocks.map((b, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <input
-                type="number"
-                className="input w-24"
-                title="Sector"
-                placeholder="Sector"
-                value={b.sector}
-                onChange={(e) => setBlocks(blocks.map((row, idx) => (idx === i ? { ...row, sector: Number(e.target.value) } : row)))}
-              />
-              <input
-                type="number"
-                className="input w-24"
-                title="Block"
-                placeholder="Block"
-                value={b.block}
-                onChange={(e) => setBlocks(blocks.map((row, idx) => (idx === i ? { ...row, block: Number(e.target.value) } : row)))}
-              />
-              <button type="button" className="text-slate-400 hover:text-red-600" onClick={() => setBlocks(blocks.filter((_, idx) => idx !== i))}>
-                <X size={14} />
-              </button>
-            </div>
-          ))}
+          {blocks.map((b, i) => {
+            const issue = mifareBlockIssue(b.block);
+            return (
+              <div key={i}>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    className="input w-24"
+                    title="Sector"
+                    placeholder="Sector"
+                    value={b.sector}
+                    onChange={(e) => setBlocks(blocks.map((row, idx) => (idx === i ? { ...row, sector: Number(e.target.value) } : row)))}
+                  />
+                  <input
+                    type="number"
+                    className={`input w-24 ${issue ? "border-red-400" : ""}`}
+                    title="Block"
+                    placeholder="Block"
+                    value={b.block}
+                    onChange={(e) => setBlocks(blocks.map((row, idx) => (idx === i ? { ...row, block: Number(e.target.value) } : row)))}
+                  />
+                  <button type="button" className="text-slate-400 hover:text-red-600" onClick={() => setBlocks(blocks.filter((_, idx) => idx !== i))}>
+                    <X size={14} />
+                  </button>
+                </div>
+                {issue && <p className="mt-1 text-xs text-red-600">{issue}</p>}
+              </div>
+            );
+          })}
           {blocks.length === 0 && <p className="text-xs text-slate-400">No blocks yet — each block adds 16 bytes of card capacity.</p>}
         </div>
       </div>

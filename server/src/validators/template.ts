@@ -1,16 +1,27 @@
 import { z } from "zod";
 import { CardType } from "@prisma/client";
+import { isProtectedMifareBlock } from "../utils/mifare.js";
 
 // MIFARE Classic sector key layout
-const mifareSectorSchema = z.object({
-  sector: z.number().int().min(0),
-  keyA: z.string().regex(/^[0-9a-fA-F]{12}$/, "keyA must be 6 bytes of hex").optional(),
-  keyB: z.string().regex(/^[0-9a-fA-F]{12}$/, "keyB must be 6 bytes of hex").optional(),
-  accessBits: z.string().regex(/^[0-9a-fA-F]{6,8}$/).optional(),
-  blocks: z
-    .array(z.object({ block: z.number().int().min(0), purpose: z.string().max(100) }))
-    .optional(),
-});
+const mifareSectorSchema = z
+  .object({
+    sector: z.number().int().min(0),
+    keyA: z.string().regex(/^[0-9a-fA-F]{12}$/, "keyA must be 6 bytes of hex").optional(),
+    keyB: z.string().regex(/^[0-9a-fA-F]{12}$/, "keyB must be 6 bytes of hex").optional(),
+    accessBits: z.string().regex(/^[0-9a-fA-F]{6,8}$/).optional(),
+    blocks: z
+      .array(z.object({ block: z.number().int().min(0), purpose: z.string().max(100) }))
+      .optional(),
+  })
+  // A labeled data block that lands on the manufacturer block or a sector
+  // trailer would have Live Encode's Card Data panel write plain text over
+  // the card's UID/factory data or its own keys/access bits — silently
+  // bricking that sector. Block numbers here are absolute (see
+  // utils/mifare.ts), not relative to the sector.
+  .refine((s) => (s.blocks ?? []).every((b) => !isProtectedMifareBlock(b.block)), {
+    message: "blocks must not target block 0 (manufacturer block) or a sector trailer block",
+    path: ["blocks"],
+  });
 
 // NTAG / Ultralight page layout
 const ntagPageSchema = z.object({
@@ -68,7 +79,11 @@ const citizenRecordSchema = z
   .refine(
     (record) => new Set(record.blocks.map((b) => b.block)).size === record.blocks.length,
     { message: "citizenRecord.blocks must not repeat the same block number", path: ["blocks"] }
-  );
+  )
+  .refine((record) => record.blocks.every((b) => !isProtectedMifareBlock(b.block)), {
+    message: "citizenRecord.blocks must not target block 0 (manufacturer block) or a sector trailer block",
+    path: ["blocks"],
+  });
 
 export const templateLayoutSchema = z.object({
   sectors: z.array(mifareSectorSchema).optional(),

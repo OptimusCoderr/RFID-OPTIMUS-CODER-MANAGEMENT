@@ -6,6 +6,7 @@ import { verifyAccessToken } from "../utils/jwt.js";
 import { env } from "../config/env.js";
 import { logOperation } from "../services/operationLogService.js";
 import { notifyCompanyAdmins } from "../services/notificationService.js";
+import { isProtectedMifareBlock } from "../utils/mifare.js";
 import { OperationType } from "@prisma/client";
 
 interface DashboardSocketData {
@@ -130,6 +131,18 @@ export function initWebsocket(httpServer: HttpServer): Server {
 
           if (DESTRUCTIVE_COMMANDS.has(payload.command) && !MANAGER_UP_ROLES.has(data.role)) {
             throw new Error("You do not have permission to run this command");
+          }
+
+          // Real protection against writing over a card's manufacturer block
+          // or a sector's key trailer — checked here (not just hinted at in
+          // the Templates UI) so it also covers Live Encode's raw "Send
+          // command" console, which lets a block number be typed freely with
+          // no template involved at all.
+          if (payload.command === "WRITE_BLOCK") {
+            const block = (payload.args as { block?: number } | undefined)?.block;
+            if (typeof block === "number" && isProtectedMifareBlock(block)) {
+              throw new Error(`Block ${block} is protected (manufacturer block or sector trailer) and cannot be written to`);
+            }
           }
 
           // A "delete card data" write — CardDataPanel/CitizenDataPanel's
