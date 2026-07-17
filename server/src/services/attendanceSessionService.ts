@@ -86,3 +86,31 @@ export function computeSessionState(session: SessionScheduleInput, now: Date = n
 
   return { isOpen: false, reason: "scheduled_closed", nextBoundaryAt: null };
 }
+
+export interface EncoderOpenState {
+  isOpen: boolean;
+  // Which schedule is the reason the encoder is currently open — null when
+  // closed, or when open only because there are no schedules at all.
+  openSessionId: string | null;
+}
+
+// One encoder can have many independent schedules (a lecture hall hosting
+// several different courses through the week — see the AttendanceSession
+// model comment). The encoder as a whole accepts a tap if ANY of its
+// schedules currently does — "the door unlocks while some class is in
+// session" — and stays unrestricted if it has no schedules at all, same as
+// every other opt-in restriction in this app.
+export function computeEncoderOpenState(
+  sessions: (SessionScheduleInput & { id: string })[],
+  now: Date = new Date()
+): EncoderOpenState {
+  if (sessions.length === 0) return { isOpen: true, openSessionId: null };
+
+  for (const session of sessions) {
+    if (computeSessionState(session, now).isOpen) {
+      return { isOpen: true, openSessionId: session.id };
+    }
+  }
+
+  return { isOpen: false, openSessionId: null };
+}

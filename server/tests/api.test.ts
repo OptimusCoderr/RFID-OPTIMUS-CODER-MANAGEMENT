@@ -400,9 +400,10 @@ describe("company + card lifecycle happy path", () => {
     });
   });
 
-  describe("attendance sessions: schedule + manual override", () => {
+  describe("attendance sessions: multiple schedules per encoder, like a university course catalog", () => {
     let sessionEncoderId: string;
     let sessionCardId: string;
+    let sessionId: string;
 
     beforeAll(async () => {
       const encoderRes = await request(app)
@@ -428,15 +429,16 @@ describe("company + card lifecycle happy path", () => {
         .send({ holderId: holderRes.body.id });
     });
 
-    it("returns null for an encoder with no saved session (unrestricted)", async () => {
+    it("lists no schedules for a fresh encoder (unrestricted)", async () => {
       const res = await request(app)
-        .get(`/api/attendance-sessions/${sessionEncoderId}`)
-        .set("Authorization", `Bearer ${companyAdminToken}`);
+        .get("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ encoderId: sessionEncoderId });
       expect(res.status).toBe(200);
-      expect(res.body).toBeNull();
+      expect(res.body).toEqual([]);
     });
 
-    it("accepts attendance taps against an encoder with no session row", async () => {
+    it("accepts attendance taps against an encoder with no schedules", async () => {
       const res = await request(app)
         .post("/api/attendance")
         .set("Authorization", `Bearer ${companyAdminToken}`)
@@ -444,61 +446,64 @@ describe("company + card lifecycle happy path", () => {
       expect(res.status).toBe(201);
     });
 
-    it("rejects an operator-below role (VIEWER) from saving a schedule", async () => {
+    it("rejects an operator-below role (VIEWER) from creating a schedule", async () => {
       const viewerToken = await loginAs("viewer@integration-test-co.example", "ViewerOnly123!");
       const res = await request(app)
-        .put(`/api/attendance-sessions/${sessionEncoderId}`)
+        .post("/api/attendance-sessions")
         .set("Authorization", `Bearer ${viewerToken}`)
-        .send({ daysOfWeek: [], startTime: "09:00", endTime: "10:00" });
+        .send({ encoderId: sessionEncoderId, daysOfWeek: [], startTime: "09:00", endTime: "10:00" });
       expect(res.status).toBe(403);
     });
 
-    it("rejects saving a schedule with no label", async () => {
+    it("rejects creating a schedule with no label", async () => {
       const res = await request(app)
-        .put(`/api/attendance-sessions/${sessionEncoderId}`)
+        .post("/api/attendance-sessions")
         .set("Authorization", `Bearer ${companyAdminToken}`)
-        .send({ daysOfWeek: [], startTime: "09:00", endTime: "10:00" });
+        .send({ encoderId: sessionEncoderId, daysOfWeek: [], startTime: "09:00", endTime: "10:00" });
       expect(res.status).toBe(400);
     });
 
-    it("rejects saving a schedule with a blank/whitespace-only label", async () => {
+    it("rejects creating a schedule with a blank/whitespace-only label", async () => {
       const res = await request(app)
-        .put(`/api/attendance-sessions/${sessionEncoderId}`)
+        .post("/api/attendance-sessions")
         .set("Authorization", `Bearer ${companyAdminToken}`)
-        .send({ label: "   ", daysOfWeek: [], startTime: "09:00", endTime: "10:00" });
+        .send({ encoderId: sessionEncoderId, label: "   ", daysOfWeek: [], startTime: "09:00", endTime: "10:00" });
       expect(res.status).toBe(400);
     });
 
-    it("saves and round-trips a description alongside the required label", async () => {
+    it("creates a schedule and round-trips a description alongside the required label", async () => {
       const res = await request(app)
-        .put(`/api/attendance-sessions/${sessionEncoderId}`)
+        .post("/api/attendance-sessions")
         .set("Authorization", `Bearer ${companyAdminToken}`)
         .send({
+          encoderId: sessionEncoderId,
           label: "CS101 Lecture",
           description: "Room 204, Mon/Wed/Fri mornings",
           daysOfWeek: [],
-          startTime: null,
-          endTime: null,
         });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(201);
       expect(res.body.label).toBe("CS101 Lecture");
       expect(res.body.description).toBe("Room 204, Mon/Wed/Fri mornings");
+      sessionId = res.body.id;
 
-      const getRes = await request(app)
-        .get(`/api/attendance-sessions/${sessionEncoderId}`)
-        .set("Authorization", `Bearer ${companyAdminToken}`);
-      expect(getRes.body.description).toBe("Room 204, Mon/Wed/Fri mornings");
+      const listRes = await request(app)
+        .get("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ encoderId: sessionEncoderId });
+      expect(listRes.body).toHaveLength(1);
+      expect(listRes.body[0].description).toBe("Room 204, Mon/Wed/Fri mornings");
     });
 
-    it("saves a recurring schedule that is currently closed and blocks taps outside the window", async () => {
+    it("edits the schedule's recurring window with a PATCH by id, currently closed and blocking taps outside it", async () => {
       // Scheduled for a day-of-week other than today, so it's guaranteed
       // closed right now regardless of when this suite runs.
       const otherDay = (new Date().getDay() + 3) % 7;
       const res = await request(app)
-        .put(`/api/attendance-sessions/${sessionEncoderId}`)
+        .patch(`/api/attendance-sessions/${sessionId}`)
         .set("Authorization", `Bearer ${companyAdminToken}`)
-        .send({ daysOfWeek: [otherDay], startTime: "09:00", endTime: "10:00", label: "CS101 Lecture" });
+        .send({ daysOfWeek: [otherDay], startTime: "09:00", endTime: "10:00" });
       expect(res.status).toBe(200);
+      expect(res.body.label).toBe("CS101 Lecture"); // untouched by the partial update
       expect(res.body.state.isOpen).toBe(false);
       expect(res.body.state.reason).toBe("scheduled_closed");
       expect(res.body.state.nextBoundaryAt).not.toBeNull();
@@ -513,7 +518,7 @@ describe("company + card lifecycle happy path", () => {
 
     it("Start now (FORCE_OPEN) opens attendance immediately, overriding the schedule", async () => {
       const overrideRes = await request(app)
-        .patch(`/api/attendance-sessions/${sessionEncoderId}/override`)
+        .patch(`/api/attendance-sessions/${sessionId}/override`)
         .set("Authorization", `Bearer ${companyAdminToken}`)
         .send({ manualOverride: "FORCE_OPEN" });
       expect(overrideRes.status).toBe(200);
@@ -530,7 +535,7 @@ describe("company + card lifecycle happy path", () => {
 
     it("Stop now (FORCE_CLOSED) blocks attendance even during what would be an open window", async () => {
       const overrideRes = await request(app)
-        .patch(`/api/attendance-sessions/${sessionEncoderId}/override`)
+        .patch(`/api/attendance-sessions/${sessionId}/override`)
         .set("Authorization", `Bearer ${companyAdminToken}`)
         .send({ manualOverride: "FORCE_CLOSED" });
       expect(overrideRes.status).toBe(200);
@@ -546,7 +551,7 @@ describe("company + card lifecycle happy path", () => {
 
     it("Resume schedule (NONE) clears the override and reverts to the saved schedule's state", async () => {
       const overrideRes = await request(app)
-        .patch(`/api/attendance-sessions/${sessionEncoderId}/override`)
+        .patch(`/api/attendance-sessions/${sessionId}/override`)
         .set("Authorization", `Bearer ${companyAdminToken}`)
         .send({ manualOverride: "NONE" });
       expect(overrideRes.status).toBe(200);
@@ -562,21 +567,86 @@ describe("company + card lifecycle happy path", () => {
     it("lists sessions for the company with computed state included", async () => {
       const res = await request(app).get("/api/attendance-sessions").set("Authorization", `Bearer ${companyAdminToken}`);
       expect(res.status).toBe(200);
-      const entry = res.body.find((s: { encoderId: string }) => s.encoderId === sessionEncoderId);
+      const entry = res.body.find((s: { id: string }) => s.id === sessionId);
       expect(entry).toBeTruthy();
       expect(entry.state).toBeDefined();
     });
 
-    it("deleting the session makes the encoder unrestricted again", async () => {
+    it("a second schedule on the same encoder is entirely independent — the encoder is open if either one is", async () => {
+      // sessionId ("CS101 Lecture") is currently closed (scheduled_closed,
+      // from the earlier test). A second, always-open schedule on the SAME
+      // encoder should make attendance work again — like two different
+      // courses sharing one room's reader.
+      const secondRes = await request(app)
+        .post("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ encoderId: sessionEncoderId, label: "MATH201 Lecture", daysOfWeek: [] });
+      expect(secondRes.status).toBe(201);
+      const secondId = secondRes.body.id;
+
+      const listRes = await request(app)
+        .get("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ encoderId: sessionEncoderId });
+      expect(listRes.body).toHaveLength(2);
+
+      const tapRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
+      expect(tapRes.status).toBe(201); // open because of MATH201, despite CS101 still being closed
+
+      // Stopping MATH201 leaves the encoder fully closed again (CS101 is
+      // still scheduled_closed), proving the two schedules don't share state.
+      await request(app)
+        .patch(`/api/attendance-sessions/${secondId}/override`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ manualOverride: "FORCE_CLOSED" });
+
+      const blockedTapRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
+      expect(blockedTapRes.status).toBe(400);
+
+      // Editing CS101 (sessionId) doesn't touch MATH201 (secondId).
+      await request(app)
+        .patch(`/api/attendance-sessions/${sessionId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ description: "Updated room: 305" });
+      const secondAfterEdit = await request(app)
+        .get("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ encoderId: sessionEncoderId });
+      const stillThere = secondAfterEdit.body.find((s: { id: string }) => s.id === secondId);
+      expect(stillThere.label).toBe("MATH201 Lecture"); // unaffected by CS101's edit
+      expect(stillThere.manualOverride).toBe("FORCE_CLOSED"); // unaffected too
+
+      // Deleting MATH201 leaves CS101 alone and still enforced.
       const delRes = await request(app)
-        .delete(`/api/attendance-sessions/${sessionEncoderId}`)
+        .delete(`/api/attendance-sessions/${secondId}`)
         .set("Authorization", `Bearer ${companyAdminToken}`);
       expect(delRes.status).toBe(204);
 
-      const getRes = await request(app)
-        .get(`/api/attendance-sessions/${sessionEncoderId}`)
+      const finalList = await request(app)
+        .get("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ encoderId: sessionEncoderId });
+      expect(finalList.body).toHaveLength(1);
+      expect(finalList.body[0].id).toBe(sessionId);
+    });
+
+    it("deleting the last schedule makes the encoder unrestricted again", async () => {
+      const delRes = await request(app)
+        .delete(`/api/attendance-sessions/${sessionId}`)
         .set("Authorization", `Bearer ${companyAdminToken}`);
-      expect(getRes.body).toBeNull();
+      expect(delRes.status).toBe(204);
+
+      const listRes = await request(app)
+        .get("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ encoderId: sessionEncoderId });
+      expect(listRes.body).toEqual([]);
 
       const tapRes = await request(app)
         .post("/api/attendance")

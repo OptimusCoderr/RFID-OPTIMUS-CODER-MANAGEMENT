@@ -3,9 +3,10 @@ import * as attendanceSessionController from "../controllers/attendanceSessionCo
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/rbac.js";
 import { validate } from "../middleware/validate.js";
+import { idParams } from "../validators/common.js";
 import {
-  encoderIdParams,
-  upsertAttendanceSessionBody,
+  createAttendanceSessionBody,
+  updateAttendanceSessionBody,
   setOverrideBody,
   attendanceSessionListQuery,
 } from "../validators/attendanceSession.js";
@@ -17,23 +18,28 @@ router.use(authenticate);
 const OPERATOR_UP = ["SUPER_ADMIN", "COMPANY_ADMIN", "MANAGER", "OPERATOR"] as const;
 
 router.get("/", validate({ query: attendanceSessionListQuery }), attendanceSessionController.listAttendanceSessions);
-router.get("/:encoderId", validate({ params: encoderIdParams }), attendanceSessionController.getAttendanceSession);
-router.put(
-  "/:encoderId",
+router.post(
+  "/",
   requireRole(...OPERATOR_UP),
-  validate({ params: encoderIdParams, body: upsertAttendanceSessionBody }),
-  attendanceSessionController.upsertAttendanceSession
+  validate({ body: createAttendanceSessionBody }),
+  attendanceSessionController.createAttendanceSession
 );
 router.patch(
-  "/:encoderId/override",
+  "/:id",
   requireRole(...OPERATOR_UP),
-  validate({ params: encoderIdParams, body: setOverrideBody }),
+  validate({ params: idParams, body: updateAttendanceSessionBody }),
+  attendanceSessionController.updateAttendanceSession
+);
+router.patch(
+  "/:id/override",
+  requireRole(...OPERATOR_UP),
+  validate({ params: idParams, body: setOverrideBody }),
   attendanceSessionController.setAttendanceSessionOverride
 );
 router.delete(
-  "/:encoderId",
+  "/:id",
   requireRole(...OPERATOR_UP),
-  validate({ params: encoderIdParams }),
+  validate({ params: idParams }),
   attendanceSessionController.deleteAttendanceSession
 );
 
