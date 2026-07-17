@@ -9,7 +9,7 @@ import { FullPageSpinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/context/AuthContext";
 import { hasModule } from "@/lib/modules";
-import { CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
+import { CARD_TYPE_OPTIONS, formatEnum, NATIONAL_ID_PRESET_FIELDS } from "@/lib/constants";
 import type {
   CardTemplate,
   CardType,
@@ -334,10 +334,25 @@ function CitizenRecordEditor({
       <div className="mb-3">
         <div className="mb-1 flex items-center justify-between">
           <span className="text-xs font-medium text-slate-500">Fields</span>
-          <button type="button" className="btn-secondary" onClick={() => setFields([...fields, ""])}>
-            <Plus size={12} /> Add field
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="btn-secondary"
+              title="Fill in the standard National ID field set"
+              onClick={() => setFields(NATIONAL_ID_PRESET_FIELDS)}
+            >
+              Load National ID preset
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => setFields([...fields, ""])}>
+              <Plus size={12} /> Add field
+            </button>
+          </div>
         </div>
+        <p className="mb-1.5 text-xs text-amber-600">
+          The preset doesn't include fingerprint data — this platform talks to RFID/NFC encoders, not fingerprint
+          scanners, so there's no hardware to capture or verify a print. Add it yourself only once you've integrated
+          dedicated biometric hardware.
+        </p>
         <div className="space-y-1.5">
           {fields.map((f, i) => (
             <div key={i} className="flex items-center gap-2">

@@ -722,11 +722,22 @@ pull a term's/shift's attendance history from.
    keys) and enrollment clerks as `OPERATOR` (can encode/read citizen data,
    cannot see raw key material).
 2. Create a MIFARE Classic template with an **encrypted citizen record**
-   ([6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)) —
-   field names like `fullName`, `nationalId`, `dob`, and enough blocks
-   (6+ recommended) to fit them as compact JSON. Keep values short: initials
-   over full middle names, compact date formats (`YYMMDD`), short codes over
-   free text.
+   ([6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)).
+   Click **Load National ID preset** in the citizen record editor to fill in
+   the standard field set — full name, National Identity Number (NIN), date
+   of birth, state of origin, licensed-to-vote, licensed-to-drive, and
+   government-worker-ID flags — then adjust field names/order as your
+   scheme needs. You still choose the sector/block layout yourself (which
+   sectors are free depends on your card stock and lock hardware); 6+ blocks
+   is a reasonable starting point to fit the preset's fields as compact
+   JSON. Keep values short: initials over full middle names, compact date
+   formats (`YYMMDD`), short codes over free text.
+   **The preset deliberately doesn't include fingerprint data** — this
+   platform talks to RFID/NFC PC/SC encoders, not fingerprint scanners, so
+   there's no hardware path to capture or verify a print. If your scheme
+   needs biometric verification, that requires separate fingerprint
+   hardware and its own integration; don't fake it with a placeholder
+   field.
 3. At enrollment: register the citizen's card, **Generate random keys** on
    it (a lost card then only ever exposes its own single record, not every
    citizen's), then use the **Encrypted citizen data** panel in Live Encode

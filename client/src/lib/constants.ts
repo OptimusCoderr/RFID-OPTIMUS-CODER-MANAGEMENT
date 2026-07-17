@@ -67,3 +67,21 @@ export const MODULE_OPTIONS: { value: CompanyModule; label: string }[] = [
 export function formatEnum(value: string) {
   return value.replace(/_/g, " ");
 }
+
+// A starting field list for an e-Government National ID card's encrypted
+// citizen record (see CitizenRecordLayout) — covers the core identity
+// fields plus the voter/driver/government-worker eligibility flags a
+// national ID scheme typically needs. Deliberately excludes fingerprint
+// data: this platform talks to RFID/NFC PC/SC encoders, not fingerprint
+// scanners, so there's no hardware path to capture or verify a print. Fill
+// that in yourself only once you've integrated dedicated biometric
+// hardware — don't fake it with a placeholder value.
+export const NATIONAL_ID_PRESET_FIELDS = [
+  "Full name",
+  "National Identity Number (NIN)",
+  "Date of birth",
+  "State of origin",
+  "Licensed to vote",
+  "Licensed to drive",
+  "Government worker ID",
+];
