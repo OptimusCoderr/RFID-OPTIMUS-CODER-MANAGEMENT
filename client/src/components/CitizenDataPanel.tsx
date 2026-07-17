@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Socket } from "socket.io-client";
-import { Download, Upload, Lock } from "lucide-react";
+import { Download, Upload, Lock, KeyRound } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
 import { sendCommandAwait } from "@/lib/encoderCommand";
+import { citizenRecordCapacityBytes, citizenRecordPlaintextBytes } from "@/lib/citizenRecord";
 import type { Card, CardTemplate } from "@/types";
 
 const DEFAULT_KEY = "FFFFFFFFFFFF";
@@ -13,18 +14,24 @@ const DEFAULT_KEY = "FFFFFFFFFFFF";
 // "citizen record" (national ID, employee PII, etc). Unlike CardDataPanel,
 // which hex-encodes text locally in the browser, all encryption happens
 // server-side — this panel only ever sees opaque per-block hex, never the
-// plaintext-to-ciphertext mapping or the data key itself.
+// plaintext-to-ciphertext mapping or the data key itself. Nothing here
+// changes that boundary — the additions below (key-generation shortcut,
+// capacity preview) only smooth out the steps around the encryption, never
+// the encryption itself (still AES-256-GCM, server-side key, per card).
 export function CitizenDataPanel({
   card,
   socket,
   encoderId,
   disabled,
+  onCardUpdated,
 }: {
   card: Card;
   socket: Socket | null;
   encoderId: string;
   disabled?: boolean;
+  onCardUpdated?: (card: Card) => void;
 }) {
+  const queryClient = useQueryClient();
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<"read" | "write" | null>(null);
 
@@ -34,7 +41,26 @@ export function CitizenDataPanel({
     enabled: Boolean(card.templateId),
   });
 
+  const generateKeys = useMutation({
+    mutationFn: async () => (await api.post(`/cards/${card.id}/keys/generate`)).data,
+    onSuccess: () => {
+      toast.success("Encryption keys generated for this card");
+      queryClient.invalidateQueries({ queryKey: ["cards"] });
+      onCardUpdated?.({ ...card, hasStoredKeys: true });
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not generate keys")),
+  });
+
   const record = template?.layout.citizenRecord;
+
+  const plaintextBytes = useMemo(() => {
+    if (!record) return 0;
+    const full = Object.fromEntries(record.fields.map((f) => [f, values[f] ?? ""]));
+    return citizenRecordPlaintextBytes(full);
+  }, [record, values]);
+  const capacityBytes = record ? citizenRecordCapacityBytes(record.blocks.length) : 0;
+  const overCapacity = plaintextBytes > capacityBytes;
+
   if (!record) return null;
 
   async function writeToCard() {
@@ -101,7 +127,12 @@ export function CitizenDataPanel({
           <button type="button" className="btn-secondary" disabled={disabled || Boolean(busy)} onClick={readFromCard}>
             <Download size={14} /> {busy === "read" ? "Reading..." : "Read from card"}
           </button>
-          <button type="button" className="btn-primary" disabled={disabled || Boolean(busy)} onClick={writeToCard}>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={disabled || Boolean(busy) || overCapacity || !card.hasStoredKeys}
+            onClick={writeToCard}
+          >
             <Upload size={14} /> {busy === "write" ? "Encrypting..." : "Encrypt & write"}
           </button>
         </div>
@@ -111,6 +142,20 @@ export function CitizenDataPanel({
         These fields are combined and encrypted on the server before anything is written — the encryption key never
         reaches this browser.
       </p>
+
+      {!card.hasStoredKeys && (
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          <span>This card has no encryption key yet — generate one before writing citizen data.</span>
+          <button
+            type="button"
+            className="btn-secondary whitespace-nowrap"
+            disabled={generateKeys.isPending}
+            onClick={() => generateKeys.mutate()}
+          >
+            <KeyRound size={13} /> {generateKeys.isPending ? "Generating..." : "Generate keys"}
+          </button>
+        </div>
+      )}
 
       <div className="space-y-3">
         {record.fields.map((field) => (
@@ -124,6 +169,11 @@ export function CitizenDataPanel({
           </div>
         ))}
       </div>
+
+      <p className={`mt-3 text-xs ${overCapacity ? "text-red-600" : "text-slate-400"}`}>
+        {plaintextBytes} / {capacityBytes} bytes used
+        {overCapacity && " — shorten the values above or add more blocks to this record's template"}
+      </p>
     </div>
   );
 }

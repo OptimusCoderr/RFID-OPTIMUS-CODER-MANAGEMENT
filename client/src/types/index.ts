@@ -282,6 +282,31 @@ export interface AttendanceRecord {
   recordedAt: string;
 }
 
+export type ManualOverride = "NONE" | "FORCE_OPEN" | "FORCE_CLOSED";
+
+export interface SessionState {
+  isOpen: boolean;
+  reason: "manual_open" | "manual_closed" | "scheduled_open" | "scheduled_closed" | "no_schedule";
+  nextBoundaryAt: string | null;
+}
+
+export interface AttendanceSession {
+  id: string;
+  companyId: string;
+  encoderId: string;
+  encoder?: { id: string; name: string } | null;
+  zoneId?: string | null;
+  zone?: { id: string; name: string } | null;
+  label?: string | null;
+  daysOfWeek: number[];
+  startTime?: string | null;
+  endTime?: string | null;
+  manualOverride: ManualOverride;
+  createdAt: string;
+  updatedAt: string;
+  state: SessionState;
+}
+
 export type MaintenanceStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED";
 
 export interface MaintenanceRecord {

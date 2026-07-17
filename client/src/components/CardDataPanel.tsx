@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Socket } from "socket.io-client";
 import { Download, Upload } from "lucide-react";
 import toast from "react-hot-toast";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage } from "@/lib/api";
 import { textToHex, hexToText } from "@/lib/hex";
 import { sendCommandAwait } from "@/lib/encoderCommand";
 import type { Card, CardTemplate } from "@/types";
@@ -30,20 +30,43 @@ export function CardDataPanel({
   socket,
   encoderId,
   disabled,
+  onCardUpdated,
 }: {
   card: Card;
   socket: Socket | null;
   encoderId: string;
   disabled?: boolean;
+  // Template assignment below updates the card in place — the caller
+  // typically holds its own copy of the matched card (from a live tap, not
+  // a query), so it needs to be told about the change to re-render with it.
+  onCardUpdated?: (card: Card) => void;
 }) {
+  const queryClient = useQueryClient();
   const [values, setValues] = useState<Record<number, string>>({});
   const [status, setStatus] = useState<Record<number, { state: BlockState; error?: string }>>({});
   const [busy, setBusy] = useState<"read" | "write" | null>(null);
+  const [pickedTemplateId, setPickedTemplateId] = useState("");
 
   const { data: template } = useQuery({
     queryKey: ["template", card.templateId],
     queryFn: async () => (await api.get<CardTemplate>(`/templates/${card.templateId}`)).data,
     enabled: Boolean(card.templateId),
+  });
+
+  const { data: allTemplates } = useQuery({
+    queryKey: ["templates"],
+    queryFn: async () => (await api.get<CardTemplate[]>("/templates")).data,
+  });
+  const assignableTemplates = allTemplates?.filter((t) => t.cardType === card.cardType) ?? [];
+
+  const assignTemplate = useMutation({
+    mutationFn: async () => (await api.patch<Card>(`/cards/${card.id}`, { templateId: pickedTemplateId })).data,
+    onSuccess: (updated) => {
+      toast.success("Template assigned");
+      queryClient.invalidateQueries({ queryKey: ["cards"] });
+      onCardUpdated?.(updated);
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not assign template")),
   });
 
   const blocks: DataBlock[] =
@@ -55,10 +78,32 @@ export function CardDataPanel({
     return (
       <div className="card p-5">
         <h3 className="mb-2 text-sm font-semibold text-slate-600 dark:text-slate-300">Card data</h3>
-        <p className="text-xs text-slate-400">
-          This card has no template with labeled data blocks, so there's nothing to show here. Add block purposes
-          (e.g. "Full Name", "ID Number") to its template on the Templates page to use this card as an ID badge.
+        <p className="mb-3 text-xs text-slate-400">
+          {card.templateId
+            ? "This card's template has no labeled data blocks, so there's nothing to fill in here. Add block purposes (e.g. \"Full Name\", \"ID Number\") to it on the Templates page."
+            : "This card has no template, so there's nothing to fill in here yet. Assign one below to turn writing to this card into a plain form instead of raw hex."}
         </p>
+        {assignableTemplates.length > 0 && (
+          <div className="flex items-center gap-2">
+            <select className="input" value={pickedTemplateId} onChange={(e) => setPickedTemplateId(e.target.value)}>
+              <option value="">Select a template…</option>
+              {assignableTemplates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                  {t.layout.citizenRecord ? " (encrypted record)" : ""}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn-primary whitespace-nowrap"
+              disabled={!pickedTemplateId || assignTemplate.isPending}
+              onClick={() => assignTemplate.mutate()}
+            >
+              Assign
+            </button>
+          </div>
+        )}
       </div>
     );
   }

@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Radio, CreditCard, Send, ExternalLink } from "lucide-react";
+import { Radio, CreditCard, Send, ExternalLink, ChevronDown, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
@@ -12,7 +12,7 @@ import { useSocket } from "@/context/SocketContext";
 import { useAuth } from "@/context/AuthContext";
 import { hasModule } from "@/lib/modules";
 import { CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
-import type { Card, CardType, DesfireFileType, Encoder, EncoderStatus, PaginatedResponse } from "@/types";
+import type { Card, CardTemplate, CardType, DesfireFileType, Encoder, EncoderStatus, PaginatedResponse } from "@/types";
 
 interface LogEntry {
   id: string;
@@ -51,12 +51,17 @@ export default function LiveEncodePage() {
     queryKey: ["encoders"],
     queryFn: async () => (await api.get<Encoder[]>("/encoders")).data,
   });
+  const { data: templates } = useQuery({
+    queryKey: ["templates"],
+    queryFn: async () => (await api.get<CardTemplate[]>("/templates")).data,
+  });
 
   const [statusOverrides, setStatusOverrides] = useState<Record<string, EncoderStatus>>({});
   const [encoderId, setEncoderId] = useState("");
   const [detectedUid, setDetectedUid] = useState<string | null>(null);
   const [matchedCard, setMatchedCard] = useState<Card | null | undefined>(undefined);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [command, setCommand] = useState("READ_UID");
   const [block, setBlock] = useState(4);
@@ -68,6 +73,8 @@ export default function LiveEncodePage() {
 
   const [regType, setRegType] = useState<CardType>("MIFARE_CLASSIC_1K");
   const [regLabel, setRegLabel] = useState("");
+  const [regTemplateId, setRegTemplateId] = useState("");
+  const registerableTemplates = templates?.filter((t) => t.cardType === regType) ?? [];
 
   // DESFire application/file partitioning
   const [aid, setAid] = useState("F00001");
@@ -156,6 +163,7 @@ export default function LiveEncodePage() {
           uid: detectedUid,
           cardType: regType,
           label: regLabel || undefined,
+          templateId: regTemplateId || undefined,
           registeredByEncoderId: encoderId,
         })
       ).data,
@@ -163,6 +171,10 @@ export default function LiveEncodePage() {
       toast.success("Card registered");
       setMatchedCard(card);
       queryClient.invalidateQueries({ queryKey: ["cards"] });
+      // Clear the per-card label so it can't be silently reused on the next
+      // tap — cardType/template stay selected since batches of cards (e.g.
+      // a stack of employee badges) are usually all the same kind.
+      setRegLabel("");
     },
     onError: (err) => toast.error(apiErrorMessage(err, "Could not register card")),
   });
@@ -247,17 +259,40 @@ export default function LiveEncodePage() {
           {detectedUid && matchedCard === null && (
             <div className="mt-4 space-y-2 rounded-lg border border-dashed border-slate-300 p-3 dark:border-slate-700">
               <p className="text-xs text-slate-500">Unknown card — register it:</p>
-              <select className="input" value={regType} onChange={(e) => setRegType(e.target.value as CardType)}>
+              <select
+                className="input"
+                value={regType}
+                onChange={(e) => {
+                  setRegType(e.target.value as CardType);
+                  setRegTemplateId("");
+                }}
+              >
                 {CARD_TYPE_OPTIONS.map((t) => (
                   <option key={t} value={t}>
                     {formatEnum(t)}
                   </option>
                 ))}
               </select>
+              {registerableTemplates.length > 0 && (
+                <select className="input" value={regTemplateId} onChange={(e) => setRegTemplateId(e.target.value)}>
+                  <option value="">No template</option>
+                  {registerableTemplates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                      {t.layout.citizenRecord ? " (encrypted record)" : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
               <input className="input" placeholder="Label (optional)" value={regLabel} onChange={(e) => setRegLabel(e.target.value)} />
               <button className="btn-primary w-full" onClick={() => registerCard.mutate()} disabled={registerCard.isPending}>
                 <CreditCard size={14} /> Register card
               </button>
+              {registerableTemplates.length > 0 && !regTemplateId && (
+                <p className="text-xs text-slate-400">
+                  Pick a template to fill in data with a plain form after registering — you can also assign one later.
+                </p>
+              )}
             </div>
           )}
 
@@ -280,9 +315,56 @@ export default function LiveEncodePage() {
           )}
         </div>
 
-        <div className="card p-5 lg:col-span-2">
-          <h3 className="mb-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Send command</h3>
-          <form onSubmit={sendCommand} className="space-y-3">
+        <div className="lg:col-span-2">
+          {matchedCard ? (
+            <div className="space-y-6">
+              <CardDataPanel
+                card={matchedCard}
+                socket={socket}
+                encoderId={encoderId}
+                disabled={liveStatus !== "ONLINE" || cardRestrictedToOtherEncoders}
+                onCardUpdated={setMatchedCard}
+              />
+              {hasModule(user, "CITIZEN_DATA") && (
+                <CitizenDataPanel
+                  card={matchedCard}
+                  socket={socket}
+                  encoderId={encoderId}
+                  disabled={liveStatus !== "ONLINE" || cardRestrictedToOtherEncoders}
+                  onCardUpdated={setMatchedCard}
+                />
+              )}
+            </div>
+          ) : (
+            <div className="card flex h-full min-h-[200px] items-center justify-center p-5 text-center">
+              <p className="max-w-xs text-sm text-slate-400">
+                {detectedUid
+                  ? "Register the card using the form on the left, then fill in its data here as a plain form."
+                  : "Tap a card on the selected encoder to start writing data to it."}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card mb-6 p-5">
+        <button
+          type="button"
+          className="flex w-full items-center justify-between text-left"
+          onClick={() => setShowAdvanced((s) => !s)}
+        >
+          <div>
+            <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-300">Advanced: raw commands</h3>
+            <p className="mt-0.5 text-xs text-slate-400">
+              Block numbers, hex keys, and DESFire application/file plumbing — most writing is easier with the
+              template-based form above.
+            </p>
+          </div>
+          {showAdvanced ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
+        </button>
+
+        {showAdvanced && (
+          <form onSubmit={sendCommand} className="mt-4 space-y-3 border-t border-slate-100 pt-4 dark:border-slate-800">
             <select className="input" value={command} onChange={(e) => setCommand(e.target.value)}>
               {COMMANDS.map((c) => (
                 <option key={c.value} value={c.value}>
@@ -498,27 +580,8 @@ export default function LiveEncodePage() {
               <p className="text-xs text-amber-600">This card isn't allocated to the selected encoder.</p>
             )}
           </form>
-        </div>
+        )}
       </div>
-
-      {matchedCard && (
-        <div className="mb-6 space-y-6">
-          <CardDataPanel
-            card={matchedCard}
-            socket={socket}
-            encoderId={encoderId}
-            disabled={liveStatus !== "ONLINE" || cardRestrictedToOtherEncoders}
-          />
-          {hasModule(user, "CITIZEN_DATA") && (
-            <CitizenDataPanel
-              card={matchedCard}
-              socket={socket}
-              encoderId={encoderId}
-              disabled={liveStatus !== "ONLINE" || cardRestrictedToOtherEncoders}
-            />
-          )}
-        </div>
-      )}
 
       <div className="card p-5">
         <h3 className="mb-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Live event log</h3>

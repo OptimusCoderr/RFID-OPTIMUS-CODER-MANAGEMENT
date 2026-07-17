@@ -103,6 +103,15 @@ enum AttendanceType {
   CHECK_OUT
 }
 
+// NONE = follow the encoder's schedule (daysOfWeek/startTime/endTime).
+// FORCE_OPEN / FORCE_CLOSED = manual override that ignores the schedule
+// entirely until cleared back to NONE ("resume schedule").
+enum ManualOverride {
+  NONE
+  FORCE_OPEN
+  FORCE_CLOSED
+}
+
 enum MaintenanceStatus {
   OPEN
   IN_PROGRESS
@@ -195,6 +204,7 @@ model Company {
   operationLogs      OperationLog[]
   notifications      Notification[]
   attendanceRecords  AttendanceRecord[]
+  attendanceSessions AttendanceSession[]
   maintenanceRecords MaintenanceRecord[]
 
   @@map("companies")
@@ -347,6 +357,7 @@ model Encoder {
   operationLogs     OperationLog[]
   cardAllocations   CardEncoderAllocation[]
   attendanceRecords AttendanceRecord[]
+  attendanceSession AttendanceSession?
 
   @@index([companyId])
   @@map("encoders")
@@ -446,8 +457,9 @@ model AccessZone {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  cards             CardAccessZone[]
-  attendanceRecords AttendanceRecord[]
+  cards              CardAccessZone[]
+  attendanceRecords  AttendanceRecord[]
+  attendanceSessions AttendanceSession[]
 
   @@index([companyId])
   @@map("access_zones")
@@ -524,6 +536,48 @@ model AttendanceRecord {
   @@index([zoneId])
   @@index([recordedAt])
   @@map("attendance_records")
+}
+
+// A recurring class/shift schedule for one encoder (e.g. "CS101 Lecture,
+// Mon/Wed/Fri 09:00-10:00") plus a manual override — the "start at will /
+// stop at will" buttons on the Attendance page. Whether the encoder is
+// currently accepting attendance taps is computed live from these fields
+// (see computeSessionState in attendanceSessionService.ts), not by a
+// background job flipping a stored flag — the same live-check pattern
+// already used for Card.expiresAt and CardEncoderAllocation.expiresAt,
+// which avoids a manual override being clobbered by the next cron tick.
+// Optional per encoder: an encoder with no session row is unrestricted
+// (any tap is accepted), matching every other opt-in restriction in this
+// app.
+model AttendanceSession {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  encoderId String  @unique
+  encoder   Encoder @relation(fields: [encoderId], references: [id], onDelete: Cascade)
+
+  zoneId String?
+  zone   AccessZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+
+  label String?
+
+  // 0 = Sunday .. 6 = Saturday. Empty means no recurring schedule is
+  // configured (only the manual override applies).
+  daysOfWeek Int[]
+  // "HH:mm", 24-hour, interpreted in the server's own timezone — this app
+  // has no per-company timezone setting, and a schedule is meaningful for
+  // one physical encoder in one place.
+  startTime  String?
+  endTime    String?
+
+  manualOverride ManualOverride @default(NONE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@map("attendance_sessions")
 }
 
 // A service/repair ticket against a card representing a physical asset

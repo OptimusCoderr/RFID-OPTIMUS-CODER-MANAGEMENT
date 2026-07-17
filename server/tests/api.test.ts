@@ -400,6 +400,155 @@ describe("company + card lifecycle happy path", () => {
     });
   });
 
+  describe("attendance sessions: schedule + manual override", () => {
+    let sessionEncoderId: string;
+    let sessionCardId: string;
+
+    beforeAll(async () => {
+      const encoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Lecture Hall Encoder", type: "ACR122U" });
+      sessionEncoderId = encoderRes.body.id;
+
+      const holderRes = await request(app)
+        .post("/api/holders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ fullName: "Session Test Student" });
+
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04AA11BB22", cardType: "NTAG213" });
+      sessionCardId = cardRes.body.id;
+
+      await request(app)
+        .post(`/api/cards/${sessionCardId}/assign`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId: holderRes.body.id });
+    });
+
+    it("returns null for an encoder with no saved session (unrestricted)", async () => {
+      const res = await request(app)
+        .get(`/api/attendance-sessions/${sessionEncoderId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toBeNull();
+    });
+
+    it("accepts attendance taps against an encoder with no session row", async () => {
+      const res = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
+      expect(res.status).toBe(201);
+    });
+
+    it("rejects an operator-below role (VIEWER) from saving a schedule", async () => {
+      const viewerToken = await loginAs("viewer@integration-test-co.example", "ViewerOnly123!");
+      const res = await request(app)
+        .put(`/api/attendance-sessions/${sessionEncoderId}`)
+        .set("Authorization", `Bearer ${viewerToken}`)
+        .send({ daysOfWeek: [], startTime: "09:00", endTime: "10:00" });
+      expect(res.status).toBe(403);
+    });
+
+    it("saves a recurring schedule that is currently closed and blocks taps outside the window", async () => {
+      // Scheduled for a day-of-week other than today, so it's guaranteed
+      // closed right now regardless of when this suite runs.
+      const otherDay = (new Date().getDay() + 3) % 7;
+      const res = await request(app)
+        .put(`/api/attendance-sessions/${sessionEncoderId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ daysOfWeek: [otherDay], startTime: "09:00", endTime: "10:00", label: "CS101 Lecture" });
+      expect(res.status).toBe(200);
+      expect(res.body.state.isOpen).toBe(false);
+      expect(res.body.state.reason).toBe("scheduled_closed");
+      expect(res.body.state.nextBoundaryAt).not.toBeNull();
+
+      const tapRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
+      expect(tapRes.status).toBe(400);
+      expect(tapRes.body.error).toMatch(/not currently open/i);
+    });
+
+    it("Start now (FORCE_OPEN) opens attendance immediately, overriding the schedule", async () => {
+      const overrideRes = await request(app)
+        .patch(`/api/attendance-sessions/${sessionEncoderId}/override`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ manualOverride: "FORCE_OPEN" });
+      expect(overrideRes.status).toBe(200);
+      expect(overrideRes.body.state.isOpen).toBe(true);
+      expect(overrideRes.body.state.reason).toBe("manual_open");
+      expect(overrideRes.body.state.nextBoundaryAt).toBeNull();
+
+      const tapRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
+      expect(tapRes.status).toBe(201);
+    });
+
+    it("Stop now (FORCE_CLOSED) blocks attendance even during what would be an open window", async () => {
+      const overrideRes = await request(app)
+        .patch(`/api/attendance-sessions/${sessionEncoderId}/override`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ manualOverride: "FORCE_CLOSED" });
+      expect(overrideRes.status).toBe(200);
+      expect(overrideRes.body.state.isOpen).toBe(false);
+      expect(overrideRes.body.state.reason).toBe("manual_closed");
+
+      const tapRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
+      expect(tapRes.status).toBe(400);
+    });
+
+    it("Resume schedule (NONE) clears the override and reverts to the saved schedule's state", async () => {
+      const overrideRes = await request(app)
+        .patch(`/api/attendance-sessions/${sessionEncoderId}/override`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ manualOverride: "NONE" });
+      expect(overrideRes.status).toBe(200);
+      expect(overrideRes.body.state.reason).toBe("scheduled_closed"); // same fixed schedule from the earlier test
+
+      const tapRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
+      expect(tapRes.status).toBe(400);
+    });
+
+    it("lists sessions for the company with computed state included", async () => {
+      const res = await request(app).get("/api/attendance-sessions").set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res.status).toBe(200);
+      const entry = res.body.find((s: { encoderId: string }) => s.encoderId === sessionEncoderId);
+      expect(entry).toBeTruthy();
+      expect(entry.state).toBeDefined();
+    });
+
+    it("deleting the session makes the encoder unrestricted again", async () => {
+      const delRes = await request(app)
+        .delete(`/api/attendance-sessions/${sessionEncoderId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(delRes.status).toBe(204);
+
+      const getRes = await request(app)
+        .get(`/api/attendance-sessions/${sessionEncoderId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(getRes.body).toBeNull();
+
+      const tapRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
+      expect(tapRes.status).toBe(201);
+    });
+  });
+
   describe("hotel: time-limited encoder allocation", () => {
     let encoderAId: string;
     let encoderBId: string;
@@ -852,6 +1001,134 @@ describe("company + card lifecycle happy path", () => {
       expect(after.status).toBe(200);
       expect(after.body.activeVisitorPasses).toBe(before.body.activeVisitorPasses + 1);
       expect(after.body.openMaintenanceTickets).toBe(before.body.openMaintenanceTickets + 1);
+    });
+  });
+
+  describe("user management: edit, delete, disable/reactivate", () => {
+    let targetUserId: string;
+
+    it("lets a COMPANY_ADMIN create a user without explicitly specifying companyId", async () => {
+      // The client's "New user" form never sends companyId for a
+      // COMPANY_ADMIN caller (the field only renders for SUPER_ADMIN) —
+      // it should fall back to the caller's own company rather than
+      // rejecting the request.
+      const res = await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          email: "no-explicit-company@integration-test-co.example",
+          password: "NoExplicitCompany123!",
+          fullName: "No Explicit Company",
+          role: "VIEWER",
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.companyId).toBe(companyId);
+    });
+
+    beforeAll(async () => {
+      const res = await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          email: "editable-user@integration-test-co.example",
+          password: "EditableUser123!",
+          fullName: "Editable User",
+          role: "OPERATOR",
+          companyId,
+        });
+      targetUserId = res.body.id;
+    });
+
+    it("lets a COMPANY_ADMIN edit a user's name and role", async () => {
+      const res = await request(app)
+        .patch(`/api/users/${targetUserId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ fullName: "Renamed User", role: "MANAGER" });
+      expect(res.status).toBe(200);
+      expect(res.body.fullName).toBe("Renamed User");
+      expect(res.body.role).toBe("MANAGER");
+    });
+
+    it("lets an admin reset another user's password", async () => {
+      const res = await request(app)
+        .patch(`/api/users/${targetUserId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ password: "BrandNewPassword123!" });
+      expect(res.status).toBe(200);
+
+      const loginRes = await request(app)
+        .post("/api/auth/sign-in/email")
+        .send({ email: "editable-user@integration-test-co.example", password: "BrandNewPassword123!" });
+      expect(loginRes.status).toBe(200);
+    });
+
+    it("prevents a COMPANY_ADMIN from escalating a user's role to SUPER_ADMIN", async () => {
+      const res = await request(app)
+        .patch(`/api/users/${targetUserId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ role: "SUPER_ADMIN" });
+      expect(res.status).toBe(403);
+
+      const check = await request(app).get(`/api/users/${targetUserId}`).set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(check.body.role).not.toBe("SUPER_ADMIN");
+    });
+
+    it("lets a SUPER_ADMIN promote a user to SUPER_ADMIN", async () => {
+      const res = await request(app)
+        .patch(`/api/users/${targetUserId}`)
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ role: "SUPER_ADMIN" });
+      expect(res.status).toBe(200);
+      expect(res.body.role).toBe("SUPER_ADMIN");
+
+      // Revert so later tests in this describe block still see a
+      // company-scoped user.
+      await request(app)
+        .patch(`/api/users/${targetUserId}`)
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ role: "OPERATOR" });
+    });
+
+    it("disabling and reactivating a user toggles isActive", async () => {
+      const disableRes = await request(app)
+        .patch(`/api/users/${targetUserId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ isActive: false });
+      expect(disableRes.body.isActive).toBe(false);
+
+      const reactivateRes = await request(app)
+        .patch(`/api/users/${targetUserId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ isActive: true });
+      expect(reactivateRes.body.isActive).toBe(true);
+    });
+
+    it("prevents a user from deleting their own account", async () => {
+      // DELETE /users/:id is role-gated to SUPER_ADMIN/COMPANY_ADMIN, so the
+      // self-delete attempt has to come from one of those roles to actually
+      // reach the self-delete check rather than being blocked earlier.
+      const res = await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          email: "self-delete-check@integration-test-co.example",
+          password: "SelfDeleteCheck123!",
+          fullName: "Self Delete Check",
+          role: "COMPANY_ADMIN",
+          companyId,
+        });
+      const selfToken = await loginAs("self-delete-check@integration-test-co.example", "SelfDeleteCheck123!");
+
+      const selfDeleteRes = await request(app).delete(`/api/users/${res.body.id}`).set("Authorization", `Bearer ${selfToken}`);
+      expect(selfDeleteRes.status).toBe(400);
+    });
+
+    it("lets a COMPANY_ADMIN delete another user in their company", async () => {
+      const res = await request(app).delete(`/api/users/${targetUserId}`).set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res.status).toBe(204);
+
+      const check = await request(app).get(`/api/users/${targetUserId}`).set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(check.status).toBe(404);
     });
   });
 });

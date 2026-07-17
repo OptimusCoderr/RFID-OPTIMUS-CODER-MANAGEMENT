@@ -286,9 +286,25 @@ you're `SUPER_ADMIN`).
    (`COMPANY_ADMIN`, `MANAGER`, `OPERATOR`, or `VIEWER`).
 3. They can sign in immediately with that email/password, or you can send
    them to `/forgot-password` to set their own.
-4. Deactivate (rather than delete) a user who leaves — this immediately
-   revokes their access without losing the audit trail of actions they
-   performed while employed.
+4. **Edit** (pencil icon) — update a user's name, role, or reset their
+   password on their behalf (they don't need to know the old one — this is
+   different from the self-service password change on the Profile page).
+   Email can't be changed here; it's their sign-in identity.
+5. **Disable / Reactivate** (the ban/checkmark icon) — disabling
+   immediately revokes access without losing the audit trail of actions
+   they performed while employed; reactivating restores it. Prefer this
+   over deleting for anyone who might come back, or whose past actions
+   (registrations, blocks, encodes) you want to keep attributed to a real
+   person in the [audit log](#611-dashboard-and-audit-logs).
+6. **Delete** (trash icon) — permanently removes the account. Use this for
+   accounts created by mistake or that never need an audit trail kept;
+   otherwise prefer disabling.
+
+You can't edit, disable, or delete your own account from this page — that
+prevents accidentally locking yourself out. Update your own name/password
+from [Profile](#612-your-profile-and-active-sessions) instead. A
+`COMPANY_ADMIN` also can't promote anyone to `SUPER_ADMIN` (platform-wide
+access) — only a `SUPER_ADMIN` can grant that role.
 
 ### 6.2 Card holders
 
@@ -335,14 +351,23 @@ pick the card type and optional template/label/notes.
 2. On the Live Encode page, select that encoder from the dropdown — its
    live status (Online/Offline/Busy) shows immediately.
 3. Tap a card on the reader. If it's unknown, a quick "register it" panel
-   appears — pick the card type and optional label, and register.
+   appears — pick the card type, an optional **template**, and an optional
+   label, then register. Picking a template here means the next step (the
+   guided **Card data** form) is ready immediately, with no separate trip
+   to the Cards page needed.
 4. If it's already known, its status/holder shows immediately with a link
-   to its detail page.
-5. Use the **Send command** panel to fire read/write/format/lock/key-change
-   operations at whatever card is currently on the reader — e.g. write a
-   MIFARE Classic block with a given key, or write an NTAG page. Every
-   command and its result appears in the live event log at the bottom, and
-   is written to the audit trail.
+   to its detail page. If the card has no template yet, the **Card data**
+   panel offers a template picker with an **Assign** button right there —
+   pick one, assign it, and the plain-text form appears in place without
+   leaving the page.
+5. The **Card data** panel (see [6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys))
+   is the main way most people write to a card — plain fields, no hex or
+   block numbers. Raw block/hex/DESFire commands (write a MIFARE Classic
+   block with a given key, partition a DESFire card into
+   applications/files, etc.) are still there for advanced cases, tucked
+   under an **Advanced: raw commands** section that starts collapsed.
+   Every command and its result appears in the live event log at the
+   bottom, and is written to the audit trail.
 
 **C. Bulk import** — see [6.9](#69-bulk-actions-and-csv-importexport).
 
@@ -359,9 +384,11 @@ string — e.g. sector 1, block 4 = "Full name," block 5 = "Employee ID." This
 is just a label; it doesn't reserve anything on the card by itself.
 
 **2. Fill them in from Live Encode.** Any card that uses that template shows
-a **Card data** panel underneath the command form once it's on the reader,
-with one plain-text field per labeled block — no hex, no block numbers to
-remember:
+a **Card data** panel right next to the encoder status once it's on the
+reader, with one plain-text field per labeled block — no hex, no block
+numbers to remember. A card with no template yet (or a template with no
+labeled blocks) shows a template picker in the same spot instead — assign
+one without leaving the page and the fields appear immediately:
 
 - **Read from card** pulls the current value of every labeled block and
   decodes it back to text.
@@ -400,7 +427,14 @@ that, a template can define an **encrypted citizen record** instead: a list
 of field names (e.g. `fullName`, `nationalId`, `dob`) plus an ordered list of
 blocks (any sector, mix freely) that together hold one AES-256-GCM encrypted
 blob. Configure it in the same template modal as the plain blocks, in its own
-"Encrypted citizen record" section.
+"Encrypted citizen record" section — **Load National ID preset** /
+**Load Patient ID preset** fill in both the field list and a working set of
+blocks in one click (an **Auto-fill blocks** button does the same for a
+custom field list), so setting one up doesn't require hand-computing MIFARE
+sector/block numbers. The suggested blocks stay fully editable and are
+capped at the same 16-block maximum the server enforces — none of this
+changes what's actually written to the card or how it's encrypted, it just
+picks a starting layout for you.
 
 The important difference from the plain blocks: **the encryption key never
 reaches the browser.** Where the plain Card data panel hex-encodes text
@@ -409,7 +443,9 @@ has to see to authenticate a read/write), the encrypted flow works like
 this instead —
 
 1. You type the field values into the **Encrypted citizen data** panel and
-   click **Encrypt & write**.
+   click **Encrypt & write**. A live "X / Y bytes used" line under the
+   fields tracks capacity as you type, so an oversized record is obvious
+   before you try to write it, not after.
 2. The browser sends the plain values to the server, which combines them,
    encrypts the result with this card's own random data key (generated
    alongside its sector keys — [above](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)),
@@ -420,6 +456,12 @@ this instead —
 4. **Read from card** works in reverse: the browser reads the raw
    (encrypted) bytes off the card and sends them to the server, which
    decrypts and returns the field values for display.
+
+A card that's never had its keys generated has no data key yet, so writing
+citizen data to it would fail — the **Encrypted citizen data** panel checks
+for this and shows a **Generate keys** button right there instead of a
+failed write, calling the same key generation as the Sector keys panel
+above (still random, still server-side, still per card).
 
 Because a tampered card fails to decrypt outright (AES-GCM detects it) rather
 than returning corrupted-looking data, this also gives you tamper-evidence
@@ -666,6 +708,32 @@ the audit log tracks system operations (registrations, blocks, encodes);
 attendance tracks physical presence over time and is the right place to
 pull a term's/shift's attendance history from.
 
+**Session schedule (like a university lecture timetable).** Each encoder can
+optionally have a recurring open/closed schedule, configured in the
+**Session schedule** panel next to the tap panel:
+
+1. Pick the **days of the week** and a **start/end time** (e.g. Mon/Wed/Fri,
+   09:00–10:00 for a lecture that meets three times a week), add an optional
+   **label**, and click **Save schedule**.
+2. Once saved, the encoder only accepts attendance taps while the schedule
+   says it's open — a badge shows **Open**/**Closed**, and a live countdown
+   ticks down to the next boundary (time until close while open, time until
+   the next open while closed). Taps outside the window are rejected with a
+   clear reason, same as a blocked/expired card.
+3. **Start now** / **Stop now** override the schedule immediately,
+   regardless of what time it is — useful for an unscheduled makeup session
+   or to cut attendance off early. The override holds until you click
+   **Resume schedule**, which clears it and goes back to following the
+   saved days/times.
+4. An encoder with **no saved schedule is unrestricted** — attendance works
+   at any time, exactly like before this feature existed. The schedule is
+   entirely opt-in, per encoder.
+
+Whether an encoder is currently open is always computed live from the
+saved schedule and override at the moment of the tap (or page render) —
+there's no background job flipping a stored flag, so a manual Start/Stop
+click and the countdown are both accurate to the second.
+
 ### 6.16 Visitors
 
 The **Visitors** page is a shortcut for the common "temporary badge" case —
@@ -676,18 +744,24 @@ visitor. There's no separate visitor data model — it's the same
 [Card](#2-core-concepts) you'd register anywhere else, just issued with an
 expiry set in the same step:
 
-1. Enter the card's **UID**, pick a **card type**, and optionally a
-   visitor name/purpose as the label.
-2. Pick how long the pass should last — **1 hour / 4 hours / 1 day / 1
+1. Enter the card's **UID** by hand, or **scan it from an online encoder** —
+   pick the encoder from the dropdown, click **Scan**, and tap the card;
+   the UID field fills in automatically (the same pattern used on the
+   [Cards](#63-registering-a-card) register form).
+2. Pick a **card type**, and optionally a visitor name/purpose as the
+   label.
+3. Pick how long the pass should last — **1 hour / 4 hours / 1 day / 1
    week**, or a specific date/time. This sets the card's `expiresAt`
    directly (the same field used by
    [card lifecycle expiry](#66-card-lifecycle-block-unblock-lost-retire)
    generally) — once it passes, the card stops working automatically; you
    don't have to remember to revoke it.
-3. The **Active & recent passes** list shows every card with an expiry set,
-   with a countdown and an **End now** button for ending a pass early
-   (equivalent to blocking the card).
-4. Need the pass to only work at one specific encoder (e.g. a hotel room
+4. The **Active & recent passes** list shows every card with an expiry set,
+   with a live-ticking countdown to expiry, an **Edit** button to change an
+   existing pass's duration without re-issuing it (pick a new preset or a
+   specific date/time — it replaces the current expiry), and an **End now**
+   button for ending a pass early (equivalent to blocking the card).
+5. Need the pass to only work at one specific encoder (e.g. a hotel room
    door)? Open the card from this list and add an
    [encoder restriction](#67-restricting-a-card-to-specific-encoders) —
    the two features compose: a card can have both a restricted encoder set
@@ -802,24 +876,29 @@ actions if you want to prevent it being used while out of service.
 2. Create a MIFARE Classic template with an **encrypted citizen record**
    ([6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)).
    Click **Load National ID preset** in the citizen record editor to fill in
-   the standard field set — full name, National Identity Number (NIN), date
-   of birth, state of origin, licensed-to-vote, licensed-to-drive, and
-   government-worker-ID flags — then adjust field names/order as your
-   scheme needs. You still choose the sector/block layout yourself (which
-   sectors are free depends on your card stock and lock hardware); 6+ blocks
-   is a reasonable starting point to fit the preset's fields as compact
-   JSON. Keep values short: initials over full middle names, compact date
-   formats (`YYMMDD`), short codes over free text.
+   both the standard field set — full name, National Identity Number (NIN),
+   date of birth, state of origin, licensed-to-vote, licensed-to-drive, and
+   government-worker-ID flags — and a starting block layout sized to fit it,
+   in one click; adjust field names/order and the suggested blocks as your
+   scheme needs (which sectors are actually free depends on your card stock
+   and lock hardware — re-run **Auto-fill blocks** after editing the field
+   list). Keep values short regardless: initials over full middle names,
+   compact date formats (`YYMMDD`), short codes over free text — the 16-block
+   maximum leaves real but limited room once compact JSON overhead is
+   accounted for, and the citizen data panel shows a live byte count as you
+   fill in values so you'll see it coming rather than finding out on write.
    **The preset deliberately doesn't include fingerprint data** — this
    platform talks to RFID/NFC PC/SC encoders, not fingerprint scanners, so
    there's no hardware path to capture or verify a print. If your scheme
    needs biometric verification, that requires separate fingerprint
    hardware and its own integration; don't fake it with a placeholder
    field.
-3. At enrollment: register the citizen's card, **Generate random keys** on
-   it (a lost card then only ever exposes its own single record, not every
-   citizen's), then use the **Encrypted citizen data** panel in Live Encode
-   to write their details.
+3. At enrollment: register the citizen's card (picking this template inline
+   registers it template-and-all), then open the **Encrypted citizen data**
+   panel in Live Encode. A card that's never had its keys generated shows a
+   **Generate keys** button right there (a lost card then only ever exposes
+   its own single record, not every citizen's) — generate them, then write
+   their details.
 4. At a checkpoint: tap the card, **Read from card** — the panel decrypts
    and shows the fields; nothing is exposed if the card is cloned or read by
    a different tool, since it holds only ciphertext.
