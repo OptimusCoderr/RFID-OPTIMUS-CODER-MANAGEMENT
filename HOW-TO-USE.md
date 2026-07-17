@@ -351,14 +351,23 @@ pick the card type and optional template/label/notes.
 2. On the Live Encode page, select that encoder from the dropdown — its
    live status (Online/Offline/Busy) shows immediately.
 3. Tap a card on the reader. If it's unknown, a quick "register it" panel
-   appears — pick the card type and optional label, and register.
+   appears — pick the card type, an optional **template**, and an optional
+   label, then register. Picking a template here means the next step (the
+   guided **Card data** form) is ready immediately, with no separate trip
+   to the Cards page needed.
 4. If it's already known, its status/holder shows immediately with a link
-   to its detail page.
-5. Use the **Send command** panel to fire read/write/format/lock/key-change
-   operations at whatever card is currently on the reader — e.g. write a
-   MIFARE Classic block with a given key, or write an NTAG page. Every
-   command and its result appears in the live event log at the bottom, and
-   is written to the audit trail.
+   to its detail page. If the card has no template yet, the **Card data**
+   panel offers a template picker with an **Assign** button right there —
+   pick one, assign it, and the plain-text form appears in place without
+   leaving the page.
+5. The **Card data** panel (see [6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys))
+   is the main way most people write to a card — plain fields, no hex or
+   block numbers. Raw block/hex/DESFire commands (write a MIFARE Classic
+   block with a given key, partition a DESFire card into
+   applications/files, etc.) are still there for advanced cases, tucked
+   under an **Advanced: raw commands** section that starts collapsed.
+   Every command and its result appears in the live event log at the
+   bottom, and is written to the audit trail.
 
 **C. Bulk import** — see [6.9](#69-bulk-actions-and-csv-importexport).
 
@@ -375,9 +384,11 @@ string — e.g. sector 1, block 4 = "Full name," block 5 = "Employee ID." This
 is just a label; it doesn't reserve anything on the card by itself.
 
 **2. Fill them in from Live Encode.** Any card that uses that template shows
-a **Card data** panel underneath the command form once it's on the reader,
-with one plain-text field per labeled block — no hex, no block numbers to
-remember:
+a **Card data** panel right next to the encoder status once it's on the
+reader, with one plain-text field per labeled block — no hex, no block
+numbers to remember. A card with no template yet (or a template with no
+labeled blocks) shows a template picker in the same spot instead — assign
+one without leaving the page and the fields appear immediately:
 
 - **Read from card** pulls the current value of every labeled block and
   decodes it back to text.
