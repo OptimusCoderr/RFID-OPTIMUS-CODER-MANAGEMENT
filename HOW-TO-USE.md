@@ -18,6 +18,7 @@ it* once it's up.
 2. [Core concepts](#2-core-concepts)
 3. [Getting it running](#3-getting-it-running)
 4. [Getting your company set up](#4-getting-your-company-set-up)
+   - [4.4 Industries and modules](#44-industries-and-modules)
 5. [Roles and permissions](#5-roles-and-permissions)
 6. [Everyday workflows](#6-everyday-workflows)
    - [6.1 Managing your team](#61-managing-your-team-users)
@@ -35,11 +36,15 @@ it* once it's up.
    - [6.13 Company settings](#613-company-settings)
    - [6.14 MIFARE DESFire partitioning (applications & files)](#614-mifare-desfire-partitioning-applications--files)
    - [6.15 Attendance (check-in / check-out)](#615-attendance-check-in--check-out)
+   - [6.16 Visitors](#616-visitors)
+   - [6.17 Maintenance](#617-maintenance)
 7. [Worked examples by industry](#7-worked-examples-by-industry)
    - [7.1 Hotel](#71-hotel)
    - [7.2 Business / office](#72-business--office)
    - [7.3 University](#73-university)
    - [7.4 National ID / government ID](#74-national-id--government-id)
+   - [7.5 Inventory / asset tracking](#75-inventory--asset-tracking)
+   - [7.6 e-Healthcare](#76-e-healthcare)
 8. [Setting up a physical encoder](#8-setting-up-a-physical-encoder)
 9. [Configuration reference](#9-configuration-reference)
 10. [Deployment](#10-deployment)
@@ -70,6 +75,8 @@ platform operators, but day-to-day usage never needs it.
 | Concept | What it is |
 |---|---|
 | **Company** | A tenant. A hotel, a business, a university department — anything issuing its own cards. |
+| **Industry** | What kind of organization a company is (University, Hotel, Business/Office, e-Government). Optional; sets a starting **module** list. See [4.4](#44-industries-and-modules). |
+| **Module** | A slice of the app (Cards, Encoders, Templates, Card Holders, Access Zones, Attendance, Audit Logs, National ID data, Visitors, Maintenance) a company can be granted or denied. See [4.4](#44-industries-and-modules). |
 | **User** | A person who logs into the dashboard. Belongs to exactly one company (except `SUPER_ADMIN`). |
 | **Card holder** | The person a card is *for* — a guest, employee, or student. Not a login; just a record (name, department/room, employee/student ID, photo). |
 | **Card** | A physical RFID/NFC tag: a UID, a type (MIFARE Classic 1K, NTAG213, 125kHz Prox, etc.), a status, optionally assigned to a holder. |
@@ -140,6 +147,10 @@ without anyone's help:
    - **URL slug** — auto-filled from the name, lowercase/hyphenated,
      must be unique platform-wide
    - **Company contact email** (optional)
+   - **What kind of organization is this?** — University/School, Hotel,
+     Business/Office, e-Government (National ID), or General if none fit.
+     This sets which features you start with; see
+     [4.4](#44-industries-and-modules).
    - **Your full name, email, and password** — this becomes your personal
      login
 3. Submit. You're immediately signed in as that company's **`COMPANY_ADMIN`**
@@ -156,7 +167,10 @@ A `SUPER_ADMIN` (the platform operator) can also create a company directly
 from the **Companies** page and then create its first `COMPANY_ADMIN` user
 from the **Users** page. This is mainly useful for the platform operator
 onboarding a customer on their behalf, or for demo/seed data. Most
-businesses should just use self-registration.
+businesses should just use self-registration. The creation form includes
+the same industry picker as self-registration, and — unlike self-registered
+companies — a `SUPER_ADMIN` can fine-tune the exact module list afterward
+from the same page (see [4.4](#44-industries-and-modules)).
 
 ### 4.3 After you have a company
 
@@ -173,6 +187,58 @@ Once you're signed in as `COMPANY_ADMIN`, a sensible setup order is:
    named people (guests, employees, students) rather than just tracking
    raw inventory.
 6. Start registering and writing cards from **Live Encode**.
+
+### 4.4 Industries and modules
+
+Instead of every company seeing the entire application, a company can be
+scoped down to just the pieces relevant to its business — a hotel doesn't
+need to see "National ID data," and a government registrar's office
+probably doesn't need "Attendance."
+
+- **Industry** is a label (`University`, `Hotel`, `Business/Office`,
+  `e-Government — National ID`, `Inventory / Asset tracking`,
+  `e-Healthcare`, or `General`) picked at registration, or set later by a
+  `SUPER_ADMIN`. Picking one seeds a starting **module** list; it's a
+  convenience default, not a hard rule.
+- **Modules** are the actual gate: Cards, Encoders (+ Live Encode),
+  Templates, Card Holders, Access Zones, Attendance, Audit Logs, National
+  ID / citizen data, Visitors, and Maintenance. A company only sees nav
+  links and can only navigate to pages for modules it has enabled — both
+  hiding the link *and* blocking direct navigation to the URL, not just a
+  UI nicety.
+- **A company with no modules explicitly set is unrestricted** — every
+  module is visible. This is deliberate: every company that existed before
+  this feature, and any new company registered without picking an industry
+  ("General"), behaves exactly as the whole app always has. Gating only
+  turns on once a `SUPER_ADMIN` (directly, or via an industry pick at
+  registration) gives a company a real module list.
+- University, Hotel, Business/Office, Government ID, Inventory, and
+  Healthcare all start with the same full core module set (Cards, Encoders,
+  Templates, Card Holders, Access Zones, Attendance, Audit Logs) — nothing
+  about the existing feature set maps cleanly to "exclude this for hotels"
+  yet. On top of that core set, each industry's preset adds what's actually
+  specific to it:
+  - **National ID / citizen data** ([6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)) —
+    only Government ID and Healthcare, since both need an encrypted
+    identity record on the card (see
+    [7.4](#74-national-id--government-id) and [7.6](#76-e-healthcare)).
+  - **Visitors** ([6.16](#616-visitors)) — University, Hotel, Business,
+    Government ID, and Healthcare, everywhere a temporary/guest pass is a
+    common front-desk need.
+  - **Maintenance** ([6.17](#617-maintenance)) — Business and Inventory,
+    where tracking equipment service/repair actually applies.
+  - Inventory itself reuses the exact same Cards/Holders/Attendance/Zones
+    model for tracking physical items instead of access credentials (see
+    [7.5](#75-inventory--asset-tracking)) — no dedicated "item" concept
+    exists separately from Card.
+- A `SUPER_ADMIN` can change any company's industry and individual modules
+  from the **Companies** page (the gear icon on a company's card). Picking
+  an industry there fills in its defaults as a starting point; the
+  checkboxes underneath are what actually gets saved, so you can freely
+  add/remove individual modules regardless of industry. A `COMPANY_ADMIN`
+  can see their own company's industry and enabled modules (read-only) from
+  **Company Settings**, but can't change them — that's a platform-level
+  decision.
 
 ## 5. Roles and permissions
 
@@ -401,18 +467,28 @@ should only ever be written at the security office, never at a guest-facing
 kiosk), you can opt a specific card into a restriction:
 
 1. Open the card's detail page.
-2. Under **Allowed encoders**, pick an encoder from the dropdown and click
-   **Add**. The card is now restricted — it can only be used with the
-   encoder(s) you've explicitly allowed.
+2. Under **Allowed encoders**, optionally set an **expiry date/time** — e.g.
+   a hotel guest's checkout time — then pick an encoder from the dropdown
+   and click **Add**. The card is now restricted — it can only be used with
+   the encoder(s) you've explicitly allowed, and only until the expiry you
+   set (leave the date/time blank for access that never expires).
 3. Add more encoders the same way, or remove one by clicking the **×** on
    its badge. Removing the *last* allocation makes the card unrestricted
    again.
-4. This is enforced **server-side**, not just hidden in the UI: if someone
+4. To extend or shorten access (e.g. a guest extending their stay), just
+   add the same encoder again with a new expiry — it updates the existing
+   allocation rather than creating a duplicate.
+5. This is enforced **server-side**, not just hidden in the UI: if someone
    tries to run a command against a restricted card from a non-allowed
    encoder (via Live Encode or directly over the websocket API), the
    command is rejected with `"This card is not allocated to this encoder"`.
-   The Live Encode page also proactively warns and disables the send button
-   when the currently selected encoder isn't on a detected card's allowlist.
+   Once an allocation's expiry passes, commands against that encoder are
+   rejected too, with `"This card's access to this encoder has expired"` —
+   an expired allocation does **not** fall back to unrestricted access, even
+   if it was the card's only allocation. The Live Encode page also
+   proactively warns and disables the send button when the currently
+   selected encoder isn't on a detected card's current (non-expired)
+   allowlist.
 
 This is opt-in per card — you never have to configure it, and a company with
 zero allocations behaves exactly as if the feature didn't exist.
@@ -456,7 +532,9 @@ individual ones read or **mark all as read**.
 ### 6.11 Dashboard and audit logs
 
 - **Dashboard** — at-a-glance counts of cards by status/type, encoders by
-  status, total holders, and recent activity.
+  status, total holders, and recent activity. Companies with the Visitors
+  or Maintenance module enabled also see a live count of active visitor
+  passes and open maintenance tickets.
 - **Logs** — the full, filterable audit trail (by card, encoder, user,
   operation type, date range), exportable to CSV. Every register, assign,
   block, encode command, and more is recorded here with who did it and
@@ -477,8 +555,12 @@ From **Profile**:
 ### 6.13 Company settings
 
 `COMPANY_ADMIN`s can update their company's name, contact details, address,
-and logo from **Company Settings**. `SUPER_ADMIN`s manage every company from
-the **Companies** page, including deactivating one without deleting its data.
+and logo from **Company Settings**, which also shows their company's
+industry and enabled modules (read-only — see
+[4.4](#44-industries-and-modules)). `SUPER_ADMIN`s manage every company from
+the **Companies** page, including deactivating one without deleting its
+data, and changing its industry/modules via the gear icon on each company's
+card.
 
 ### 6.14 MIFARE DESFire partitioning (applications & files)
 
@@ -584,6 +666,54 @@ the audit log tracks system operations (registrations, blocks, encodes);
 attendance tracks physical presence over time and is the right place to
 pull a term's/shift's attendance history from.
 
+### 6.16 Visitors
+
+The **Visitors** page is a shortcut for the common "temporary badge" case —
+someone who needs card access but isn't going to be a full
+[card holder](#62-card-holders) record: a day guest, a contractor, a hotel
+guest who hasn't checked in through the front desk system, a campus
+visitor. There's no separate visitor data model — it's the same
+[Card](#2-core-concepts) you'd register anywhere else, just issued with an
+expiry set in the same step:
+
+1. Enter the card's **UID**, pick a **card type**, and optionally a
+   visitor name/purpose as the label.
+2. Pick how long the pass should last — **1 hour / 4 hours / 1 day / 1
+   week**, or a specific date/time. This sets the card's `expiresAt`
+   directly (the same field used by
+   [card lifecycle expiry](#66-card-lifecycle-block-unblock-lost-retire)
+   generally) — once it passes, the card stops working automatically; you
+   don't have to remember to revoke it.
+3. The **Active & recent passes** list shows every card with an expiry set,
+   with a countdown and an **End now** button for ending a pass early
+   (equivalent to blocking the card).
+4. Need the pass to only work at one specific encoder (e.g. a hotel room
+   door)? Open the card from this list and add an
+   [encoder restriction](#67-restricting-a-card-to-specific-encoders) —
+   the two features compose: a card can have both a restricted encoder set
+   *and* an overall expiry.
+
+### 6.17 Maintenance
+
+The **Maintenance** page tracks service/repair tickets against a card —
+mainly useful for [Inventory](#75-inventory--asset-tracking), where the
+card represents a physical asset rather than an access credential, but
+usable for any tagged equipment.
+
+1. **Open a ticket**: search for the item's card by UID or label, describe
+   the issue, and submit. New tickets start as **Open**.
+2. Move a ticket to **In progress** once someone's working on it, then
+   **Resolve** it when done — resolving stamps the ticket with a resolved
+   timestamp. A resolved ticket can be **Reopened** if the issue recurs.
+3. Filter the ticket list by status to see everything currently open/in
+   progress, or the full resolved history for an item.
+
+Maintenance tickets are independent of the card's own `status` (ACTIVE,
+BLOCKED, etc.) — opening a ticket doesn't change the card's status, so an
+item mid-repair can still be tracked/checked-out-blocked separately via the
+normal [card lifecycle](#66-card-lifecycle-block-unblock-lost-retire)
+actions if you want to prevent it being used while out of service.
+
 ## 7. Worked examples by industry
 
 ### 7.1 Hotel
@@ -598,9 +728,19 @@ pull a term's/shift's attendance history from.
    as a label.
 5. At check-in: tap a blank card on **Live Encode**, register it with the
    room-key template, write the room code via **Send command**, and hand it
-   over.
+   over. On the card's detail page, restrict it to the guest's room-door
+   encoder with an expiry set to the checkout date/time
+   ([6.7](#67-restricting-a-card-to-specific-encoders)) — the key
+   automatically stops working the moment checkout passes, even if the
+   guest never returns it.
 6. At check-out: **Block** the card (or **Retire** if it won't be reused).
+   Guest extending their stay? Re-add the same encoder allocation with a
+   later expiry instead.
 7. Lost a key mid-stay? **Mark lost**, then register/write a replacement.
+8. For a walk-in day guest who doesn't need the full room-key flow (pool
+   access, spa visitor, etc.), use **Visitors** ([6.16](#616-visitors)) to
+   issue a pass with a duration preset instead of setting up a holder and
+   template.
 
 ### 7.2 Business / office
 
@@ -621,6 +761,12 @@ pull a term's/shift's attendance history from.
 7. For a sensitive area's master override card, use
    [6.7](#67-restricting-a-card-to-specific-encoders) to lock it to only the
    security-desk encoder.
+8. Visitors and contractors without a full holder record: issue a
+   time-boxed badge from **Visitors** ([6.16](#616-visitors)).
+9. Office equipment (projectors, laptops, tools) can be tagged with its own
+   card too — track service history with **Maintenance**
+   ([6.17](#617-maintenance)) the same way [Inventory](#75-inventory--asset-tracking)
+   does.
 
 ### 7.3 University
 
@@ -647,15 +793,29 @@ pull a term's/shift's attendance history from.
 
 ### 7.4 National ID / government ID
 
-1. Register your agency as a company; invite verifying officers as
-   `MANAGER` (can view/generate keys) and enrollment clerks as `OPERATOR`
-   (can encode/read citizen data, cannot see raw key material).
+1. Register your agency as a company, picking **e-Government — National ID**
+   as the industry ([4.4](#44-industries-and-modules)) — this is what turns
+   on the National ID / citizen data module, which stays hidden for every
+   other industry. Invite verifying officers as `MANAGER` (can view/generate
+   keys) and enrollment clerks as `OPERATOR` (can encode/read citizen data,
+   cannot see raw key material).
 2. Create a MIFARE Classic template with an **encrypted citizen record**
-   ([6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)) —
-   field names like `fullName`, `nationalId`, `dob`, and enough blocks
-   (6+ recommended) to fit them as compact JSON. Keep values short: initials
-   over full middle names, compact date formats (`YYMMDD`), short codes over
-   free text.
+   ([6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)).
+   Click **Load National ID preset** in the citizen record editor to fill in
+   the standard field set — full name, National Identity Number (NIN), date
+   of birth, state of origin, licensed-to-vote, licensed-to-drive, and
+   government-worker-ID flags — then adjust field names/order as your
+   scheme needs. You still choose the sector/block layout yourself (which
+   sectors are free depends on your card stock and lock hardware); 6+ blocks
+   is a reasonable starting point to fit the preset's fields as compact
+   JSON. Keep values short: initials over full middle names, compact date
+   formats (`YYMMDD`), short codes over free text.
+   **The preset deliberately doesn't include fingerprint data** — this
+   platform talks to RFID/NFC PC/SC encoders, not fingerprint scanners, so
+   there's no hardware path to capture or verify a print. If your scheme
+   needs biometric verification, that requires separate fingerprint
+   hardware and its own integration; don't fake it with a placeholder
+   field.
 3. At enrollment: register the citizen's card, **Generate random keys** on
    it (a lost card then only ever exposes its own single record, not every
    citizen's), then use the **Encrypted citizen data** panel in Live Encode
@@ -670,6 +830,69 @@ pull a term's/shift's attendance history from.
 6. Lost or compromised card: **Mark lost**, issue a replacement with freshly
    generated keys — the old card's data key stays behind on the retired
    card record and is never reused.
+
+### 7.5 Inventory / asset tracking
+
+There's no separate "item" concept in this platform — Inventory reuses the
+same Cards/Card Holders/Attendance/Access Zones model everything else uses,
+just mapped onto physical items instead of people:
+
+1. Register your company, picking **Inventory / Asset tracking** as the
+   industry ([4.4](#44-industries-and-modules)).
+2. A **card** is the tag attached to an item — register one per asset
+   (label it with the item name, e.g. "Projector #4" or "Drill — Bay 3").
+3. A **card holder** is whoever's currently responsible for the item — a
+   person, or a department/team if you don't need to track named
+   individuals. [Assign](#66-card-lifecycle-block-unblock-lost-retire) an
+   item's card to a holder when it's checked out to them; unassign it when
+   it's returned to general stock.
+4. An **access zone** works well as a storage location ("Warehouse A",
+   "Tool Crib", "Server Room Rack 3") — grant a card access to the zone it's
+   currently stored in/expected to be in.
+5. **Attendance**'s check-in/check-out pairing doubles as a borrow/return
+   log: tap an item's card out when it leaves, tap it again when it comes
+   back — [6.15](#615-attendance-check-in--check-out) gives you a
+   chronological record of who had what and when, without building a
+   separate checkout system.
+6. Lost or damaged item: **Mark lost** or **Retire** the card, same as any
+   other lifecycle event.
+7. Use a [card template](#63-card-templates) if you want to write
+   structured data onto the tag itself (asset ID, category, purchase date)
+   for fast offline scanning — otherwise the card's label and holder
+   assignment alone are enough for most inventories.
+8. Item needs service or repair? Open a ticket for it from **Maintenance**
+   ([6.17](#617-maintenance)) instead of just leaving a note somewhere —
+   it's tracked against the item's card with its own open/in-progress/
+   resolved status.
+
+### 7.6 e-Healthcare
+
+1. Register your clinic/hospital as a company, picking **e-Healthcare** as
+   the industry ([4.4](#44-industries-and-modules)) — this turns on the
+   National ID / citizen data module, used here for patient identification.
+2. Create a MIFARE Classic template with an **encrypted citizen record**
+   ([6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)).
+   Click **Load Patient ID preset** in the citizen record editor to fill in
+   a starting field set — full name, patient ID, date of birth, blood type,
+   known allergies, and emergency contact.
+   **This is an identity/lookup card, not a medical chart.** Keep it to
+   fields useful for fast identification and emergency response; the
+   patient's actual clinical record (diagnoses, treatment history,
+   prescriptions) belongs in a real EHR system, not encoded onto a physical
+   card that can be lost, cloned, or stolen. As with the National ID
+   preset, fingerprint data is deliberately excluded — this platform talks
+   to RFID/NFC encoders, not fingerprint scanners.
+3. At enrollment: register the patient's card, **Generate random keys** on
+   it, then use the **Encrypted citizen data** panel in Live Encode to
+   write their details.
+4. At the point of care: tap the card, **Read from card** to pull up
+   identification fast — useful when the patient can't provide details
+   themselves (unconscious, language barrier) — then look up their full
+   chart in your actual clinical system using the patient ID.
+5. Still create a [card holder](#62-card-holders) record for search and
+   reporting, same as any other card.
+6. Lost card: **Mark lost**, issue a replacement with freshly generated
+   keys.
 
 ## 8. Setting up a physical encoder
 
@@ -782,6 +1005,11 @@ or passwords, just in-flight JWTs (users simply mint a new one).
   cannot address another company's card even by guessing its ID.
 - Card-encoder allocation restrictions (6.7) are enforced in the same
   server-side layer that handles live encode commands, not just in the UI.
+- A card's own `expiresAt` (used by Visitors, 6.16) is checked live in that
+  same server-side layer and in the attendance service, not just via the
+  once-a-day background job that flags/retires expired cards for
+  reporting — a hotel-guest or contractor pass genuinely stops working the
+  moment it lapses, not up to 24 hours later.
 - Encrypted citizen records (6.5) use a per-card AES-256-GCM key that never
   leaves the server — the browser only ever handles opaque ciphertext bytes,
   unlike MIFARE sector keys (needed client-side to authenticate a
@@ -803,6 +1031,7 @@ or passwords, just in-flight JWTs (users simply mint a new one).
 |---|---|
 | "Encoder is offline" when sending a command | The local agent for that encoder isn't running or lost connection — restart `npm run agent` on the machine with the reader plugged in. |
 | "This card is not allocated to this encoder" | The card has an active encoder restriction (6.7) that doesn't include the encoder you're using — either add that encoder to its allowlist, or use an allowed one. |
+| "This card's access to this encoder has expired" | The card's allocation to that encoder (6.7) had an expiry — e.g. a hotel guest's checkout time — and it has passed. Re-add the encoder with a new expiry to restore access. |
 | Can't create a second company with the name/slug you want | Slugs are unique platform-wide — pick a different slug (the company name itself can repeat). |
 | Password reset email never arrives | `SMTP_HOST` isn't configured — check the server console log instead; the reset link is printed there in that case. |
 | `groupadd: Permission denied` during local dev setup | You're running as a non-root user on your own machine, which is the normal/expected case — this is handled automatically; if you still see it, make sure you're on the latest version of this repo. |
@@ -834,6 +1063,7 @@ they're `SUPER_ADMIN`.
 | Cards | `GET/POST /cards`, `GET/PATCH/DELETE /cards/:id`, `GET /cards/:id/keys`, `POST /cards/:id/keys/generate`, `POST /cards/:id/citizen-data/prepare-write`, `POST /cards/:id/citizen-data/decode-read`, `POST /cards/:id/assign`, `POST /cards/:id/unassign`, `POST /cards/:id/block`, `POST /cards/:id/unblock`, `POST /cards/:id/lost`, `POST /cards/:id/retire`, `POST /cards/:id/encoders/grant`, `POST /cards/:id/encoders/revoke`, `GET /cards/export`, `POST /cards/bulk-import` |
 | Access zones | `GET/POST /zones`, `PATCH/DELETE /zones/:id`, `POST /zones/:id/grant`, `POST /zones/:id/revoke` |
 | Attendance | `GET /attendance`, `GET /attendance/export`, `POST /attendance` |
+| Maintenance | `GET /maintenance`, `POST /maintenance`, `PATCH /maintenance/:id` |
 | Notifications | `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all` |
 | Dashboard | `GET /dashboard/stats` |
 | Audit logs | `GET /logs`, `GET /logs/export` |

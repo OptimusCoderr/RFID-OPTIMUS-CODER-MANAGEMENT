@@ -7,7 +7,9 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Modal } from "@/components/ui/Modal";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
-import { CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
+import { useAuth } from "@/context/AuthContext";
+import { hasModule } from "@/lib/modules";
+import { CARD_TYPE_OPTIONS, formatEnum, NATIONAL_ID_PRESET_FIELDS, PATIENT_ID_PRESET_FIELDS } from "@/lib/constants";
 import type {
   CardTemplate,
   CardType,
@@ -26,6 +28,8 @@ const isDesfire = (t: CardType) => t.startsWith("MIFARE_DESFIRE");
 const DESFIRE_FILE_TYPES: DesfireFileType[] = ["STANDARD_DATA", "BACKUP_DATA", "VALUE", "LINEAR_RECORD", "CYCLIC_RECORD"];
 
 export default function TemplatesPage() {
+  const { user } = useAuth();
+  const citizenDataEnabled = hasModule(user, "CITIZEN_DATA");
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [name, setName] = useState("");
@@ -129,7 +133,7 @@ export default function TemplatesPage() {
               <p className="mt-3 text-xs text-slate-400">{t.layout.sectors.length} configured sector(s)</p>
             )}
             {t.layout.pages && <p className="mt-3 text-xs text-slate-400">{t.layout.pages.length} page range(s)</p>}
-            {t.layout.citizenRecord && <CitizenRecordSummary record={t.layout.citizenRecord} />}
+            {citizenDataEnabled && t.layout.citizenRecord && <CitizenRecordSummary record={t.layout.citizenRecord} />}
             {t.layout.applications && (
               <p className="mt-3 text-xs text-slate-400">
                 {t.layout.applications.length} application(s),{" "}
@@ -167,7 +171,7 @@ export default function TemplatesPage() {
           {isMifareClassic(cardType) && (
             <SectorEditor sectors={sectors} setSectors={setSectors} />
           )}
-          {isMifareClassic(cardType) && (
+          {isMifareClassic(cardType) && citizenDataEnabled && (
             <CitizenRecordEditor fields={citizenFields} setFields={setCitizenFields} blocks={citizenBlocks} setBlocks={setCitizenBlocks} />
           )}
           {isPageBased(cardType) && <PageEditor pages={pages} setPages={setPages} />}
@@ -330,10 +334,34 @@ function CitizenRecordEditor({
       <div className="mb-3">
         <div className="mb-1 flex items-center justify-between">
           <span className="text-xs font-medium text-slate-500">Fields</span>
-          <button type="button" className="btn-secondary" onClick={() => setFields([...fields, ""])}>
-            <Plus size={12} /> Add field
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="btn-secondary"
+              title="Fill in the standard National ID field set"
+              onClick={() => setFields(NATIONAL_ID_PRESET_FIELDS)}
+            >
+              Load National ID preset
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              title="Fill in a patient identification field set"
+              onClick={() => setFields(PATIENT_ID_PRESET_FIELDS)}
+            >
+              Load Patient ID preset
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => setFields([...fields, ""])}>
+              <Plus size={12} /> Add field
+            </button>
+          </div>
         </div>
+        <p className="mb-1.5 text-xs text-amber-600">
+          Neither preset includes fingerprint data — this platform talks to RFID/NFC encoders, not fingerprint
+          scanners, so there's no hardware to capture or verify a print. Add it yourself only once you've integrated
+          dedicated biometric hardware. The Patient ID preset is an identity/lookup card, not a full medical chart —
+          keep clinical detail in a real EHR system, not on a card that can be lost or stolen.
+        </p>
         <div className="space-y-1.5">
           {fields.map((f, i) => (
             <div key={i} className="flex items-center gap-2">

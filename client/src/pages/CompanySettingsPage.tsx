@@ -4,7 +4,9 @@ import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { FullPageSpinner } from "@/components/ui/Spinner";
+import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/context/AuthContext";
+import { INDUSTRY_OPTIONS, MODULE_OPTIONS } from "@/lib/constants";
 import type { Company } from "@/types";
 
 export default function CompanySettingsPage() {
@@ -60,6 +62,24 @@ export default function CompanySettingsPage() {
   return (
     <div>
       <PageHeader title="Company Settings" description={`Update details for ${company.name}.`} />
+
+      <div className="card mb-5 max-w-xl p-5">
+        <h3 className="mb-1 text-sm font-semibold text-slate-600 dark:text-slate-300">Industry & modules</h3>
+        <p className="mb-3 text-xs text-slate-400">
+          {INDUSTRY_OPTIONS.find((o) => o.value === (company.industry ?? ""))?.label ?? "General"} — only a SUPER_ADMIN can
+          change these.
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {(!company.enabledModules || company.enabledModules.length === 0
+            ? MODULE_OPTIONS
+            : MODULE_OPTIONS.filter((opt) => company.enabledModules!.includes(opt.value))
+          ).map((opt) => (
+            <Badge key={opt.value} tone="ACTIVE">
+              {opt.label}
+            </Badge>
+          ))}
+        </div>
+      </div>
 
       <div className="card max-w-xl p-5">
         <form onSubmit={handleSubmit} className="space-y-4">

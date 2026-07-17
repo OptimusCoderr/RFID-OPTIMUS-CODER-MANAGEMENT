@@ -28,6 +28,8 @@ const EncoderDetailPage = lazy(() => import("@/pages/EncoderDetailPage"));
 const LiveEncodePage = lazy(() => import("@/pages/LiveEncodePage"));
 const ZonesPage = lazy(() => import("@/pages/ZonesPage"));
 const AttendancePage = lazy(() => import("@/pages/AttendancePage"));
+const VisitorsPage = lazy(() => import("@/pages/VisitorsPage"));
+const MaintenancePage = lazy(() => import("@/pages/MaintenancePage"));
 const LogsPage = lazy(() => import("@/pages/LogsPage"));
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 const CompanySettingsPage = lazy(() => import("@/pages/CompanySettingsPage"));
@@ -52,17 +54,37 @@ export default function App() {
               <Route path="/users" element={<UsersPage />} />
               <Route path="/company-settings" element={<CompanySettingsPage />} />
             </Route>
-            <Route path="/holders" element={<HoldersPage />} />
-            <Route path="/holders/:id" element={<HolderDetailPage />} />
-            <Route path="/cards" element={<CardsPage />} />
-            <Route path="/cards/:id" element={<CardDetailPage />} />
-            <Route path="/templates" element={<TemplatesPage />} />
-            <Route path="/encoders" element={<EncodersPage />} />
-            <Route path="/encoders/:id" element={<EncoderDetailPage />} />
-            <Route path="/live-encode" element={<LiveEncodePage />} />
-            <Route path="/zones" element={<ZonesPage />} />
-            <Route path="/attendance" element={<AttendancePage />} />
-            <Route path="/logs" element={<LogsPage />} />
+            <Route element={<ProtectedRoute module="HOLDERS" />}>
+              <Route path="/holders" element={<HoldersPage />} />
+              <Route path="/holders/:id" element={<HolderDetailPage />} />
+            </Route>
+            <Route element={<ProtectedRoute module="CARDS" />}>
+              <Route path="/cards" element={<CardsPage />} />
+              <Route path="/cards/:id" element={<CardDetailPage />} />
+            </Route>
+            <Route element={<ProtectedRoute module="TEMPLATES" />}>
+              <Route path="/templates" element={<TemplatesPage />} />
+            </Route>
+            <Route element={<ProtectedRoute module="ENCODERS" />}>
+              <Route path="/encoders" element={<EncodersPage />} />
+              <Route path="/encoders/:id" element={<EncoderDetailPage />} />
+              <Route path="/live-encode" element={<LiveEncodePage />} />
+            </Route>
+            <Route element={<ProtectedRoute module="ZONES" />}>
+              <Route path="/zones" element={<ZonesPage />} />
+            </Route>
+            <Route element={<ProtectedRoute module="ATTENDANCE" />}>
+              <Route path="/attendance" element={<AttendancePage />} />
+            </Route>
+            <Route element={<ProtectedRoute module="VISITORS" />}>
+              <Route path="/visitors" element={<VisitorsPage />} />
+            </Route>
+            <Route element={<ProtectedRoute module="MAINTENANCE" />}>
+              <Route path="/maintenance" element={<MaintenancePage />} />
+            </Route>
+            <Route element={<ProtectedRoute module="LOGS" />}>
+              <Route path="/logs" element={<LogsPage />} />
+            </Route>
             <Route path="/profile" element={<ProfilePage />} />
           </Route>
         </Route>

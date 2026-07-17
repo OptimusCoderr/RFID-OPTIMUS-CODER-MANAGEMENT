@@ -1,5 +1,19 @@
 export type Role = "SUPER_ADMIN" | "COMPANY_ADMIN" | "MANAGER" | "OPERATOR" | "VIEWER";
 
+export type CompanyIndustry = "UNIVERSITY" | "HOTEL" | "BUSINESS" | "GOVERNMENT_ID" | "INVENTORY" | "HEALTHCARE";
+
+export type CompanyModule =
+  | "CARDS"
+  | "ENCODERS"
+  | "TEMPLATES"
+  | "HOLDERS"
+  | "ZONES"
+  | "ATTENDANCE"
+  | "LOGS"
+  | "CITIZEN_DATA"
+  | "VISITORS"
+  | "MAINTENANCE";
+
 export type CardType =
   | "MIFARE_CLASSIC_1K"
   | "MIFARE_CLASSIC_4K"
@@ -65,6 +79,10 @@ export interface Company {
   address?: string | null;
   logoUrl?: string | null;
   isActive: boolean;
+  industry?: CompanyIndustry | null;
+  // Empty/absent means unrestricted — every module is available. See
+  // lib/modules.ts for the shared helper that interprets this.
+  enabledModules?: CompanyModule[];
   createdAt: string;
   updatedAt: string;
   _count?: { users: number; cards: number; encoders: number; holders: number };
@@ -79,7 +97,7 @@ export interface User {
   isActive: boolean;
   lastLoginAt?: string | null;
   createdAt: string;
-  company?: { id: string; name: string; slug: string } | null;
+  company?: { id: string; name: string; slug: string; industry?: CompanyIndustry | null; enabledModules?: CompanyModule[] } | null;
 }
 
 export interface CardHolder {
@@ -223,7 +241,7 @@ export interface Card {
   hasStoredKeys?: boolean;
   lastReadData?: unknown;
   accessZones?: { zone: { id: string; name: string } }[];
-  encoderAllocations?: { encoder: { id: string; name: string } }[];
+  encoderAllocations?: { encoder: { id: string; name: string }; expiresAt?: string | null }[];
   issuedAt?: string | null;
   expiresAt?: string | null;
   lastSeenAt?: string | null;
@@ -264,6 +282,20 @@ export interface AttendanceRecord {
   recordedAt: string;
 }
 
+export type MaintenanceStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED";
+
+export interface MaintenanceRecord {
+  id: string;
+  companyId: string;
+  cardId: string;
+  card?: { id: string; uid: string; label?: string | null } | null;
+  description: string;
+  status: MaintenanceStatus;
+  notes?: string | null;
+  openedAt: string;
+  resolvedAt?: string | null;
+}
+
 export interface PaginatedResponse<T> {
   data: T[];
   pagination: { page: number; pageSize: number; total: number; totalPages: number };
@@ -278,6 +310,8 @@ export interface DashboardStats {
   totalHolders: number;
   totalCompanies: number;
   recentActivity: OperationLog[];
+  activeVisitorPasses: number;
+  openMaintenanceTickets: number;
 }
 
 export type NotificationType =

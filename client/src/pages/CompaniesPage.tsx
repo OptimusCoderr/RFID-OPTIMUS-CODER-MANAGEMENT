@@ -1,13 +1,14 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Building2 } from "lucide-react";
+import { Plus, Building2, Settings } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Modal } from "@/components/ui/Modal";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
-import type { Company } from "@/types";
+import { INDUSTRY_OPTIONS, MODULE_OPTIONS } from "@/lib/constants";
+import type { Company, CompanyIndustry, CompanyModule } from "@/types";
 
 interface CompanyFormState {
   name: string;
@@ -15,14 +16,20 @@ interface CompanyFormState {
   contactEmail: string;
   contactPhone: string;
   address: string;
+  industry: CompanyIndustry | "";
 }
 
-const EMPTY_FORM: CompanyFormState = { name: "", slug: "", contactEmail: "", contactPhone: "", address: "" };
+const EMPTY_FORM: CompanyFormState = { name: "", slug: "", contactEmail: "", contactPhone: "", address: "", industry: "" };
+
+function industryLabel(industry?: CompanyIndustry | null): string {
+  return INDUSTRY_OPTIONS.find((o) => o.value === (industry ?? ""))?.label ?? "General";
+}
 
 export default function CompaniesPage() {
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<CompanyFormState>(EMPTY_FORM);
+  const [moduleEditCompany, setModuleEditCompany] = useState<Company | null>(null);
 
   const { data: companies, isLoading } = useQuery({
     queryKey: ["companies"],
@@ -37,6 +44,7 @@ export default function CompaniesPage() {
           contactEmail: payload.contactEmail || undefined,
           contactPhone: payload.contactPhone || undefined,
           address: payload.address || undefined,
+          industry: payload.industry || undefined,
         })
       ).data,
     onSuccess: () => {
@@ -90,10 +98,20 @@ export default function CompaniesPage() {
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300">
                 <Building2 size={18} />
               </div>
-              <Badge tone={company.isActive ? "ACTIVE" : "BLOCKED"}>{company.isActive ? "Active" : "Inactive"}</Badge>
+              <div className="flex items-center gap-1">
+                <Badge tone={company.isActive ? "ACTIVE" : "BLOCKED"}>{company.isActive ? "Active" : "Inactive"}</Badge>
+                <button
+                  className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+                  title="Manage industry & modules"
+                  onClick={() => setModuleEditCompany(company)}
+                >
+                  <Settings size={15} />
+                </button>
+              </div>
             </div>
             <h3 className="font-semibold">{company.name}</h3>
             <p className="text-xs text-slate-400">{company.slug}</p>
+            <p className="mt-1 text-xs text-slate-400">{industryLabel(company.industry)}</p>
             {company.contactEmail && <p className="mt-2 text-sm text-slate-500">{company.contactEmail}</p>}
             <div className="mt-4 grid grid-cols-4 gap-2 text-center text-xs text-slate-500">
               <div>
@@ -155,11 +173,120 @@ export default function CompaniesPage() {
             <label className="label">Address</label>
             <input className="input" value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
           </div>
+          <div>
+            <label className="label">Industry</label>
+            <select
+              className="input"
+              value={form.industry}
+              onChange={(e) => setForm((f) => ({ ...f, industry: e.target.value as CompanyIndustry | "" }))}
+            >
+              {INDUSTRY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-slate-400">Sets the starting module set — adjustable per company afterward.</p>
+          </div>
           <button type="submit" className="btn-primary w-full" disabled={createCompany.isPending}>
             Create company
           </button>
         </form>
       </Modal>
+
+      <ModuleEditModal company={moduleEditCompany} onClose={() => setModuleEditCompany(null)} />
     </div>
+  );
+}
+
+// Industry presets a company could start with — used here purely as a
+// one-click convenience to fill the checkboxes below; the checkboxes
+// themselves are the source of truth that actually gets saved.
+const CORE_MODULES: CompanyModule[] = ["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS"];
+
+const INDUSTRY_DEFAULT_MODULES: Record<CompanyIndustry, CompanyModule[]> = {
+  UNIVERSITY: [...CORE_MODULES, "VISITORS"],
+  HOTEL: [...CORE_MODULES, "VISITORS"],
+  BUSINESS: [...CORE_MODULES, "VISITORS", "MAINTENANCE"],
+  GOVERNMENT_ID: [...CORE_MODULES, "CITIZEN_DATA", "VISITORS"],
+  INVENTORY: [...CORE_MODULES, "MAINTENANCE"],
+  HEALTHCARE: [...CORE_MODULES, "CITIZEN_DATA", "VISITORS"],
+};
+
+function ModuleEditModal({ company, onClose }: { company: Company | null; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [industry, setIndustry] = useState<CompanyIndustry | "">("");
+  const [modules, setModules] = useState<CompanyModule[]>([]);
+
+  useEffect(() => {
+    if (company) {
+      setIndustry(company.industry ?? "");
+      setModules(company.enabledModules ?? []);
+    }
+  }, [company]);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (!company) return;
+      // Explicit modules list — including an empty array, which means
+      // "unrestricted" (see Company.enabledModules) — always wins over
+      // whatever the industry's own defaults would be.
+      return (await api.patch(`/companies/${company.id}`, { industry: industry || null, enabledModules: modules })).data;
+    },
+    onSuccess: () => {
+      toast.success("Modules updated");
+      queryClient.invalidateQueries({ queryKey: ["companies"] });
+      onClose();
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not update modules")),
+  });
+
+  function toggleModule(module: CompanyModule) {
+    setModules((prev) => (prev.includes(module) ? prev.filter((m) => m !== module) : [...prev, module]));
+  }
+
+  if (!company) return null;
+
+  return (
+    <Modal open onClose={onClose} title={`Modules — ${company.name}`}>
+      <div className="space-y-4">
+        <div>
+          <label className="label">Industry</label>
+          <select
+            className="input"
+            value={industry}
+            onChange={(e) => {
+              const value = e.target.value as CompanyIndustry | "";
+              setIndustry(value);
+              setModules(value ? INDUSTRY_DEFAULT_MODULES[value] : []);
+            }}
+          >
+            {INDUSTRY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-slate-400">Picking an industry fills in its defaults below — adjust freely after.</p>
+        </div>
+        <div>
+          <label className="label">Enabled modules</label>
+          <div className="grid grid-cols-2 gap-2">
+            {MODULE_OPTIONS.map((opt) => (
+              <label key={opt.value} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={modules.includes(opt.value)} onChange={() => toggleModule(opt.value)} />
+                {opt.label}
+              </label>
+            ))}
+          </div>
+          {modules.length === 0 && (
+            <p className="mt-2 text-xs text-amber-600">No modules checked — this company is unrestricted (every module visible).</p>
+          )}
+        </div>
+        <button className="btn-primary w-full" disabled={save.isPending} onClick={() => save.mutate()}>
+          Save modules
+        </button>
+      </div>
+    </Modal>
   );
 }

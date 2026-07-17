@@ -103,6 +103,12 @@ enum AttendanceType {
   CHECK_OUT
 }
 
+enum MaintenanceStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
 enum OperationStatus {
   SUCCESS
   FAILED
@@ -119,31 +125,77 @@ enum NotificationType {
   SYSTEM
 }
 
+// What kind of organization a company is — drives the default set of
+// modules it starts with (see CompanyModule / industryModules.ts). Optional:
+// a company with no industry set is treated as unrestricted (see
+// CompanyModule below), matching how every company behaved before this
+// concept existed.
+enum CompanyIndustry {
+  UNIVERSITY
+  HOTEL
+  BUSINESS
+  GOVERNMENT_ID
+  INVENTORY
+  HEALTHCARE
+}
+
+// A slice of the app a company can be granted access to. Gating is
+// nav/routing-level on the client — every module's data still lives in the
+// same tenant-isolated tables regardless of which modules are enabled.
+enum CompanyModule {
+  CARDS
+  ENCODERS
+  TEMPLATES
+  HOLDERS
+  ZONES
+  ATTENDANCE
+  LOGS
+  // Encrypted National ID-style records (see CitizenRecordLayout) — kept
+  // separate from the core modules above since it's specific to
+  // e-Government use, not something every industry needs by default.
+  CITIZEN_DATA
+  // Quick-issue, auto-expiring cards for non-holders (day passes, guest
+  // badges) — see VisitorsPage. Reuses the Card model itself (uid, label,
+  // expiresAt); no dedicated visitor model.
+  VISITORS
+  // Service/repair tracking for a card representing a physical asset — see
+  // MaintenanceRecord.
+  MAINTENANCE
+}
+
 // ---------------------------------------------------------------------------
 // Core tenancy
 // ---------------------------------------------------------------------------
 
 model Company {
-  id           String   @id @default(uuid())
-  name         String
-  slug         String   @unique
-  contactEmail String?
-  contactPhone String?
-  address      String?
-  logoUrl      String?
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             String           @id @default(uuid())
+  name           String
+  slug           String           @unique
+  contactEmail   String?
+  contactPhone   String?
+  address        String?
+  logoUrl        String?
+  isActive       Boolean          @default(true)
+  industry       CompanyIndustry?
+  // Empty means unrestricted — every module is available. This is the
+  // default for every company created before this feature existed, and for
+  // any company created without picking an industry, so nothing changes
+  // for existing tenants unless a SUPER_ADMIN explicitly opts them in to
+  // module gating (directly, or by picking an industry at creation time).
+  enabledModules CompanyModule[]  @default([])
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
-  users             User[]
-  holders           CardHolder[]
-  encoders          Encoder[]
-  cards             Card[]
-  templates         CardTemplate[]
-  accessZones       AccessZone[]
-  operationLogs     OperationLog[]
-  notifications     Notification[]
-  attendanceRecords AttendanceRecord[]
+  users              User[]
+  holders            CardHolder[]
+  encoders           Encoder[]
+  cards              Card[]
+  templates          CardTemplate[]
+  accessZones        AccessZone[]
+  operationLogs      OperationLog[]
+  notifications      Notification[]
+  attendanceRecords  AttendanceRecord[]
+  maintenanceRecords MaintenanceRecord[]
 
   @@map("companies")
 }
@@ -367,10 +419,16 @@ model Card {
   // (usable with any encoder in the company) — allocation is opt-in per card.
   encoderAllocations CardEncoderAllocation[]
   attendanceRecords  AttendanceRecord[]
+  maintenanceRecords MaintenanceRecord[]
 
   @@unique([companyId, uid])
   @@index([companyId])
   @@index([holderId])
+  // Range-scanned by the daily expiring-cards job (jobs/expiringCardsJob.ts)
+  // and by the Visitors page's hasExpiry list filter — both scan across
+  // many cards by this field, unlike the live-encode/attendance expiry
+  // checks, which just read it off a single already-fetched-by-id row.
+  @@index([expiresAt])
   @@map("cards")
 }
 
@@ -413,12 +471,17 @@ model CardAccessZone {
 // ---------------------------------------------------------------------------
 
 model CardEncoderAllocation {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   cardId    String
-  card      Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  card      Card      @relation(fields: [cardId], references: [id], onDelete: Cascade)
   encoderId String
-  encoder   Encoder  @relation(fields: [encoderId], references: [id], onDelete: Cascade)
-  grantedAt DateTime @default(now())
+  encoder   Encoder   @relation(fields: [encoderId], references: [id], onDelete: Cascade)
+  grantedAt DateTime  @default(now())
+  // Optional — e.g. a hotel room key granted only until guest checkout.
+  // Null means the grant never expires. An allocation row past this time is
+  // NOT treated as "no restriction" (the card still has other/expired rows,
+  // so it's clearly meant to be restricted) — see websocket/index.ts.
+  expiresAt DateTime?
 
   @@unique([cardId, encoderId])
   @@map("card_encoder_allocations")
@@ -461,6 +524,31 @@ model AttendanceRecord {
   @@index([zoneId])
   @@index([recordedAt])
   @@map("attendance_records")
+}
+
+// A service/repair ticket against a card representing a physical asset
+// (Inventory use case) — kept separate from OperationLog (an immutable
+// record of encoder/API actions) since this is a mutable ticket with its
+// own lifecycle, not an audit entry.
+model MaintenanceRecord {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  cardId String
+  card   Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  description String
+  status      MaintenanceStatus @default(OPEN)
+  notes       String?
+
+  openedAt   DateTime  @default(now())
+  resolvedAt DateTime?
+
+  @@index([companyId])
+  @@index([cardId])
+  @@index([status])
+  @@map("maintenance_records")
 }
 
 // ---------------------------------------------------------------------------

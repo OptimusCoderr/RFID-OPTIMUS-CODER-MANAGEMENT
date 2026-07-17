@@ -20,6 +20,7 @@ export default function CardDetailPage() {
   const queryClient = useQueryClient();
   const [holderId, setHolderId] = useState("");
   const [encoderToGrant, setEncoderToGrant] = useState("");
+  const [encoderExpiryInput, setEncoderExpiryInput] = useState("");
   const [revealedKeys, setRevealedKeys] = useState<Record<string, string> | null>(null);
 
   const { data: card, isLoading } = useQuery({
@@ -51,10 +52,21 @@ export default function CardDetailPage() {
   }
 
   const grantEncoder = useMutation({
-    mutationFn: async (encoderId: string) => api.post(`/cards/${id}/encoders/grant`, { encoderIds: [encoderId] }),
+    mutationFn: async ({ encoderId, expiresAt }: { encoderId: string; expiresAt?: string }) =>
+      // `expiresAt` comes from a <input type="datetime-local"> — a
+      // timezone-less "wall clock" string. Converting it via `new Date(...)`
+      // here (in the browser, so it's interpreted in the browser's own
+      // timezone) and sending `.toISOString()` keeps it unambiguous;
+      // sending the raw string would have the server parse it in its own
+      // timezone instead, which is wrong whenever the two differ.
+      api.post(`/cards/${id}/encoders/grant`, {
+        encoderIds: [encoderId],
+        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
+      }),
     onSuccess: () => {
       toast.success("Card restricted to encoder");
       setEncoderToGrant("");
+      setEncoderExpiryInput("");
       invalidate();
     },
     onError: (err) => toast.error(apiErrorMessage(err)),
@@ -196,24 +208,37 @@ export default function CardDetailPage() {
           </p>
           {card.encoderAllocations && card.encoderAllocations.length > 0 && (
             <div className="flex flex-wrap gap-2">
-              {card.encoderAllocations.map((a) => (
-                <span
-                  key={a.encoder.id}
-                  className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                >
-                  {a.encoder.name}
-                  <button
-                    className="text-slate-400 hover:text-red-600"
-                    onClick={() => revokeEncoder.mutate(a.encoder.id)}
-                    aria-label={`Remove ${a.encoder.name} allocation`}
+              {card.encoderAllocations.map((a) => {
+                const expired = a.expiresAt && new Date(a.expiresAt) <= new Date();
+                return (
+                  <span
+                    key={a.encoder.id}
+                    className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium ${
+                      expired
+                        ? "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                        : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                    }`}
+                    title={a.expiresAt ? new Date(a.expiresAt).toLocaleString() : undefined}
                   >
-                    <X size={12} />
-                  </button>
-                </span>
-              ))}
+                    {a.encoder.name}
+                    {a.expiresAt && (
+                      <span className={expired ? "" : "text-slate-400"}>
+                        {expired ? "· expired" : `· until ${formatDistanceToNow(new Date(a.expiresAt), { addSuffix: true })}`}
+                      </span>
+                    )}
+                    <button
+                      className="text-slate-400 hover:text-red-600"
+                      onClick={() => revokeEncoder.mutate(a.encoder.id)}
+                      aria-label={`Remove ${a.encoder.name} allocation`}
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                );
+              })}
             </div>
           )}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <select className="input" value={encoderToGrant} onChange={(e) => setEncoderToGrant(e.target.value)}>
               <option value="">Restrict to an encoder…</option>
               {encoders
@@ -224,14 +249,24 @@ export default function CardDetailPage() {
                   </option>
                 ))}
             </select>
+            <input
+              type="datetime-local"
+              className="input"
+              title="Access expires at (optional — e.g. guest checkout time)"
+              value={encoderExpiryInput}
+              onChange={(e) => setEncoderExpiryInput(e.target.value)}
+            />
             <button
               className="btn-secondary whitespace-nowrap"
               disabled={!encoderToGrant}
-              onClick={() => grantEncoder.mutate(encoderToGrant)}
+              onClick={() => grantEncoder.mutate({ encoderId: encoderToGrant, expiresAt: encoderExpiryInput })}
             >
               Add
             </button>
           </div>
+          <p className="text-xs text-slate-400">
+            Leave the date/time blank for access that never expires — for a hotel, set it to the guest's checkout time.
+          </p>
         </div>
 
         <div className="card space-y-2 p-5 text-sm">

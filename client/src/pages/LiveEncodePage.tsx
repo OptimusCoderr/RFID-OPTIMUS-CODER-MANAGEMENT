@@ -9,6 +9,8 @@ import { Badge } from "@/components/ui/Badge";
 import { CardDataPanel } from "@/components/CardDataPanel";
 import { CitizenDataPanel } from "@/components/CitizenDataPanel";
 import { useSocket } from "@/context/SocketContext";
+import { useAuth } from "@/context/AuthContext";
+import { hasModule } from "@/lib/modules";
 import { CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
 import type { Card, CardType, DesfireFileType, Encoder, EncoderStatus, PaginatedResponse } from "@/types";
 
@@ -42,6 +44,7 @@ const DESFIRE_FILE_TYPES: DesfireFileType[] = ["STANDARD_DATA", "BACKUP_DATA", "
 
 export default function LiveEncodePage() {
   const { socket, connected } = useSocket();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
 
   const { data: encoders } = useQuery({
@@ -167,11 +170,15 @@ export default function LiveEncodePage() {
   const selectedEncoder = useMemo(() => encoders?.find((e) => e.id === encoderId), [encoders, encoderId]);
   const liveStatus = (selectedEncoder && statusOverrides[selectedEncoder.id]) ?? selectedEncoder?.status;
 
+  // Mirrors the server's check (websocket/index.ts): a matching allocation
+  // that's expired counts the same as no match — restricted, not allowed.
   const cardRestrictedToOtherEncoders = Boolean(
     matchedCard &&
       matchedCard.encoderAllocations &&
       matchedCard.encoderAllocations.length > 0 &&
-      !matchedCard.encoderAllocations.some((a) => a.encoder.id === encoderId)
+      !matchedCard.encoderAllocations.some(
+        (a) => a.encoder.id === encoderId && (!a.expiresAt || new Date(a.expiresAt) > new Date())
+      )
   );
 
   function sendCommand(e: FormEvent) {
@@ -502,12 +509,14 @@ export default function LiveEncodePage() {
             encoderId={encoderId}
             disabled={liveStatus !== "ONLINE" || cardRestrictedToOtherEncoders}
           />
-          <CitizenDataPanel
-            card={matchedCard}
-            socket={socket}
-            encoderId={encoderId}
-            disabled={liveStatus !== "ONLINE" || cardRestrictedToOtherEncoders}
-          />
+          {hasModule(user, "CITIZEN_DATA") && (
+            <CitizenDataPanel
+              card={matchedCard}
+              socket={socket}
+              encoderId={encoderId}
+              disabled={liveStatus !== "ONLINE" || cardRestrictedToOtherEncoders}
+            />
+          )}
         </div>
       )}
 

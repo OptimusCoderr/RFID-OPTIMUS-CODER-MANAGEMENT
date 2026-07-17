@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, Server } from "http";
 import request from "supertest";
+import { io as ioClient, Socket as ClientSocket } from "socket.io-client";
 import { createApp } from "../src/app.js";
 import { prisma } from "../src/lib/prisma.js";
 import { auth } from "../src/auth/index.js";
 import { env } from "../src/config/env.js";
+import { initWebsocket } from "../src/websocket/index.js";
 
 const app = createApp();
 
@@ -47,6 +49,7 @@ beforeAll(async () => {
     server = createServer(app);
     server.listen(env.port, resolve);
   });
+  initWebsocket(server);
   await auth.api.signUpEmail({
     body: {
       name: "Test Super Admin",
@@ -394,6 +397,461 @@ describe("company + card lifecycle happy path", () => {
         .set("Authorization", `Bearer ${viewerToken}`)
         .send({ cardId: attendeeCardId });
       expect(res.status).toBe(403);
+    });
+  });
+
+  describe("hotel: time-limited encoder allocation", () => {
+    let encoderAId: string;
+    let encoderBId: string;
+    let restrictedCardId: string;
+
+    async function connectDashboard(token: string): Promise<ClientSocket> {
+      const socket = ioClient(`http://127.0.0.1:${env.port}/dashboard`, { auth: { token }, forceNew: true });
+      await new Promise<void>((resolve, reject) => {
+        socket.on("connect", () => resolve());
+        socket.on("connect_error", reject);
+      });
+      return socket;
+    }
+
+    function sendCommand(
+      socket: ClientSocket,
+      body: { encoderId: string; cardId: string; command: string }
+    ): Promise<{ ok: boolean; error?: string }> {
+      return new Promise((resolve) => socket.emit("encoder:command", body, resolve));
+    }
+
+    beforeAll(async () => {
+      const encoderARes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Room Door Encoder", type: "ACR122U" });
+      encoderAId = encoderARes.body.id;
+
+      const encoderBRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Lobby Encoder", type: "ACR122U" });
+      encoderBId = encoderBRes.body.id;
+
+      // No real agent connects in this suite; mark both ONLINE directly so
+      // the websocket handler's offline check doesn't short-circuit before
+      // reaching the allocation logic under test.
+      await prisma.encoder.updateMany({ where: { id: { in: [encoderAId, encoderBId] } }, data: { status: "ONLINE" } });
+
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04B0AC1000", cardType: "NTAG213" });
+      restrictedCardId = cardRes.body.id;
+    });
+
+    it("grants an encoder allocation with a checkout-style expiry", async () => {
+      const expiresAt = new Date(Date.now() + 60_000).toISOString();
+      const res = await request(app)
+        .post(`/api/cards/${restrictedCardId}/encoders/grant`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ encoderIds: [encoderAId], expiresAt });
+      expect(res.status).toBe(204);
+
+      const getRes = await request(app)
+        .get(`/api/cards/${restrictedCardId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(getRes.body.encoderAllocations).toHaveLength(1);
+      expect(new Date(getRes.body.encoderAllocations[0].expiresAt).toISOString()).toBe(expiresAt);
+    });
+
+    it("re-granting the same encoder extends/replaces its expiry instead of no-op-ing", async () => {
+      const laterExpiry = new Date(Date.now() + 3_600_000).toISOString();
+      const res = await request(app)
+        .post(`/api/cards/${restrictedCardId}/encoders/grant`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ encoderIds: [encoderAId], expiresAt: laterExpiry });
+      expect(res.status).toBe(204);
+
+      const getRes = await request(app)
+        .get(`/api/cards/${restrictedCardId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(getRes.body.encoderAllocations).toHaveLength(1); // still one row, not a duplicate
+      expect(new Date(getRes.body.encoderAllocations[0].expiresAt).toISOString()).toBe(laterExpiry);
+    });
+
+    it("allows a live-encode command against the allocated, non-expired encoder", async () => {
+      const socket = await connectDashboard(companyAdminToken);
+      const ack = await sendCommand(socket, { encoderId: encoderAId, cardId: restrictedCardId, command: "READ" });
+      socket.close();
+      expect(ack.ok).toBe(true);
+    });
+
+    it("rejects a live-encode command against an encoder the card was never allocated to", async () => {
+      const socket = await connectDashboard(companyAdminToken);
+      const ack = await sendCommand(socket, { encoderId: encoderBId, cardId: restrictedCardId, command: "READ" });
+      socket.close();
+      expect(ack.ok).toBe(false);
+      expect(ack.error).toMatch(/not allocated/i);
+    });
+
+    it("rejects a command once the allocation's expiry has passed, without falling back to unrestricted", async () => {
+      await prisma.cardEncoderAllocation.update({
+        where: { cardId_encoderId: { cardId: restrictedCardId, encoderId: encoderAId } },
+        data: { expiresAt: new Date(Date.now() - 60_000) },
+      });
+
+      const socket = await connectDashboard(companyAdminToken);
+      const ack = await sendCommand(socket, { encoderId: encoderAId, cardId: restrictedCardId, command: "READ" });
+      socket.close();
+      expect(ack.ok).toBe(false);
+      expect(ack.error).toMatch(/expired/i);
+    });
+
+    it("revoking the allocation returns the card to unrestricted use on any company encoder", async () => {
+      await request(app)
+        .post(`/api/cards/${restrictedCardId}/encoders/revoke`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ encoderIds: [encoderAId] })
+        .expect(204);
+
+      const socket = await connectDashboard(companyAdminToken);
+      const ack = await sendCommand(socket, { encoderId: encoderBId, cardId: restrictedCardId, command: "READ" });
+      socket.close();
+      expect(ack.ok).toBe(true);
+    });
+  });
+
+  describe("industry & module gating", () => {
+    it("self-registering with an industry seeds that industry's default modules, without CITIZEN_DATA", async () => {
+      const res = await request(app).post("/api/auth/register-company").send({
+        companyName: "Sunrise Boutique Hotel",
+        slug: "sunrise-boutique-hotel",
+        fullName: "Hotel Owner",
+        email: "owner@sunrise-hotel.example",
+        password: "HotelOwner123!",
+        industry: "HOTEL",
+      });
+      expect(res.status).toBe(201);
+
+      const token = await loginAs("owner@sunrise-hotel.example", "HotelOwner123!");
+      const meRes = await request(app).get("/api/auth/me").set("Authorization", `Bearer ${token}`);
+      expect(meRes.body.company.industry).toBe("HOTEL");
+      expect(meRes.body.company.enabledModules).toEqual(
+        expect.arrayContaining(["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS"])
+      );
+      expect(meRes.body.company.enabledModules).not.toContain("CITIZEN_DATA");
+    });
+
+    it("self-registering with the GOVERNMENT_ID industry includes CITIZEN_DATA", async () => {
+      const res = await request(app).post("/api/auth/register-company").send({
+        companyName: "National Registry Office",
+        slug: "national-registry-office",
+        fullName: "Registrar",
+        email: "registrar@nro.example",
+        password: "Registrar123!",
+        industry: "GOVERNMENT_ID",
+      });
+      expect(res.status).toBe(201);
+
+      const token = await loginAs("registrar@nro.example", "Registrar123!");
+      const meRes = await request(app).get("/api/auth/me").set("Authorization", `Bearer ${token}`);
+      expect(meRes.body.company.enabledModules).toContain("CITIZEN_DATA");
+    });
+
+    it("self-registering with the INVENTORY industry gets the core modules, without CITIZEN_DATA", async () => {
+      const res = await request(app).post("/api/auth/register-company").send({
+        companyName: "Warehouse Assets Co",
+        slug: "warehouse-assets-co",
+        fullName: "Warehouse Manager",
+        email: "manager@warehouse-assets.example",
+        password: "Warehouse123!",
+        industry: "INVENTORY",
+      });
+      expect(res.status).toBe(201);
+
+      const token = await loginAs("manager@warehouse-assets.example", "Warehouse123!");
+      const meRes = await request(app).get("/api/auth/me").set("Authorization", `Bearer ${token}`);
+      expect(meRes.body.company.enabledModules).toEqual(
+        expect.arrayContaining(["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS"])
+      );
+      expect(meRes.body.company.enabledModules).not.toContain("CITIZEN_DATA");
+    });
+
+    it("self-registering with the HEALTHCARE industry includes CITIZEN_DATA", async () => {
+      const res = await request(app).post("/api/auth/register-company").send({
+        companyName: "City Clinic",
+        slug: "city-clinic",
+        fullName: "Clinic Admin",
+        email: "admin@city-clinic.example",
+        password: "CityClinic123!",
+        industry: "HEALTHCARE",
+      });
+      expect(res.status).toBe(201);
+
+      const token = await loginAs("admin@city-clinic.example", "CityClinic123!");
+      const meRes = await request(app).get("/api/auth/me").set("Authorization", `Bearer ${token}`);
+      expect(meRes.body.company.enabledModules).toContain("CITIZEN_DATA");
+    });
+
+    it("self-registering without an industry stays unrestricted (empty enabledModules)", async () => {
+      const res = await request(app).post("/api/auth/register-company").send({
+        companyName: "Generic Co",
+        slug: "generic-co",
+        fullName: "Generic Owner",
+        email: "owner@generic-co.example",
+        password: "GenericOwner123!",
+      });
+      expect(res.status).toBe(201);
+
+      const token = await loginAs("owner@generic-co.example", "GenericOwner123!");
+      const meRes = await request(app).get("/api/auth/me").set("Authorization", `Bearer ${token}`);
+      expect(meRes.body.company.industry).toBeNull();
+      expect(meRes.body.company.enabledModules).toEqual([]);
+    });
+
+    it("a SUPER_ADMIN creating a company with an industry gets that industry's defaults", async () => {
+      const res = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "State University", slug: "state-university", industry: "UNIVERSITY" });
+      expect(res.status).toBe(201);
+      expect(res.body.enabledModules).toEqual(
+        expect.arrayContaining(["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS"])
+      );
+      expect(res.body.enabledModules).not.toContain("CITIZEN_DATA");
+    });
+
+    it("an explicit enabledModules list overrides the industry's defaults", async () => {
+      const res = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Minimal Co", slug: "minimal-co", industry: "BUSINESS", enabledModules: ["CARDS"] });
+      expect(res.status).toBe(201);
+      expect(res.body.enabledModules).toEqual(["CARDS"]);
+    });
+
+    it("a COMPANY_ADMIN cannot grant their own company additional modules via update", async () => {
+      const companyRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Locked Down Co", slug: "locked-down-co", industry: "BUSINESS", enabledModules: ["CARDS"] });
+      const lockedCompanyId = companyRes.body.id;
+
+      await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({
+          email: "admin@locked-down-co.example",
+          password: "LockedAdmin123!",
+          fullName: "Locked Admin",
+          role: "COMPANY_ADMIN",
+          companyId: lockedCompanyId,
+        });
+      const lockedAdminToken = await loginAs("admin@locked-down-co.example", "LockedAdmin123!");
+
+      const res = await request(app)
+        .patch(`/api/companies/${lockedCompanyId}`)
+        .set("Authorization", `Bearer ${lockedAdminToken}`)
+        .send({ name: "Locked Down Co (renamed)", industry: "GOVERNMENT_ID", enabledModules: ["CITIZEN_DATA"] });
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe("Locked Down Co (renamed)"); // allowed field still applies
+      expect(res.body.industry).toBe("BUSINESS"); // gating fields silently ignored
+      expect(res.body.enabledModules).toEqual(["CARDS"]);
+    });
+
+    it("a SUPER_ADMIN can change a company's industry and modules directly", async () => {
+      const companyRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Growing Co", slug: "growing-co" });
+      const growingCompanyId = companyRes.body.id;
+      expect(companyRes.body.enabledModules).toEqual([]);
+
+      const res = await request(app)
+        .patch(`/api/companies/${growingCompanyId}`)
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ industry: "GOVERNMENT_ID" });
+      expect(res.status).toBe(200);
+      expect(res.body.enabledModules).toContain("CITIZEN_DATA");
+    });
+
+    it("Hotel gets VISITORS by default, and Inventory/Business get MAINTENANCE", async () => {
+      const hotelRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Verify Hotel Defaults", slug: "verify-hotel-defaults", industry: "HOTEL" });
+      expect(hotelRes.body.enabledModules).toContain("VISITORS");
+      expect(hotelRes.body.enabledModules).not.toContain("MAINTENANCE");
+
+      const inventoryRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Verify Inventory Defaults", slug: "verify-inventory-defaults", industry: "INVENTORY" });
+      expect(inventoryRes.body.enabledModules).toContain("MAINTENANCE");
+      expect(inventoryRes.body.enabledModules).not.toContain("VISITORS");
+
+      const businessRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Verify Business Defaults", slug: "verify-business-defaults", industry: "BUSINESS" });
+      expect(businessRes.body.enabledModules).toContain("VISITORS");
+      expect(businessRes.body.enabledModules).toContain("MAINTENANCE");
+    });
+  });
+
+  describe("visitors: quick-issue expiring passes", () => {
+    it("registers a card with an expiry and lists it via the hasExpiry filter", async () => {
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      const res = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04915170A1", cardType: "NTAG213", label: "Guest pass", expiresAt });
+      expect(res.status).toBe(201);
+      expect(new Date(res.body.expiresAt).toISOString()).toBe(expiresAt);
+
+      const listRes = await request(app)
+        .get("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ hasExpiry: true, pageSize: 100 });
+      expect(listRes.body.data.some((c: { id: string }) => c.id === res.body.id)).toBe(true);
+
+      const withoutExpiryRes = await request(app)
+        .get("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ hasExpiry: false, pageSize: 100 });
+      expect(withoutExpiryRes.body.data.some((c: { id: string }) => c.id === res.body.id)).toBe(false);
+    });
+
+    it("rejects a live-encode command against a card whose own expiry has passed, without waiting for the daily cron job", async () => {
+      // A Visitors pass never leaves status UNASSIGNED (it's issued without
+      // a holder), so this exercises the fix for a real gap: the card's
+      // expiry used to only be enforced by flipping status to EXPIRED in a
+      // once-a-day cron job — far too coarse for an hours-long pass, and
+      // UNASSIGNED cards weren't even in that job's scope. Enforcement now
+      // happens live, directly off expiresAt, in the websocket handler.
+      const encoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Visitor Desk Encoder", type: "ACR122U" });
+      const encoderId = encoderRes.body.id;
+      await prisma.encoder.update({ where: { id: encoderId }, data: { status: "ONLINE" } });
+
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04915170D4", cardType: "NTAG213", label: "Lapsed guest pass" });
+      const cardId = cardRes.body.id;
+      expect(cardRes.body.status).toBe("UNASSIGNED");
+
+      await prisma.card.update({ where: { id: cardId }, data: { expiresAt: new Date(Date.now() - 60_000) } });
+
+      const socket = ioClient(`http://127.0.0.1:${env.port}/dashboard`, {
+        auth: { token: companyAdminToken },
+        forceNew: true,
+      });
+      await new Promise<void>((resolve, reject) => {
+        socket.on("connect", () => resolve());
+        socket.on("connect_error", reject);
+      });
+      const ack = await new Promise<{ ok: boolean; error?: string }>((resolve) =>
+        socket.emit("encoder:command", { encoderId, cardId, command: "READ" }, resolve)
+      );
+      socket.close();
+
+      expect(ack.ok).toBe(false);
+      expect(ack.error).toMatch(/expired/i);
+    });
+  });
+
+  describe("maintenance: asset service tickets", () => {
+    let itemCardId: string;
+
+    beforeAll(async () => {
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04915170B2", cardType: "NTAG213", label: "Projector #4" });
+      itemCardId = cardRes.body.id;
+    });
+
+    it("opens a ticket, defaulting to OPEN status", async () => {
+      const res = await request(app)
+        .post("/api/maintenance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: itemCardId, description: "Won't power on" });
+      expect(res.status).toBe(201);
+      expect(res.body.status).toBe("OPEN");
+      expect(res.body.resolvedAt).toBeNull();
+    });
+
+    it("rejects opening a ticket for a card outside the caller's company", async () => {
+      const otherCompanyRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Other Maintenance Co", slug: "other-maintenance-co" });
+      const otherCardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ uid: "04915170C3", cardType: "NTAG213", companyId: otherCompanyRes.body.id });
+
+      const res = await request(app)
+        .post("/api/maintenance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: otherCardRes.body.id, description: "Should not be allowed" });
+      expect(res.status).toBe(400);
+    });
+
+    it("moves a ticket through in-progress to resolved, setting resolvedAt", async () => {
+      const openRes = await request(app)
+        .post("/api/maintenance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: itemCardId, description: "Lens is cracked" });
+      const ticketId = openRes.body.id;
+
+      const inProgressRes = await request(app)
+        .patch(`/api/maintenance/${ticketId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ status: "IN_PROGRESS" });
+      expect(inProgressRes.body.status).toBe("IN_PROGRESS");
+      expect(inProgressRes.body.resolvedAt).toBeNull();
+
+      const resolvedRes = await request(app)
+        .patch(`/api/maintenance/${ticketId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ status: "RESOLVED" });
+      expect(resolvedRes.body.status).toBe("RESOLVED");
+      expect(resolvedRes.body.resolvedAt).not.toBeNull();
+    });
+
+    it("lists tickets filtered by status", async () => {
+      const res = await request(app)
+        .get("/api/maintenance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ status: "OPEN", pageSize: 100 });
+      expect(res.status).toBe(200);
+      expect(res.body.data.every((t: { status: string }) => t.status === "OPEN")).toBe(true);
+    });
+  });
+
+  describe("dashboard stats", () => {
+    it("counts active visitor passes and open maintenance tickets", async () => {
+      const before = await request(app).get("/api/dashboard/stats").set("Authorization", `Bearer ${companyAdminToken}`);
+
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          uid: "04915170E5",
+          cardType: "NTAG213",
+          label: "Dashboard stats visitor",
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        });
+      await request(app)
+        .post("/api/maintenance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: cardRes.body.id, description: "Dashboard stats ticket" });
+
+      const after = await request(app).get("/api/dashboard/stats").set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(after.status).toBe(200);
+      expect(after.body.activeVisitorPasses).toBe(before.body.activeVisitorPasses + 1);
+      expect(after.body.openMaintenanceTickets).toBe(before.body.openMaintenanceTickets + 1);
     });
   });
 });

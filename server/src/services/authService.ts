@@ -1,6 +1,8 @@
+import { CompanyIndustry } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { auth } from "../auth/index.js";
 import { ApiError } from "../utils/ApiError.js";
+import { INDUSTRY_DEFAULT_MODULES } from "../config/industryModules.js";
 
 interface RegisterCompanyInput {
   companyName: string;
@@ -9,6 +11,7 @@ interface RegisterCompanyInput {
   fullName: string;
   email: string;
   password: string;
+  industry?: CompanyIndustry;
 }
 
 // Self-service sign-up: a new business (hotel, university, etc) registers
@@ -27,6 +30,8 @@ export async function registerCompany(input: RegisterCompanyInput) {
       name: input.companyName,
       slug: input.slug,
       contactEmail: input.contactEmail,
+      industry: input.industry,
+      enabledModules: input.industry ? INDUSTRY_DEFAULT_MODULES[input.industry] : [],
     },
   });
 

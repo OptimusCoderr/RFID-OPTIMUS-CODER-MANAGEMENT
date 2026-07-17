@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CompanyIndustry, CompanyModule } from "@prisma/client";
 
 export const createCompanyBody = z.object({
   name: z.string().min(2).max(200),
@@ -11,6 +12,11 @@ export const createCompanyBody = z.object({
   contactPhone: z.string().max(30).optional(),
   address: z.string().max(300).optional(),
   logoUrl: z.string().url().optional(),
+  // Sets enabledModules to that industry's defaults unless enabledModules is
+  // also passed explicitly. Omit both for an unrestricted company (every
+  // module available) — see Company.enabledModules in schema.prisma.
+  industry: z.nativeEnum(CompanyIndustry).nullable().optional(),
+  enabledModules: z.array(z.nativeEnum(CompanyModule)).optional(),
 });
 
 export const updateCompanyBody = createCompanyBody.partial().extend({

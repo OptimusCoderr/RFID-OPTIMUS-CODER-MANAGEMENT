@@ -10,6 +10,9 @@ export const registerCardBody = z.object({
   templateId: z.string().uuid().optional(),
   registeredByEncoderId: z.string().uuid().optional(),
   keys: z.record(z.string()).optional(), // raw sector/page keys, encrypted before storage
+  // Lets a visitor/guest pass be issued and set to auto-expire in one call
+  // instead of a separate PATCH — see VisitorsPage.
+  expiresAt: z.coerce.date().optional(),
 });
 
 export const updateCardBody = z.object({
@@ -28,6 +31,10 @@ export const assignCardBody = z.object({
 
 export const cardEncodersBody = z.object({
   encoderIds: z.array(z.string().uuid()).min(1),
+  // e.g. a hotel room key granted only until guest checkout. Applies to
+  // every encoder in this same grant call; omit for a grant that never
+  // expires.
+  expiresAt: z.coerce.date().optional(),
 });
 
 export const prepareCitizenWriteBody = z.object({
@@ -46,4 +53,11 @@ export const cardListQuery = z.object({
   cardType: z.nativeEnum(CardType).optional(),
   holderId: z.string().uuid().optional(),
   search: z.string().max(200).optional(),
+  // Not z.coerce.boolean() — that coerces via JS's Boolean(str), so the
+  // literal query string "false" (a non-empty string) would coerce to
+  // true.
+  hasExpiry: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === "true")),
 });
