@@ -275,6 +275,12 @@ data — this is enforced on the server for every request, not just hidden in
 the UI, so even a crafted API call can't reach across companies (unless
 you're `SUPER_ADMIN`).
 
+A `SUPER_ADMIN` isn't attached to any single company, so every "create"
+form that makes a company-scoped record (encoders, templates, zones, card
+holders, cards, visitor passes) shows an extra required **Company** field
+for them to pick which company the new record belongs to. Everyone else
+doesn't see that field — their own company is used automatically.
+
 ## 6. Everyday workflows
 
 ### 6.1 Managing your team (Users)

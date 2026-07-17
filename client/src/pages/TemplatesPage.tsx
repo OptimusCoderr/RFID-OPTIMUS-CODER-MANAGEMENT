@@ -15,6 +15,7 @@ import type {
   CardTemplate,
   CardType,
   CitizenRecordLayout,
+  Company,
   DesfireApplicationLayout,
   DesfireFileLayout,
   DesfireFileType,
@@ -42,10 +43,17 @@ export default function TemplatesPage() {
   const [citizenFields, setCitizenFields] = useState<string[]>([]);
   const [citizenBlocks, setCitizenBlocks] = useState<{ sector: number; block: number }[]>([]);
   const [isDefault, setIsDefault] = useState(false);
+  const [companyId, setCompanyId] = useState("");
 
   const { data: templates, isLoading } = useQuery({
     queryKey: ["templates"],
     queryFn: async () => (await api.get<CardTemplate[]>("/templates")).data,
+  });
+
+  const { data: companies } = useQuery({
+    queryKey: ["companies"],
+    queryFn: async () => (await api.get<Company[]>("/companies")).data,
+    enabled: user?.role === "SUPER_ADMIN",
   });
 
   const createTemplate = useMutation({
@@ -56,6 +64,7 @@ export default function TemplatesPage() {
           cardType,
           description: description || undefined,
           isDefault,
+          companyId: user?.role === "SUPER_ADMIN" ? companyId : undefined,
           layout: {
             sectors: isMifareClassic(cardType) ? sectors : undefined,
             pages: isPageBased(cardType) ? pages : undefined,
@@ -95,6 +104,7 @@ export default function TemplatesPage() {
     setCitizenFields([]);
     setCitizenBlocks([]);
     setIsDefault(false);
+    setCompanyId("");
   }
 
   function handleSubmit(e: FormEvent) {
@@ -168,6 +178,22 @@ export default function TemplatesPage() {
             <label className="label">Description</label>
             <textarea className="input" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
           </div>
+
+          {user?.role === "SUPER_ADMIN" && (
+            <div>
+              <label className="label">Company</label>
+              <select className="input" required value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+                <option value="" disabled>
+                  Select a company
+                </option>
+                {companies?.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {isMifareClassic(cardType) && (
             <SectorEditor sectors={sectors} setSectors={setSectors} />

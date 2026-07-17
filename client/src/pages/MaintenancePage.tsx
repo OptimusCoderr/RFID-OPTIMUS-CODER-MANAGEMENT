@@ -7,6 +7,7 @@ import { api, apiErrorMessage } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Badge } from "@/components/ui/Badge";
 import { FullPageSpinner, Spinner } from "@/components/ui/Spinner";
+import { useAuth } from "@/context/AuthContext";
 import type { Card, MaintenanceRecord, MaintenanceStatus, PaginatedResponse } from "@/types";
 
 const STATUS_TONE: Record<MaintenanceStatus, string> = {
@@ -16,6 +17,7 @@ const STATUS_TONE: Record<MaintenanceStatus, string> = {
 };
 
 export default function MaintenancePage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [cardSearch, setCardSearch] = useState("");
   const [debouncedCardSearch, setDebouncedCardSearch] = useState("");
@@ -45,7 +47,10 @@ export default function MaintenancePage() {
   });
 
   const openTicket = useMutation({
-    mutationFn: async () => (await api.post<MaintenanceRecord>("/maintenance", { cardId, description })).data,
+    mutationFn: async () => {
+      const companyId = user?.role === "SUPER_ADMIN" ? cardOptions?.data.find((c) => c.id === cardId)?.companyId : undefined;
+      return (await api.post<MaintenanceRecord>("/maintenance", { cardId, description, companyId })).data;
+    },
     onSuccess: () => {
       toast.success("Maintenance ticket opened");
       queryClient.invalidateQueries({ queryKey: ["maintenance"] });

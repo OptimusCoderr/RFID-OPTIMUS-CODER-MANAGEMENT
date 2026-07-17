@@ -6,13 +6,16 @@ import { api, apiErrorMessage } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Modal } from "@/components/ui/Modal";
 import { FullPageSpinner } from "@/components/ui/Spinner";
-import type { AccessZone, Card, PaginatedResponse } from "@/types";
+import { useAuth } from "@/context/AuthContext";
+import type { AccessZone, Card, Company, PaginatedResponse } from "@/types";
 
 export default function ZonesPage() {
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [companyId, setCompanyId] = useState("");
   const [grantZone, setGrantZone] = useState<AccessZone | null>(null);
   const [grantUid, setGrantUid] = useState("");
 
@@ -21,14 +24,28 @@ export default function ZonesPage() {
     queryFn: async () => (await api.get<AccessZone[]>("/zones")).data,
   });
 
+  const { data: companies } = useQuery({
+    queryKey: ["companies"],
+    queryFn: async () => (await api.get<Company[]>("/companies")).data,
+    enabled: user?.role === "SUPER_ADMIN",
+  });
+
   const createZone = useMutation({
-    mutationFn: async () => (await api.post("/zones", { name, description: description || undefined })).data,
+    mutationFn: async () =>
+      (
+        await api.post("/zones", {
+          name,
+          description: description || undefined,
+          companyId: user?.role === "SUPER_ADMIN" ? companyId : undefined,
+        })
+      ).data,
     onSuccess: () => {
       toast.success("Access zone created");
       queryClient.invalidateQueries({ queryKey: ["zones"] });
       setModalOpen(false);
       setName("");
       setDescription("");
+      setCompanyId("");
     },
     onError: (err) => toast.error(apiErrorMessage(err, "Could not create zone")),
   });
@@ -114,6 +131,21 @@ export default function ZonesPage() {
             <label className="label">Description</label>
             <textarea className="input" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
           </div>
+          {user?.role === "SUPER_ADMIN" && (
+            <div>
+              <label className="label">Company</label>
+              <select className="input" required value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+                <option value="" disabled>
+                  Select a company
+                </option>
+                {companies?.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <button type="submit" className="btn-primary w-full" disabled={createZone.isPending}>
             Create zone
           </button>
