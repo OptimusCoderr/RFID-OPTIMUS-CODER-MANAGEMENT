@@ -11,7 +11,11 @@ export const encoderIdParams = z.object({
 export const upsertAttendanceSessionBody = z.object({
   companyId: z.string().uuid().optional(),
   zoneId: z.string().uuid().nullable().optional(),
-  label: z.string().max(200).nullable().optional(),
+  // Required — the only thing that tells two saved schedules apart in the
+  // list on the Attendance page (e.g. "CS101 Lecture" vs "Front Desk
+  // Shift"), so a blank one would defeat the point of that table.
+  label: z.string().trim().min(1, "A label is required").max(200),
+  description: z.string().max(1000).nullable().optional(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).max(7).default([]),
   startTime: timeString.nullable().optional(),
   endTime: timeString.nullable().optional(),

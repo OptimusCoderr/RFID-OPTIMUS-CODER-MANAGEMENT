@@ -27,6 +27,16 @@ const COMMAND_TO_OPERATION: Record<string, OperationType> = {
   LOCK: "LOCK",
   KEY_CHANGE: "KEY_CHANGE",
   CLONE: "CLONE",
+  // MIFARE Classic / NTAG raw block-level commands — the ones CardDataPanel,
+  // CitizenDataPanel, and the Live Encode "Send command" console actually
+  // send. These were missing here, so every card-data read/write (including
+  // a delete, which is just a write of zeroed blocks) fell through to the
+  // "READ" default below regardless of which one it actually was.
+  READ_UID: "READ",
+  READ_BLOCK: "READ",
+  WRITE_BLOCK: "WRITE",
+  READ_NTAG: "READ",
+  WRITE_NTAG: "WRITE",
   // MIFARE DESFire application/file partitioning.
   GET_DESFIRE_VERSION: "READ",
   LIST_APPLICATIONS: "READ",
@@ -64,6 +74,19 @@ export function initWebsocket(httpServer: HttpServer): Server {
 
   const dashboardNsp = io.of("/dashboard");
   const agentNsp = io.of("/agent");
+
+  // The agent's "command" payload (relayed to hardware) deliberately carries
+  // no app-level context — the physical agent has no notion of the app's
+  // Card entity or which user asked for this, only block/page numbers. That
+  // context is also missing from the "command:result" the agent sends back,
+  // which would otherwise leave the audit log unable to say which card (or
+  // who) a read/write/delete actually touched. This bridges the gap: it's
+  // stashed here at dispatch time, keyed by commandId, and consumed once the
+  // matching result arrives. A command whose result never comes back (e.g.
+  // the agent disconnects mid-command) leaves its entry stranded, but at
+  // this app's realistic command volume that's an acceptable trade for not
+  // needing a TTL sweep.
+  const pendingCommandContext = new Map<string, { cardId?: string; userId: string }>();
 
   // --- Dashboard clients (the React app) -----------------------------------
   dashboardNsp.use(async (socket, next) => {
@@ -109,6 +132,19 @@ export function initWebsocket(httpServer: HttpServer): Server {
             throw new Error("You do not have permission to run this command");
           }
 
+          // A "delete card data" write — CardDataPanel/CitizenDataPanel's
+          // Delete buttons blank a card's blocks by writing zeros, using the
+          // exact same WRITE_BLOCK command as any ordinary field write, so
+          // this is the only signal distinguishing the two server-side.
+          // Gated the same as the other DESTRUCTIVE_COMMANDS above: hiding
+          // the button client-side isn't real protection on its own, since
+          // anyone who can call this handler at all could otherwise still
+          // send the same command directly.
+          const isClearWrite = payload.command === "WRITE_BLOCK" && (payload.args as { clear?: boolean } | undefined)?.clear === true;
+          if (isClearWrite && !MANAGER_UP_ROLES.has(data.role)) {
+            throw new Error("You do not have permission to delete card data");
+          }
+
           if (payload.cardId) {
             const card = await prisma.card.findUnique({
               where: { id: payload.cardId },
@@ -141,6 +177,7 @@ export function initWebsocket(httpServer: HttpServer): Server {
           }
 
           const commandId = uuid();
+          pendingCommandContext.set(commandId, { cardId: payload.cardId, userId: data.userId });
           agentNsp.to(`encoder:${encoder.id}`).emit("command", {
             commandId,
             command: payload.command,
@@ -193,10 +230,15 @@ export function initWebsocket(httpServer: HttpServer): Server {
       async (payload: { commandId: string; command: string; success: boolean; data?: unknown; error?: string }) => {
         dashboardNsp.to(`company:${data.companyId}`).emit("encoder:commandResult", { encoderId: data.encoderId, ...payload });
 
+        const context = pendingCommandContext.get(payload.commandId);
+        pendingCommandContext.delete(payload.commandId);
+
         const operationType = COMMAND_TO_OPERATION[payload.command] ?? "READ";
         await logOperation({
           companyId: data.companyId,
+          cardId: context?.cardId,
           encoderId: data.encoderId,
+          userId: context?.userId,
           operationType,
           status: payload.success ? "SUCCESS" : "FAILED",
           details: payload.data as any,

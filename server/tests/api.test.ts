@@ -453,6 +453,43 @@ describe("company + card lifecycle happy path", () => {
       expect(res.status).toBe(403);
     });
 
+    it("rejects saving a schedule with no label", async () => {
+      const res = await request(app)
+        .put(`/api/attendance-sessions/${sessionEncoderId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ daysOfWeek: [], startTime: "09:00", endTime: "10:00" });
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects saving a schedule with a blank/whitespace-only label", async () => {
+      const res = await request(app)
+        .put(`/api/attendance-sessions/${sessionEncoderId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ label: "   ", daysOfWeek: [], startTime: "09:00", endTime: "10:00" });
+      expect(res.status).toBe(400);
+    });
+
+    it("saves and round-trips a description alongside the required label", async () => {
+      const res = await request(app)
+        .put(`/api/attendance-sessions/${sessionEncoderId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          label: "CS101 Lecture",
+          description: "Room 204, Mon/Wed/Fri mornings",
+          daysOfWeek: [],
+          startTime: null,
+          endTime: null,
+        });
+      expect(res.status).toBe(200);
+      expect(res.body.label).toBe("CS101 Lecture");
+      expect(res.body.description).toBe("Room 204, Mon/Wed/Fri mornings");
+
+      const getRes = await request(app)
+        .get(`/api/attendance-sessions/${sessionEncoderId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(getRes.body.description).toBe("Room 204, Mon/Wed/Fri mornings");
+    });
+
     it("saves a recurring schedule that is currently closed and blocks taps outside the window", async () => {
       // Scheduled for a day-of-week other than today, so it's guaranteed
       // closed right now regardless of when this suite runs.
@@ -546,6 +583,148 @@ describe("company + card lifecycle happy path", () => {
         .set("Authorization", `Bearer ${companyAdminToken}`)
         .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
       expect(tapRes.status).toBe(201);
+    });
+  });
+
+  describe("card data deletion: clear-write role gate + audit logging", () => {
+    let clearEncoderId: string;
+    let clearCardId: string;
+    let agentSocket: ClientSocket;
+    let managerToken: string;
+    let operatorToken: string;
+
+    async function connectDashboard(token: string): Promise<ClientSocket> {
+      const socket = ioClient(`http://127.0.0.1:${env.port}/dashboard`, { auth: { token }, forceNew: true });
+      await new Promise<void>((resolve, reject) => {
+        socket.on("connect", () => resolve());
+        socket.on("connect_error", reject);
+      });
+      return socket;
+    }
+
+    function sendCommand(socket: ClientSocket, body: Record<string, unknown>): Promise<{ ok: boolean; error?: string; commandId?: string }> {
+      return new Promise((resolve) => socket.emit("encoder:command", body, resolve));
+    }
+
+    beforeAll(async () => {
+      const encoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Clear Write Test Encoder", type: "ACR122U" });
+      clearEncoderId = encoderRes.body.id;
+
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04C1EA2000", cardType: "MIFARE_CLASSIC_1K" });
+      clearCardId = cardRes.body.id;
+
+      // A real fake agent (not just an ONLINE status flip) so a WRITE_BLOCK
+      // can complete a full round trip — needed to exercise the
+      // COMMAND_TO_OPERATION audit-log mapping below, not just the ack.
+      agentSocket = ioClient(`http://127.0.0.1:${env.port}/agent`, { auth: { agentKey: encoderRes.body.agentKey }, forceNew: true });
+      await new Promise<void>((resolve, reject) => {
+        agentSocket.on("connect", () => resolve());
+        agentSocket.on("connect_error", reject);
+      });
+      agentSocket.on("command", (payload: { commandId: string; command: string }) => {
+        agentSocket.emit("command:result", {
+          commandId: payload.commandId,
+          command: payload.command,
+          success: true,
+          data: { block: 4, data: "00".repeat(16) },
+        });
+      });
+
+      await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          email: "manager-cleartest@integration-test-co.example",
+          password: "ManagerOnly123!",
+          fullName: "Integration Manager",
+          role: "MANAGER",
+          companyId,
+        });
+      managerToken = await loginAs("manager-cleartest@integration-test-co.example", "ManagerOnly123!");
+
+      await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          email: "operator-cleartest@integration-test-co.example",
+          password: "OperatorOnly123!",
+          fullName: "Integration Operator",
+          role: "OPERATOR",
+          companyId,
+        });
+      operatorToken = await loginAs("operator-cleartest@integration-test-co.example", "OperatorOnly123!");
+    });
+
+    afterAll(() => {
+      agentSocket?.close();
+    });
+
+    it("rejects a clear-write (args.clear=true) from an OPERATOR", async () => {
+      const socket = await connectDashboard(operatorToken);
+      const ack = await sendCommand(socket, {
+        encoderId: clearEncoderId,
+        cardId: clearCardId,
+        command: "WRITE_BLOCK",
+        args: { block: 4, data: "00".repeat(16), key: "FFFFFFFFFFFF", keyType: "A", clear: true },
+      });
+      socket.close();
+      expect(ack.ok).toBe(false);
+      expect(ack.error).toMatch(/permission/i);
+    });
+
+    it("an OPERATOR can still do an ordinary (non-clear) write", async () => {
+      const socket = await connectDashboard(operatorToken);
+      const ack = await sendCommand(socket, {
+        encoderId: clearEncoderId,
+        cardId: clearCardId,
+        command: "WRITE_BLOCK",
+        args: { block: 4, data: "41424344000000000000000000000000".slice(0, 32), key: "FFFFFFFFFFFF", keyType: "A" },
+      });
+      socket.close();
+      expect(ack.ok).toBe(true);
+    });
+
+    it("allows a clear-write from a MANAGER, and logs it as WRITE (not READ) in the audit trail", async () => {
+      const socket = await connectDashboard(managerToken);
+      const commandResult = new Promise<void>((resolve) => {
+        socket.on("encoder:commandResult", () => resolve());
+      });
+      const ack = await sendCommand(socket, {
+        encoderId: clearEncoderId,
+        cardId: clearCardId,
+        command: "WRITE_BLOCK",
+        args: { block: 4, data: "00".repeat(16), key: "FFFFFFFFFFFF", keyType: "A", clear: true },
+      });
+      expect(ack.ok).toBe(true);
+      await commandResult;
+      socket.close();
+
+      // logOperation is awaited server-side after the commandResult broadcast
+      // fires, so there's a small window where the row isn't written yet —
+      // poll briefly rather than asserting immediately.
+      let entry: { operationType: string; card?: { id: string }; user?: { id: string } } | undefined;
+      for (let attempt = 0; attempt < 10 && !entry; attempt++) {
+        const logsRes = await request(app)
+          .get("/api/logs")
+          .set("Authorization", `Bearer ${companyAdminToken}`)
+          .query({ cardId: clearCardId, encoderId: clearEncoderId, pageSize: 10 });
+        entry = logsRes.body.data[0];
+        if (!entry) await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(entry).toBeTruthy();
+      // Both were previously missing from this log path entirely: the
+      // command:result handler never threaded cardId/userId through from
+      // the original dispatch, so a "delete card data" action couldn't be
+      // traced back to which card or who performed it.
+      expect(entry?.card?.id).toBe(clearCardId);
+      expect(entry?.user?.id).toBeTruthy();
+      expect(entry?.operationType).toBe("WRITE"); // was falling through to the "READ" default before the COMMAND_TO_OPERATION fix
     });
   });
 

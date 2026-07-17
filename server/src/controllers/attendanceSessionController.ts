@@ -47,7 +47,7 @@ export const upsertAttendanceSession = asyncHandler(async (req: Request, res: Re
   if (!encoder) throw ApiError.notFound("Encoder not found");
   assertCompanyAccess(req, encoder.companyId);
 
-  const { zoneId, label, daysOfWeek, startTime, endTime } = req.body;
+  const { zoneId, label, description, daysOfWeek, startTime, endTime } = req.body;
   if (zoneId) {
     const zone = await prisma.accessZone.findUnique({ where: { id: zoneId } });
     if (!zone || zone.companyId !== encoder.companyId) {
@@ -61,14 +61,16 @@ export const upsertAttendanceSession = asyncHandler(async (req: Request, res: Re
       companyId: encoder.companyId,
       encoderId: encoder.id,
       zoneId: zoneId ?? undefined,
-      label: label ?? undefined,
+      label,
+      description: description ?? undefined,
       daysOfWeek,
       startTime: startTime ?? undefined,
       endTime: endTime ?? undefined,
     },
     update: {
       zoneId: zoneId ?? null,
-      label: label ?? null,
+      label,
+      description: description ?? null,
       daysOfWeek,
       startTime: startTime ?? null,
       endTime: endTime ?? null,
@@ -88,11 +90,15 @@ export const setAttendanceSessionOverride = asyncHandler(async (req: Request, re
   // A session row may not exist yet if the encoder has no recurring
   // schedule saved — Start Now / Stop Now must still work standalone, so
   // this creates an override-only row (empty daysOfWeek) in that case.
+  // label is required schema-wide, but there's no user-entered one at this
+  // point (no schedule form was submitted) — default to the encoder's own
+  // name, editable later from the schedule form like any other label.
   const session = await prisma.attendanceSession.upsert({
     where: { encoderId: req.params.encoderId },
     create: {
       companyId: encoder.companyId,
       encoderId: encoder.id,
+      label: encoder.name,
       daysOfWeek: [],
       manualOverride,
     },

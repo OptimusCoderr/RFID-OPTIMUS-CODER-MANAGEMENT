@@ -560,7 +560,11 @@ model AttendanceSession {
   zoneId String?
   zone   AccessZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
 
-  label String?
+  // Required — this is the only thing that tells two schedules apart in the
+  // saved-schedules table (e.g. "CS101 Lecture" vs "Front Desk Shift"), so a
+  // blank one would make that list useless.
+  label       String
+  description String?
 
   // 0 = Sunday .. 6 = Saturday. Empty means no recurring schedule is
   // configured (only the manual override applies).

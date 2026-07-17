@@ -400,6 +400,20 @@ Text longer than 16 bytes is silently truncated to fit — keep fields short
 [card holder](#62-card-holders) record instead for anything that needs more
 room or needs to be searchable.
 
+**Deleting card data.** `SUPER_ADMIN`/`COMPANY_ADMIN`/`MANAGER` users see a
+**Delete card data** button next to Read/Write, which overwrites every
+labeled block with blanks after a confirmation prompt — for wiping a card
+before reissuing or retiring it. It isn't visible to `OPERATOR`/`VIEWER`
+roles, and the server enforces the same restriction independently (it isn't
+just a hidden button — the underlying write is tagged as a deletion and
+rejected server-side for any role below `MANAGER`), so a lower-privileged
+user can't bypass it by calling the API directly. The [Encrypted citizen
+data](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)
+panel below has the same protected **Delete citizen data** button, which
+writes a freshly re-encrypted *blank* record rather than raw zeros — the
+card still reads back as a valid (just empty) record afterward instead of
+"could not decrypt."
+
 **Random per-card keys.** By default, new cards use whatever Key A/B the
 template specifies (often the MIFARE factory default,
 `FFFFFFFFFFFF`, until you change it) — fine for testing, but every card
@@ -712,20 +726,25 @@ pull a term's/shift's attendance history from.
 optionally have a recurring open/closed schedule, configured in the
 **Session schedule** panel next to the tap panel:
 
-1. Pick the **days of the week** and a **start/end time** (e.g. Mon/Wed/Fri,
-   09:00–10:00 for a lecture that meets three times a week), add an optional
-   **label**, and click **Save schedule**.
-2. Once saved, the encoder only accepts attendance taps while the schedule
+1. Enter a **Label** — required, since it's the only thing that tells two
+   saved schedules apart (e.g. "CS101 Lecture" vs "Front Desk Shift"): use
+   the subject, class, department, or shift the schedule represents. An
+   optional **Description** can hold extra context (room number, term,
+   anything that doesn't belong in the label itself).
+2. Pick the **days of the week** and a **start/end time** (e.g. Mon/Wed/Fri,
+   09:00–10:00 for a lecture that meets three times a week), and click
+   **Save schedule**.
+3. Once saved, the encoder only accepts attendance taps while the schedule
    says it's open — a badge shows **Open**/**Closed**, and a live countdown
    ticks down to the next boundary (time until close while open, time until
    the next open while closed). Taps outside the window are rejected with a
    clear reason, same as a blocked/expired card.
-3. **Start now** / **Stop now** override the schedule immediately,
+4. **Start now** / **Stop now** override the schedule immediately,
    regardless of what time it is — useful for an unscheduled makeup session
    or to cut attendance off early. The override holds until you click
    **Resume schedule**, which clears it and goes back to following the
    saved days/times.
-4. An encoder with **no saved schedule is unrestricted** — attendance works
+5. An encoder with **no saved schedule is unrestricted** — attendance works
    at any time, exactly like before this feature existed. The schedule is
    entirely opt-in, per encoder.
 
@@ -733,6 +752,12 @@ Whether an encoder is currently open is always computed live from the
 saved schedule and override at the moment of the tap (or page render) —
 there's no background job flipping a stored flag, so a manual Start/Stop
 click and the countdown are both accurate to the second.
+
+**Saved schedules table.** Below the tap/schedule panels, a table lists
+every schedule saved across every encoder in the company — label,
+description, encoder, days, time range, and live Open/Closed status.
+Clicking a row selects that encoder above, so you can jump straight to
+editing it without hunting through the encoder dropdown.
 
 ### 6.16 Visitors
 

@@ -25,12 +25,13 @@ const STATE_LABELS: Record<AttendanceSession["state"]["reason"], string> = {
 interface ScheduleFormState {
   zoneId: string;
   label: string;
+  description: string;
   daysOfWeek: number[];
   startTime: string;
   endTime: string;
 }
 
-const EMPTY_SCHEDULE: ScheduleFormState = { zoneId: "", label: "", daysOfWeek: [], startTime: "", endTime: "" };
+const EMPTY_SCHEDULE: ScheduleFormState = { zoneId: "", label: "", description: "", daysOfWeek: [], startTime: "", endTime: "" };
 
 interface FeedEntry {
   id: string;
@@ -80,13 +81,19 @@ export default function AttendancePage() {
     },
   });
 
+  const { data: allSessions } = useQuery({
+    queryKey: ["attendance-sessions"],
+    queryFn: async () => (await api.get<AttendanceSession[]>("/attendance-sessions")).data,
+  });
+
   const [scheduleForm, setScheduleForm] = useState<ScheduleFormState>(EMPTY_SCHEDULE);
 
   useEffect(() => {
     if (session) {
       setScheduleForm({
         zoneId: session.zoneId ?? "",
-        label: session.label ?? "",
+        label: session.label,
+        description: session.description ?? "",
         daysOfWeek: session.daysOfWeek,
         startTime: session.startTime ?? "",
         endTime: session.endTime ?? "",
@@ -101,7 +108,8 @@ export default function AttendancePage() {
       (
         await api.put<AttendanceSession>(`/attendance-sessions/${encoderId}`, {
           zoneId: scheduleForm.zoneId || null,
-          label: scheduleForm.label || null,
+          label: scheduleForm.label.trim(),
+          description: scheduleForm.description.trim() || null,
           daysOfWeek: scheduleForm.daysOfWeek,
           startTime: scheduleForm.startTime || null,
           endTime: scheduleForm.endTime || null,
@@ -110,6 +118,7 @@ export default function AttendancePage() {
     onSuccess: () => {
       toast.success("Session schedule saved");
       queryClient.invalidateQueries({ queryKey: ["attendance-session", encoderId] });
+      queryClient.invalidateQueries({ queryKey: ["attendance-sessions"] });
     },
     onError: (err) => toast.error(apiErrorMessage(err, "Could not save schedule")),
   });
@@ -126,6 +135,7 @@ export default function AttendancePage() {
             : "Resumed the saved schedule"
       );
       queryClient.invalidateQueries({ queryKey: ["attendance-session", encoderId] });
+      queryClient.invalidateQueries({ queryKey: ["attendance-sessions"] });
     },
     onError: (err) => toast.error(apiErrorMessage(err, "Could not update the session")),
   });
@@ -306,6 +316,30 @@ export default function AttendancePage() {
 
               <form onSubmit={handleScheduleSubmit} className="space-y-3 border-t border-slate-100 pt-3 dark:border-slate-800">
                 <div>
+                  <label className="label">Label</label>
+                  <input
+                    className="input"
+                    required
+                    placeholder="e.g. CS101 Lecture, or Front Desk Shift"
+                    value={scheduleForm.label}
+                    onChange={(e) => setScheduleForm((f) => ({ ...f, label: e.target.value }))}
+                  />
+                  <p className="mt-1 text-xs text-slate-400">
+                    Required — this is what identifies the schedule below, e.g. the subject or department taking
+                    attendance.
+                  </p>
+                </div>
+                <div>
+                  <label className="label">Description (optional)</label>
+                  <textarea
+                    className="input"
+                    rows={2}
+                    placeholder="e.g. Room 204, Tuesdays/Thursdays only during exam weeks"
+                    value={scheduleForm.description}
+                    onChange={(e) => setScheduleForm((f) => ({ ...f, description: e.target.value }))}
+                  />
+                </div>
+                <div>
                   <label className="label">Days</label>
                   <div className="flex flex-wrap gap-1">
                     {DAY_LABELS.map((d, i) => (
@@ -340,16 +374,7 @@ export default function AttendancePage() {
                     />
                   </div>
                 </div>
-                <div>
-                  <label className="label">Label (optional)</label>
-                  <input
-                    className="input"
-                    placeholder="e.g. CS101 Lecture"
-                    value={scheduleForm.label}
-                    onChange={(e) => setScheduleForm((f) => ({ ...f, label: e.target.value }))}
-                  />
-                </div>
-                <button type="submit" className="btn-primary w-full" disabled={saveSchedule.isPending}>
+                <button type="submit" className="btn-primary w-full" disabled={saveSchedule.isPending || !scheduleForm.label.trim()}>
                   {saveSchedule.isPending ? <Spinner className="h-4 w-4 text-white" /> : <Save size={16} />} Save schedule
                 </button>
                 <p className="text-xs text-slate-400">
@@ -372,6 +397,55 @@ export default function AttendancePage() {
             {feed.length === 0 && <p className="text-slate-400">No taps yet.</p>}
           </div>
         </div>
+      </div>
+
+      <div className="card mb-6 overflow-hidden">
+        <h3 className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-600 dark:border-slate-800 dark:text-slate-300">
+          Saved schedules
+        </h3>
+        <table className="w-full text-sm">
+          <thead className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">
+            <tr>
+              <th className="px-4 py-3">Label</th>
+              <th className="px-4 py-3">Description</th>
+              <th className="px-4 py-3">Encoder</th>
+              <th className="px-4 py-3">Days</th>
+              <th className="px-4 py-3">Time</th>
+              <th className="px-4 py-3">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            {allSessions?.map((s) => (
+              <tr
+                key={s.id}
+                className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/50"
+                onClick={() => setEncoderId(s.encoderId)}
+              >
+                <td className="px-4 py-3 font-medium">{s.label}</td>
+                <td className="max-w-xs truncate px-4 py-3 text-slate-500" title={s.description ?? undefined}>
+                  {s.description || "—"}
+                </td>
+                <td className="px-4 py-3 text-slate-500">{s.encoder?.name ?? "—"}</td>
+                <td className="px-4 py-3 text-slate-500">
+                  {s.daysOfWeek.length > 0 ? s.daysOfWeek.map((d) => DAY_LABELS[d]).join(", ") : "—"}
+                </td>
+                <td className="px-4 py-3 text-slate-500">
+                  {s.startTime && s.endTime ? `${s.startTime}–${s.endTime}` : "—"}
+                </td>
+                <td className="px-4 py-3">
+                  <Badge tone={s.state.isOpen ? "ACTIVE" : "BLOCKED"}>{s.state.isOpen ? "Open" : "Closed"}</Badge>
+                </td>
+              </tr>
+            ))}
+            {allSessions?.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                  No schedules saved yet — configure one for an encoder above.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
