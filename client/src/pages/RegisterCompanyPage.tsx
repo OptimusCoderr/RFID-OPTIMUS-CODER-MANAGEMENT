@@ -5,6 +5,8 @@ import toast from "react-hot-toast";
 import { useAuth } from "@/context/AuthContext";
 import { apiErrorMessage } from "@/lib/api";
 import { Spinner } from "@/components/ui/Spinner";
+import { INDUSTRY_OPTIONS } from "@/lib/constants";
+import type { CompanyIndustry } from "@/types";
 
 function slugify(value: string): string {
   return value
@@ -20,6 +22,7 @@ export default function RegisterCompanyPage() {
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
   const [contactEmail, setContactEmail] = useState("");
+  const [industry, setIndustry] = useState<CompanyIndustry | "">("");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -36,7 +39,15 @@ export default function RegisterCompanyPage() {
     e.preventDefault();
     setSubmitting(true);
     try {
-      await registerCompany({ companyName, slug, contactEmail: contactEmail || undefined, fullName, email, password });
+      await registerCompany({
+        companyName,
+        slug,
+        contactEmail: contactEmail || undefined,
+        fullName,
+        email,
+        password,
+        industry: industry || undefined,
+      });
       toast.success("Company registered — welcome aboard!");
     } catch (err) {
       toast.error(apiErrorMessage(err, "Could not register your company"));
@@ -101,6 +112,26 @@ export default function RegisterCompanyPage() {
               value={contactEmail}
               onChange={(e) => setContactEmail(e.target.value)}
             />
+          </div>
+          <div>
+            <label className="label" htmlFor="industry">
+              What kind of organization is this?
+            </label>
+            <select
+              id="industry"
+              className="input"
+              value={industry}
+              onChange={(e) => setIndustry(e.target.value as CompanyIndustry | "")}
+            >
+              {INDUSTRY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-slate-400">
+              Sets which features you start with — a SUPER_ADMIN can adjust this for you later.
+            </p>
           </div>
 
           <hr className="border-slate-100 dark:border-slate-800" />

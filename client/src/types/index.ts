@@ -1,5 +1,17 @@
 export type Role = "SUPER_ADMIN" | "COMPANY_ADMIN" | "MANAGER" | "OPERATOR" | "VIEWER";
 
+export type CompanyIndustry = "UNIVERSITY" | "HOTEL" | "BUSINESS" | "GOVERNMENT_ID";
+
+export type CompanyModule =
+  | "CARDS"
+  | "ENCODERS"
+  | "TEMPLATES"
+  | "HOLDERS"
+  | "ZONES"
+  | "ATTENDANCE"
+  | "LOGS"
+  | "CITIZEN_DATA";
+
 export type CardType =
   | "MIFARE_CLASSIC_1K"
   | "MIFARE_CLASSIC_4K"
@@ -65,6 +77,10 @@ export interface Company {
   address?: string | null;
   logoUrl?: string | null;
   isActive: boolean;
+  industry?: CompanyIndustry | null;
+  // Empty/absent means unrestricted — every module is available. See
+  // lib/modules.ts for the shared helper that interprets this.
+  enabledModules?: CompanyModule[];
   createdAt: string;
   updatedAt: string;
   _count?: { users: number; cards: number; encoders: number; holders: number };
@@ -79,7 +95,7 @@ export interface User {
   isActive: boolean;
   lastLoginAt?: string | null;
   createdAt: string;
-  company?: { id: string; name: string; slug: string } | null;
+  company?: { id: string; name: string; slug: string; industry?: CompanyIndustry | null; enabledModules?: CompanyModule[] } | null;
 }
 
 export interface CardHolder {

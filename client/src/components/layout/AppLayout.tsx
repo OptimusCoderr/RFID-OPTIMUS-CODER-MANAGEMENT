@@ -26,27 +26,29 @@ import { useTheme } from "@/context/ThemeContext";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { CommandPalette } from "@/components/CommandPalette";
 import { useCommandPalette } from "@/context/CommandPaletteContext";
-import type { Role } from "@/types";
+import { hasModule } from "@/lib/modules";
+import type { Role, CompanyModule } from "@/types";
 
 interface NavItem {
   to: string;
   label: string;
   icon: LucideIcon;
   roles?: Role[];
+  module?: CompanyModule;
 }
 
 const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/companies", label: "Companies", icon: Building2, roles: ["SUPER_ADMIN"] },
   { to: "/users", label: "Users", icon: Users, roles: ["SUPER_ADMIN", "COMPANY_ADMIN"] },
-  { to: "/holders", label: "Card Holders", icon: UserRound },
-  { to: "/cards", label: "Cards", icon: CreditCard },
-  { to: "/templates", label: "Templates", icon: FileJson },
-  { to: "/encoders", label: "Encoders", icon: Wifi },
-  { to: "/live-encode", label: "Live Encode", icon: Radio },
-  { to: "/zones", label: "Access Zones", icon: ShieldCheck },
-  { to: "/attendance", label: "Attendance", icon: ClipboardCheck },
-  { to: "/logs", label: "Audit Logs", icon: ScrollText },
+  { to: "/holders", label: "Card Holders", icon: UserRound, module: "HOLDERS" },
+  { to: "/cards", label: "Cards", icon: CreditCard, module: "CARDS" },
+  { to: "/templates", label: "Templates", icon: FileJson, module: "TEMPLATES" },
+  { to: "/encoders", label: "Encoders", icon: Wifi, module: "ENCODERS" },
+  { to: "/live-encode", label: "Live Encode", icon: Radio, module: "ENCODERS" },
+  { to: "/zones", label: "Access Zones", icon: ShieldCheck, module: "ZONES" },
+  { to: "/attendance", label: "Attendance", icon: ClipboardCheck, module: "ATTENDANCE" },
+  { to: "/logs", label: "Audit Logs", icon: ScrollText, module: "LOGS" },
 ];
 
 export function AppLayout() {
@@ -55,7 +57,10 @@ export function AppLayout() {
   const { theme, toggleTheme } = useTheme();
   const { open: openSearch } = useCommandPalette();
 
-  const items = NAV_ITEMS.filter((item) => !item.roles || (user && item.roles.includes(user.role)));
+  const items = NAV_ITEMS.filter(
+    (item) =>
+      (!item.roles || (user && item.roles.includes(user.role))) && (!item.module || hasModule(user, item.module))
+  );
 
   return (
     <div className="flex h-screen overflow-hidden">

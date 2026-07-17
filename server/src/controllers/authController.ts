@@ -12,7 +12,7 @@ const PROFILE_SELECT = {
   companyId: true,
   isActive: true,
   lastLoginAt: true,
-  company: { select: { id: true, name: true, slug: true } },
+  company: { select: { id: true, name: true, slug: true, industry: true, enabledModules: true } },
 } as const;
 
 export const registerCompany = asyncHandler(async (req: Request, res: Response) => {

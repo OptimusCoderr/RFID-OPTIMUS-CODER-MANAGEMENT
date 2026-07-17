@@ -119,21 +119,57 @@ enum NotificationType {
   SYSTEM
 }
 
+// What kind of organization a company is — drives the default set of
+// modules it starts with (see CompanyModule / industryModules.ts). Optional:
+// a company with no industry set is treated as unrestricted (see
+// CompanyModule below), matching how every company behaved before this
+// concept existed.
+enum CompanyIndustry {
+  UNIVERSITY
+  HOTEL
+  BUSINESS
+  GOVERNMENT_ID
+}
+
+// A slice of the app a company can be granted access to. Gating is
+// nav/routing-level on the client — every module's data still lives in the
+// same tenant-isolated tables regardless of which modules are enabled.
+enum CompanyModule {
+  CARDS
+  ENCODERS
+  TEMPLATES
+  HOLDERS
+  ZONES
+  ATTENDANCE
+  LOGS
+  // Encrypted National ID-style records (see CitizenRecordLayout) — kept
+  // separate from the core modules above since it's specific to
+  // e-Government use, not something every industry needs by default.
+  CITIZEN_DATA
+}
+
 // ---------------------------------------------------------------------------
 // Core tenancy
 // ---------------------------------------------------------------------------
 
 model Company {
-  id           String   @id @default(uuid())
-  name         String
-  slug         String   @unique
-  contactEmail String?
-  contactPhone String?
-  address      String?
-  logoUrl      String?
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id             String           @id @default(uuid())
+  name           String
+  slug           String           @unique
+  contactEmail   String?
+  contactPhone   String?
+  address        String?
+  logoUrl        String?
+  isActive       Boolean          @default(true)
+  industry       CompanyIndustry?
+  // Empty means unrestricted — every module is available. This is the
+  // default for every company created before this feature existed, and for
+  // any company created without picking an industry, so nothing changes
+  // for existing tenants unless a SUPER_ADMIN explicitly opts them in to
+  // module gating (directly, or by picking an industry at creation time).
+  enabledModules CompanyModule[]  @default([])
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
   users             User[]
   holders           CardHolder[]

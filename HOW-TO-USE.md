@@ -18,6 +18,7 @@ it* once it's up.
 2. [Core concepts](#2-core-concepts)
 3. [Getting it running](#3-getting-it-running)
 4. [Getting your company set up](#4-getting-your-company-set-up)
+   - [4.4 Industries and modules](#44-industries-and-modules)
 5. [Roles and permissions](#5-roles-and-permissions)
 6. [Everyday workflows](#6-everyday-workflows)
    - [6.1 Managing your team](#61-managing-your-team-users)
@@ -70,6 +71,8 @@ platform operators, but day-to-day usage never needs it.
 | Concept | What it is |
 |---|---|
 | **Company** | A tenant. A hotel, a business, a university department — anything issuing its own cards. |
+| **Industry** | What kind of organization a company is (University, Hotel, Business/Office, e-Government). Optional; sets a starting **module** list. See [4.4](#44-industries-and-modules). |
+| **Module** | A slice of the app (Cards, Encoders, Templates, Card Holders, Access Zones, Attendance, Audit Logs, National ID data) a company can be granted or denied. See [4.4](#44-industries-and-modules). |
 | **User** | A person who logs into the dashboard. Belongs to exactly one company (except `SUPER_ADMIN`). |
 | **Card holder** | The person a card is *for* — a guest, employee, or student. Not a login; just a record (name, department/room, employee/student ID, photo). |
 | **Card** | A physical RFID/NFC tag: a UID, a type (MIFARE Classic 1K, NTAG213, 125kHz Prox, etc.), a status, optionally assigned to a holder. |
@@ -140,6 +143,10 @@ without anyone's help:
    - **URL slug** — auto-filled from the name, lowercase/hyphenated,
      must be unique platform-wide
    - **Company contact email** (optional)
+   - **What kind of organization is this?** — University/School, Hotel,
+     Business/Office, e-Government (National ID), or General if none fit.
+     This sets which features you start with; see
+     [4.4](#44-industries-and-modules).
    - **Your full name, email, and password** — this becomes your personal
      login
 3. Submit. You're immediately signed in as that company's **`COMPANY_ADMIN`**
@@ -156,7 +163,10 @@ A `SUPER_ADMIN` (the platform operator) can also create a company directly
 from the **Companies** page and then create its first `COMPANY_ADMIN` user
 from the **Users** page. This is mainly useful for the platform operator
 onboarding a customer on their behalf, or for demo/seed data. Most
-businesses should just use self-registration.
+businesses should just use self-registration. The creation form includes
+the same industry picker as self-registration, and — unlike self-registered
+companies — a `SUPER_ADMIN` can fine-tune the exact module list afterward
+from the same page (see [4.4](#44-industries-and-modules)).
 
 ### 4.3 After you have a company
 
@@ -173,6 +183,44 @@ Once you're signed in as `COMPANY_ADMIN`, a sensible setup order is:
    named people (guests, employees, students) rather than just tracking
    raw inventory.
 6. Start registering and writing cards from **Live Encode**.
+
+### 4.4 Industries and modules
+
+Instead of every company seeing the entire application, a company can be
+scoped down to just the pieces relevant to its business — a hotel doesn't
+need to see "National ID data," and a government registrar's office
+probably doesn't need "Attendance."
+
+- **Industry** is a label (`University`, `Hotel`, `Business/Office`,
+  `e-Government — National ID`, or `General`) picked at registration, or set
+  later by a `SUPER_ADMIN`. Picking one seeds a starting **module** list;
+  it's a convenience default, not a hard rule.
+- **Modules** are the actual gate: Cards, Encoders (+ Live Encode),
+  Templates, Card Holders, Access Zones, Attendance, Audit Logs, and
+  National ID / citizen data. A company only sees nav links and can only
+  navigate to pages for modules it has enabled — both hiding the link *and*
+  blocking direct navigation to the URL, not just a UI nicety.
+- **A company with no modules explicitly set is unrestricted** — every
+  module is visible. This is deliberate: every company that existed before
+  this feature, and any new company registered without picking an industry
+  ("General"), behaves exactly as the whole app always has. Gating only
+  turns on once a `SUPER_ADMIN` (directly, or via an industry pick at
+  registration) gives a company a real module list.
+- University, Hotel, and Business/Office all start with the same full core
+  module set (Cards, Encoders, Templates, Card Holders, Access Zones,
+  Attendance, Audit Logs) — nothing about the existing feature set maps
+  cleanly to "exclude this for hotels" yet. **National ID / citizen data**
+  is the one module that isn't on by default: only the e-Government preset
+  includes it, since it's specific to that use case (see
+  [7.4](#74-national-id--government-id)).
+- A `SUPER_ADMIN` can change any company's industry and individual modules
+  from the **Companies** page (the gear icon on a company's card). Picking
+  an industry there fills in its defaults as a starting point; the
+  checkboxes underneath are what actually gets saved, so you can freely
+  add/remove individual modules regardless of industry. A `COMPANY_ADMIN`
+  can see their own company's industry and enabled modules (read-only) from
+  **Company Settings**, but can't change them — that's a platform-level
+  decision.
 
 ## 5. Roles and permissions
 
@@ -487,8 +535,12 @@ From **Profile**:
 ### 6.13 Company settings
 
 `COMPANY_ADMIN`s can update their company's name, contact details, address,
-and logo from **Company Settings**. `SUPER_ADMIN`s manage every company from
-the **Companies** page, including deactivating one without deleting its data.
+and logo from **Company Settings**, which also shows their company's
+industry and enabled modules (read-only — see
+[4.4](#44-industries-and-modules)). `SUPER_ADMIN`s manage every company from
+the **Companies** page, including deactivating one without deleting its
+data, and changing its industry/modules via the gear icon on each company's
+card.
 
 ### 6.14 MIFARE DESFire partitioning (applications & files)
 
@@ -663,9 +715,12 @@ pull a term's/shift's attendance history from.
 
 ### 7.4 National ID / government ID
 
-1. Register your agency as a company; invite verifying officers as
-   `MANAGER` (can view/generate keys) and enrollment clerks as `OPERATOR`
-   (can encode/read citizen data, cannot see raw key material).
+1. Register your agency as a company, picking **e-Government — National ID**
+   as the industry ([4.4](#44-industries-and-modules)) — this is what turns
+   on the National ID / citizen data module, which stays hidden for every
+   other industry. Invite verifying officers as `MANAGER` (can view/generate
+   keys) and enrollment clerks as `OPERATOR` (can encode/read citizen data,
+   cannot see raw key material).
 2. Create a MIFARE Classic template with an **encrypted citizen record**
    ([6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys)) —
    field names like `fullName`, `nationalId`, `dob`, and enough blocks

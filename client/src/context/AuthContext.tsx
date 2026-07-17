@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
 import { api, getAccessToken, getSessionToken, setSessionToken, setAccessToken, clearTokens } from "@/lib/api";
-import type { User } from "@/types";
+import type { CompanyIndustry, User } from "@/types";
 
 interface RegisterCompanyInput {
   companyName: string;
@@ -9,6 +9,7 @@ interface RegisterCompanyInput {
   fullName: string;
   email: string;
   password: string;
+  industry?: CompanyIndustry;
 }
 
 interface AuthContextValue {

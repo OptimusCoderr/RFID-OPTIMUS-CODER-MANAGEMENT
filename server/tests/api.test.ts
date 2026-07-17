@@ -517,4 +517,124 @@ describe("company + card lifecycle happy path", () => {
       expect(ack.ok).toBe(true);
     });
   });
+
+  describe("industry & module gating", () => {
+    it("self-registering with an industry seeds that industry's default modules, without CITIZEN_DATA", async () => {
+      const res = await request(app).post("/api/auth/register-company").send({
+        companyName: "Sunrise Boutique Hotel",
+        slug: "sunrise-boutique-hotel",
+        fullName: "Hotel Owner",
+        email: "owner@sunrise-hotel.example",
+        password: "HotelOwner123!",
+        industry: "HOTEL",
+      });
+      expect(res.status).toBe(201);
+
+      const token = await loginAs("owner@sunrise-hotel.example", "HotelOwner123!");
+      const meRes = await request(app).get("/api/auth/me").set("Authorization", `Bearer ${token}`);
+      expect(meRes.body.company.industry).toBe("HOTEL");
+      expect(meRes.body.company.enabledModules).toEqual(
+        expect.arrayContaining(["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS"])
+      );
+      expect(meRes.body.company.enabledModules).not.toContain("CITIZEN_DATA");
+    });
+
+    it("self-registering with the GOVERNMENT_ID industry includes CITIZEN_DATA", async () => {
+      const res = await request(app).post("/api/auth/register-company").send({
+        companyName: "National Registry Office",
+        slug: "national-registry-office",
+        fullName: "Registrar",
+        email: "registrar@nro.example",
+        password: "Registrar123!",
+        industry: "GOVERNMENT_ID",
+      });
+      expect(res.status).toBe(201);
+
+      const token = await loginAs("registrar@nro.example", "Registrar123!");
+      const meRes = await request(app).get("/api/auth/me").set("Authorization", `Bearer ${token}`);
+      expect(meRes.body.company.enabledModules).toContain("CITIZEN_DATA");
+    });
+
+    it("self-registering without an industry stays unrestricted (empty enabledModules)", async () => {
+      const res = await request(app).post("/api/auth/register-company").send({
+        companyName: "Generic Co",
+        slug: "generic-co",
+        fullName: "Generic Owner",
+        email: "owner@generic-co.example",
+        password: "GenericOwner123!",
+      });
+      expect(res.status).toBe(201);
+
+      const token = await loginAs("owner@generic-co.example", "GenericOwner123!");
+      const meRes = await request(app).get("/api/auth/me").set("Authorization", `Bearer ${token}`);
+      expect(meRes.body.company.industry).toBeNull();
+      expect(meRes.body.company.enabledModules).toEqual([]);
+    });
+
+    it("a SUPER_ADMIN creating a company with an industry gets that industry's defaults", async () => {
+      const res = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "State University", slug: "state-university", industry: "UNIVERSITY" });
+      expect(res.status).toBe(201);
+      expect(res.body.enabledModules).toEqual(
+        expect.arrayContaining(["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS"])
+      );
+      expect(res.body.enabledModules).not.toContain("CITIZEN_DATA");
+    });
+
+    it("an explicit enabledModules list overrides the industry's defaults", async () => {
+      const res = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Minimal Co", slug: "minimal-co", industry: "BUSINESS", enabledModules: ["CARDS"] });
+      expect(res.status).toBe(201);
+      expect(res.body.enabledModules).toEqual(["CARDS"]);
+    });
+
+    it("a COMPANY_ADMIN cannot grant their own company additional modules via update", async () => {
+      const companyRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Locked Down Co", slug: "locked-down-co", industry: "BUSINESS", enabledModules: ["CARDS"] });
+      const lockedCompanyId = companyRes.body.id;
+
+      await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({
+          email: "admin@locked-down-co.example",
+          password: "LockedAdmin123!",
+          fullName: "Locked Admin",
+          role: "COMPANY_ADMIN",
+          companyId: lockedCompanyId,
+        });
+      const lockedAdminToken = await loginAs("admin@locked-down-co.example", "LockedAdmin123!");
+
+      const res = await request(app)
+        .patch(`/api/companies/${lockedCompanyId}`)
+        .set("Authorization", `Bearer ${lockedAdminToken}`)
+        .send({ name: "Locked Down Co (renamed)", industry: "GOVERNMENT_ID", enabledModules: ["CITIZEN_DATA"] });
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe("Locked Down Co (renamed)"); // allowed field still applies
+      expect(res.body.industry).toBe("BUSINESS"); // gating fields silently ignored
+      expect(res.body.enabledModules).toEqual(["CARDS"]);
+    });
+
+    it("a SUPER_ADMIN can change a company's industry and modules directly", async () => {
+      const companyRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Growing Co", slug: "growing-co" });
+      const growingCompanyId = companyRes.body.id;
+      expect(companyRes.body.enabledModules).toEqual([]);
+
+      const res = await request(app)
+        .patch(`/api/companies/${growingCompanyId}`)
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ industry: "GOVERNMENT_ID" });
+      expect(res.status).toBe(200);
+      expect(res.body.enabledModules).toContain("CITIZEN_DATA");
+    });
+  });
 });

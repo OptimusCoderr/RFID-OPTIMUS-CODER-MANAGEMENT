@@ -7,6 +7,8 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Modal } from "@/components/ui/Modal";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
+import { useAuth } from "@/context/AuthContext";
+import { hasModule } from "@/lib/modules";
 import { CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
 import type {
   CardTemplate,
@@ -26,6 +28,8 @@ const isDesfire = (t: CardType) => t.startsWith("MIFARE_DESFIRE");
 const DESFIRE_FILE_TYPES: DesfireFileType[] = ["STANDARD_DATA", "BACKUP_DATA", "VALUE", "LINEAR_RECORD", "CYCLIC_RECORD"];
 
 export default function TemplatesPage() {
+  const { user } = useAuth();
+  const citizenDataEnabled = hasModule(user, "CITIZEN_DATA");
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [name, setName] = useState("");
@@ -129,7 +133,7 @@ export default function TemplatesPage() {
               <p className="mt-3 text-xs text-slate-400">{t.layout.sectors.length} configured sector(s)</p>
             )}
             {t.layout.pages && <p className="mt-3 text-xs text-slate-400">{t.layout.pages.length} page range(s)</p>}
-            {t.layout.citizenRecord && <CitizenRecordSummary record={t.layout.citizenRecord} />}
+            {citizenDataEnabled && t.layout.citizenRecord && <CitizenRecordSummary record={t.layout.citizenRecord} />}
             {t.layout.applications && (
               <p className="mt-3 text-xs text-slate-400">
                 {t.layout.applications.length} application(s),{" "}
@@ -167,7 +171,7 @@ export default function TemplatesPage() {
           {isMifareClassic(cardType) && (
             <SectorEditor sectors={sectors} setSectors={setSectors} />
           )}
-          {isMifareClassic(cardType) && (
+          {isMifareClassic(cardType) && citizenDataEnabled && (
             <CitizenRecordEditor fields={citizenFields} setFields={setCitizenFields} blocks={citizenBlocks} setBlocks={setCitizenBlocks} />
           )}
           {isPageBased(cardType) && <PageEditor pages={pages} setPages={setPages} />}
