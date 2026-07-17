@@ -400,6 +400,155 @@ describe("company + card lifecycle happy path", () => {
     });
   });
 
+  describe("attendance sessions: schedule + manual override", () => {
+    let sessionEncoderId: string;
+    let sessionCardId: string;
+
+    beforeAll(async () => {
+      const encoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Lecture Hall Encoder", type: "ACR122U" });
+      sessionEncoderId = encoderRes.body.id;
+
+      const holderRes = await request(app)
+        .post("/api/holders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ fullName: "Session Test Student" });
+
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04AA11BB22", cardType: "NTAG213" });
+      sessionCardId = cardRes.body.id;
+
+      await request(app)
+        .post(`/api/cards/${sessionCardId}/assign`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId: holderRes.body.id });
+    });
+
+    it("returns null for an encoder with no saved session (unrestricted)", async () => {
+      const res = await request(app)
+        .get(`/api/attendance-sessions/${sessionEncoderId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body).toBeNull();
+    });
+
+    it("accepts attendance taps against an encoder with no session row", async () => {
+      const res = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
+      expect(res.status).toBe(201);
+    });
+
+    it("rejects an operator-below role (VIEWER) from saving a schedule", async () => {
+      const viewerToken = await loginAs("viewer@integration-test-co.example", "ViewerOnly123!");
+      const res = await request(app)
+        .put(`/api/attendance-sessions/${sessionEncoderId}`)
+        .set("Authorization", `Bearer ${viewerToken}`)
+        .send({ daysOfWeek: [], startTime: "09:00", endTime: "10:00" });
+      expect(res.status).toBe(403);
+    });
+
+    it("saves a recurring schedule that is currently closed and blocks taps outside the window", async () => {
+      // Scheduled for a day-of-week other than today, so it's guaranteed
+      // closed right now regardless of when this suite runs.
+      const otherDay = (new Date().getDay() + 3) % 7;
+      const res = await request(app)
+        .put(`/api/attendance-sessions/${sessionEncoderId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ daysOfWeek: [otherDay], startTime: "09:00", endTime: "10:00", label: "CS101 Lecture" });
+      expect(res.status).toBe(200);
+      expect(res.body.state.isOpen).toBe(false);
+      expect(res.body.state.reason).toBe("scheduled_closed");
+      expect(res.body.state.nextBoundaryAt).not.toBeNull();
+
+      const tapRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
+      expect(tapRes.status).toBe(400);
+      expect(tapRes.body.error).toMatch(/not currently open/i);
+    });
+
+    it("Start now (FORCE_OPEN) opens attendance immediately, overriding the schedule", async () => {
+      const overrideRes = await request(app)
+        .patch(`/api/attendance-sessions/${sessionEncoderId}/override`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ manualOverride: "FORCE_OPEN" });
+      expect(overrideRes.status).toBe(200);
+      expect(overrideRes.body.state.isOpen).toBe(true);
+      expect(overrideRes.body.state.reason).toBe("manual_open");
+      expect(overrideRes.body.state.nextBoundaryAt).toBeNull();
+
+      const tapRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
+      expect(tapRes.status).toBe(201);
+    });
+
+    it("Stop now (FORCE_CLOSED) blocks attendance even during what would be an open window", async () => {
+      const overrideRes = await request(app)
+        .patch(`/api/attendance-sessions/${sessionEncoderId}/override`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ manualOverride: "FORCE_CLOSED" });
+      expect(overrideRes.status).toBe(200);
+      expect(overrideRes.body.state.isOpen).toBe(false);
+      expect(overrideRes.body.state.reason).toBe("manual_closed");
+
+      const tapRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
+      expect(tapRes.status).toBe(400);
+    });
+
+    it("Resume schedule (NONE) clears the override and reverts to the saved schedule's state", async () => {
+      const overrideRes = await request(app)
+        .patch(`/api/attendance-sessions/${sessionEncoderId}/override`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ manualOverride: "NONE" });
+      expect(overrideRes.status).toBe(200);
+      expect(overrideRes.body.state.reason).toBe("scheduled_closed"); // same fixed schedule from the earlier test
+
+      const tapRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
+      expect(tapRes.status).toBe(400);
+    });
+
+    it("lists sessions for the company with computed state included", async () => {
+      const res = await request(app).get("/api/attendance-sessions").set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res.status).toBe(200);
+      const entry = res.body.find((s: { encoderId: string }) => s.encoderId === sessionEncoderId);
+      expect(entry).toBeTruthy();
+      expect(entry.state).toBeDefined();
+    });
+
+    it("deleting the session makes the encoder unrestricted again", async () => {
+      const delRes = await request(app)
+        .delete(`/api/attendance-sessions/${sessionEncoderId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(delRes.status).toBe(204);
+
+      const getRes = await request(app)
+        .get(`/api/attendance-sessions/${sessionEncoderId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(getRes.body).toBeNull();
+
+      const tapRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
+      expect(tapRes.status).toBe(201);
+    });
+  });
+
   describe("hotel: time-limited encoder allocation", () => {
     let encoderAId: string;
     let encoderBId: string;

@@ -682,6 +682,32 @@ the audit log tracks system operations (registrations, blocks, encodes);
 attendance tracks physical presence over time and is the right place to
 pull a term's/shift's attendance history from.
 
+**Session schedule (like a university lecture timetable).** Each encoder can
+optionally have a recurring open/closed schedule, configured in the
+**Session schedule** panel next to the tap panel:
+
+1. Pick the **days of the week** and a **start/end time** (e.g. Mon/Wed/Fri,
+   09:00–10:00 for a lecture that meets three times a week), add an optional
+   **label**, and click **Save schedule**.
+2. Once saved, the encoder only accepts attendance taps while the schedule
+   says it's open — a badge shows **Open**/**Closed**, and a live countdown
+   ticks down to the next boundary (time until close while open, time until
+   the next open while closed). Taps outside the window are rejected with a
+   clear reason, same as a blocked/expired card.
+3. **Start now** / **Stop now** override the schedule immediately,
+   regardless of what time it is — useful for an unscheduled makeup session
+   or to cut attendance off early. The override holds until you click
+   **Resume schedule**, which clears it and goes back to following the
+   saved days/times.
+4. An encoder with **no saved schedule is unrestricted** — attendance works
+   at any time, exactly like before this feature existed. The schedule is
+   entirely opt-in, per encoder.
+
+Whether an encoder is currently open is always computed live from the
+saved schedule and override at the moment of the tap (or page render) —
+there's no background job flipping a stored flag, so a manual Start/Stop
+click and the countdown are both accurate to the second.
+
 ### 6.16 Visitors
 
 The **Visitors** page is a shortcut for the common "temporary badge" case —
@@ -692,18 +718,24 @@ visitor. There's no separate visitor data model — it's the same
 [Card](#2-core-concepts) you'd register anywhere else, just issued with an
 expiry set in the same step:
 
-1. Enter the card's **UID**, pick a **card type**, and optionally a
-   visitor name/purpose as the label.
-2. Pick how long the pass should last — **1 hour / 4 hours / 1 day / 1
+1. Enter the card's **UID** by hand, or **scan it from an online encoder** —
+   pick the encoder from the dropdown, click **Scan**, and tap the card;
+   the UID field fills in automatically (the same pattern used on the
+   [Cards](#63-registering-a-card) register form).
+2. Pick a **card type**, and optionally a visitor name/purpose as the
+   label.
+3. Pick how long the pass should last — **1 hour / 4 hours / 1 day / 1
    week**, or a specific date/time. This sets the card's `expiresAt`
    directly (the same field used by
    [card lifecycle expiry](#66-card-lifecycle-block-unblock-lost-retire)
    generally) — once it passes, the card stops working automatically; you
    don't have to remember to revoke it.
-3. The **Active & recent passes** list shows every card with an expiry set,
-   with a countdown and an **End now** button for ending a pass early
-   (equivalent to blocking the card).
-4. Need the pass to only work at one specific encoder (e.g. a hotel room
+4. The **Active & recent passes** list shows every card with an expiry set,
+   with a live-ticking countdown to expiry, an **Edit** button to change an
+   existing pass's duration without re-issuing it (pick a new preset or a
+   specific date/time — it replaces the current expiry), and an **End now**
+   button for ending a pass early (equivalent to blocking the card).
+5. Need the pass to only work at one specific encoder (e.g. a hotel room
    door)? Open the card from this list and add an
    [encoder restriction](#67-restricting-a-card-to-specific-encoders) —
    the two features compose: a card can have both a restricted encoder set

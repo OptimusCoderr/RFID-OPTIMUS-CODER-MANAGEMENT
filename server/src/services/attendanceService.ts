@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../utils/ApiError.js";
+import { computeSessionState } from "./attendanceSessionService.js";
 
 const ATTENDANCE_INCLUDE = {
   card: { select: { id: true, uid: true, label: true } },
@@ -34,6 +35,20 @@ export async function recordAttendance(params: {
   }
   if (!card.holderId) {
     throw ApiError.badRequest("This card isn't assigned to a card holder yet");
+  }
+
+  // An encoder with no saved session is unrestricted, same as every other
+  // opt-in restriction in this app (CardEncoderAllocation, CompanyModule).
+  // Checked live via computeSessionState, not a stored flag, so a manual
+  // Start/Stop click takes effect on the very next tap.
+  if (params.encoderId) {
+    const session = await prisma.attendanceSession.findUnique({ where: { encoderId: params.encoderId } });
+    if (session) {
+      const state = computeSessionState(session);
+      if (!state.isOpen) {
+        throw ApiError.badRequest("Attendance is not currently open for this encoder");
+      }
+    }
   }
 
   const zoneId = params.zoneId ?? null;
