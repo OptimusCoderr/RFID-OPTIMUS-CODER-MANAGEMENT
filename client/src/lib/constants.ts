@@ -64,6 +64,8 @@ export const MODULE_OPTIONS: { value: CompanyModule; label: string }[] = [
   { value: "ATTENDANCE", label: "Attendance" },
   { value: "LOGS", label: "Audit Logs" },
   { value: "CITIZEN_DATA", label: "National ID / citizen data" },
+  { value: "VISITORS", label: "Visitors" },
+  { value: "MAINTENANCE", label: "Maintenance" },
 ];
 
 export function formatEnum(value: string) {

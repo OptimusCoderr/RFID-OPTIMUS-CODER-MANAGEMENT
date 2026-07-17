@@ -17,6 +17,7 @@ import templateRoutes from "./routes/templateRoutes.js";
 import cardRoutes from "./routes/cardRoutes.js";
 import zoneRoutes from "./routes/zoneRoutes.js";
 import attendanceRoutes from "./routes/attendanceRoutes.js";
+import maintenanceRoutes from "./routes/maintenanceRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import logRoutes from "./routes/logRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
@@ -59,6 +60,7 @@ export function createApp() {
   app.use("/api/cards", cardRoutes);
   app.use("/api/zones", zoneRoutes);
   app.use("/api/attendance", attendanceRoutes);
+  app.use("/api/maintenance", maintenanceRoutes);
   app.use("/api/dashboard", dashboardRoutes);
   app.use("/api/logs", logRoutes);
   app.use("/api/notifications", notificationRoutes);

@@ -114,13 +114,24 @@ export function initWebsocket(httpServer: HttpServer): Server {
               where: { id: payload.cardId },
               include: { encoderAllocations: { select: { encoderId: true, expiresAt: true } } },
             });
+            const now = new Date();
+
+            // The card's own overall expiry (e.g. a Visitors quick-issue
+            // pass — see VisitorsPage) — distinct from an encoder
+            // allocation's expiry below. This is checked live rather than
+            // relying on the daily cron job that flips a lapsed card's
+            // status to EXPIRED: that job only runs once a day, far too
+            // coarse for an hours-long visitor pass.
+            if (card?.expiresAt && card.expiresAt <= now) {
+              throw new Error("This card has expired");
+            }
+
             // Any allocation row at all — expired or not — means this card is
             // meant to be restricted, not left open to every encoder. An
             // allocation that's expired (e.g. a hotel room key past
             // checkout) must revoke access, never silently fall back to
             // "unrestricted" just because its one valid row lapsed.
             if (card && card.encoderAllocations.length > 0) {
-              const now = new Date();
               const match = card.encoderAllocations.find((a) => a.encoderId === encoder.id);
               if (!match) throw new Error("This card is not allocated to this encoder");
               if (match.expiresAt && match.expiresAt <= now) {

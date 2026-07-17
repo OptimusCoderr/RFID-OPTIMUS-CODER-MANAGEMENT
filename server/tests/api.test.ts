@@ -671,5 +671,162 @@ describe("company + card lifecycle happy path", () => {
       expect(res.status).toBe(200);
       expect(res.body.enabledModules).toContain("CITIZEN_DATA");
     });
+
+    it("Hotel gets VISITORS by default, and Inventory/Business get MAINTENANCE", async () => {
+      const hotelRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Verify Hotel Defaults", slug: "verify-hotel-defaults", industry: "HOTEL" });
+      expect(hotelRes.body.enabledModules).toContain("VISITORS");
+      expect(hotelRes.body.enabledModules).not.toContain("MAINTENANCE");
+
+      const inventoryRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Verify Inventory Defaults", slug: "verify-inventory-defaults", industry: "INVENTORY" });
+      expect(inventoryRes.body.enabledModules).toContain("MAINTENANCE");
+      expect(inventoryRes.body.enabledModules).not.toContain("VISITORS");
+
+      const businessRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Verify Business Defaults", slug: "verify-business-defaults", industry: "BUSINESS" });
+      expect(businessRes.body.enabledModules).toContain("VISITORS");
+      expect(businessRes.body.enabledModules).toContain("MAINTENANCE");
+    });
+  });
+
+  describe("visitors: quick-issue expiring passes", () => {
+    it("registers a card with an expiry and lists it via the hasExpiry filter", async () => {
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      const res = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04915170A1", cardType: "NTAG213", label: "Guest pass", expiresAt });
+      expect(res.status).toBe(201);
+      expect(new Date(res.body.expiresAt).toISOString()).toBe(expiresAt);
+
+      const listRes = await request(app)
+        .get("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ hasExpiry: true, pageSize: 100 });
+      expect(listRes.body.data.some((c: { id: string }) => c.id === res.body.id)).toBe(true);
+
+      const withoutExpiryRes = await request(app)
+        .get("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ hasExpiry: false, pageSize: 100 });
+      expect(withoutExpiryRes.body.data.some((c: { id: string }) => c.id === res.body.id)).toBe(false);
+    });
+
+    it("rejects a live-encode command against a card whose own expiry has passed, without waiting for the daily cron job", async () => {
+      // A Visitors pass never leaves status UNASSIGNED (it's issued without
+      // a holder), so this exercises the fix for a real gap: the card's
+      // expiry used to only be enforced by flipping status to EXPIRED in a
+      // once-a-day cron job — far too coarse for an hours-long pass, and
+      // UNASSIGNED cards weren't even in that job's scope. Enforcement now
+      // happens live, directly off expiresAt, in the websocket handler.
+      const encoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Visitor Desk Encoder", type: "ACR122U" });
+      const encoderId = encoderRes.body.id;
+      await prisma.encoder.update({ where: { id: encoderId }, data: { status: "ONLINE" } });
+
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04915170D4", cardType: "NTAG213", label: "Lapsed guest pass" });
+      const cardId = cardRes.body.id;
+      expect(cardRes.body.status).toBe("UNASSIGNED");
+
+      await prisma.card.update({ where: { id: cardId }, data: { expiresAt: new Date(Date.now() - 60_000) } });
+
+      const socket = ioClient(`http://127.0.0.1:${env.port}/dashboard`, {
+        auth: { token: companyAdminToken },
+        forceNew: true,
+      });
+      await new Promise<void>((resolve, reject) => {
+        socket.on("connect", () => resolve());
+        socket.on("connect_error", reject);
+      });
+      const ack = await new Promise<{ ok: boolean; error?: string }>((resolve) =>
+        socket.emit("encoder:command", { encoderId, cardId, command: "READ" }, resolve)
+      );
+      socket.close();
+
+      expect(ack.ok).toBe(false);
+      expect(ack.error).toMatch(/expired/i);
+    });
+  });
+
+  describe("maintenance: asset service tickets", () => {
+    let itemCardId: string;
+
+    beforeAll(async () => {
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04915170B2", cardType: "NTAG213", label: "Projector #4" });
+      itemCardId = cardRes.body.id;
+    });
+
+    it("opens a ticket, defaulting to OPEN status", async () => {
+      const res = await request(app)
+        .post("/api/maintenance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: itemCardId, description: "Won't power on" });
+      expect(res.status).toBe(201);
+      expect(res.body.status).toBe("OPEN");
+      expect(res.body.resolvedAt).toBeNull();
+    });
+
+    it("rejects opening a ticket for a card outside the caller's company", async () => {
+      const otherCompanyRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Other Maintenance Co", slug: "other-maintenance-co" });
+      const otherCardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ uid: "04915170C3", cardType: "NTAG213", companyId: otherCompanyRes.body.id });
+
+      const res = await request(app)
+        .post("/api/maintenance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: otherCardRes.body.id, description: "Should not be allowed" });
+      expect(res.status).toBe(400);
+    });
+
+    it("moves a ticket through in-progress to resolved, setting resolvedAt", async () => {
+      const openRes = await request(app)
+        .post("/api/maintenance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: itemCardId, description: "Lens is cracked" });
+      const ticketId = openRes.body.id;
+
+      const inProgressRes = await request(app)
+        .patch(`/api/maintenance/${ticketId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ status: "IN_PROGRESS" });
+      expect(inProgressRes.body.status).toBe("IN_PROGRESS");
+      expect(inProgressRes.body.resolvedAt).toBeNull();
+
+      const resolvedRes = await request(app)
+        .patch(`/api/maintenance/${ticketId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ status: "RESOLVED" });
+      expect(resolvedRes.body.status).toBe("RESOLVED");
+      expect(resolvedRes.body.resolvedAt).not.toBeNull();
+    });
+
+    it("lists tickets filtered by status", async () => {
+      const res = await request(app)
+        .get("/api/maintenance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ status: "OPEN", pageSize: 100 });
+      expect(res.status).toBe(200);
+      expect(res.body.data.every((t: { status: string }) => t.status === "OPEN")).toBe(true);
+    });
   });
 });

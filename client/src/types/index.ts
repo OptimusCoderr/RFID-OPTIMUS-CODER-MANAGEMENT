@@ -10,7 +10,9 @@ export type CompanyModule =
   | "ZONES"
   | "ATTENDANCE"
   | "LOGS"
-  | "CITIZEN_DATA";
+  | "CITIZEN_DATA"
+  | "VISITORS"
+  | "MAINTENANCE";
 
 export type CardType =
   | "MIFARE_CLASSIC_1K"
@@ -278,6 +280,20 @@ export interface AttendanceRecord {
   encoder?: { id: string; name: string } | null;
   type: AttendanceType;
   recordedAt: string;
+}
+
+export type MaintenanceStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED";
+
+export interface MaintenanceRecord {
+  id: string;
+  companyId: string;
+  cardId: string;
+  card?: { id: string; uid: string; label?: string | null } | null;
+  description: string;
+  status: MaintenanceStatus;
+  notes?: string | null;
+  openedAt: string;
+  resolvedAt?: string | null;
 }
 
 export interface PaginatedResponse<T> {

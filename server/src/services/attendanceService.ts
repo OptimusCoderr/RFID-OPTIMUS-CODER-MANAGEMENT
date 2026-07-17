@@ -25,6 +25,13 @@ export async function recordAttendance(params: {
   if (card.status === "BLOCKED" || card.status === "LOST" || card.status === "RETIRED" || card.status === "EXPIRED") {
     throw ApiError.badRequest(`This card is ${card.status.toLowerCase()} and cannot be used for attendance`);
   }
+  // Checked directly rather than relying on the card's status having been
+  // flipped to EXPIRED by the daily cron job (src/jobs/expiringCardsJob.ts)
+  // — that job runs once a day, far too coarse for a short-lived Visitors
+  // pass to actually stop working when it says it will.
+  if (card.expiresAt && card.expiresAt <= new Date()) {
+    throw ApiError.badRequest("This card has expired");
+  }
   if (!card.holderId) {
     throw ApiError.badRequest("This card isn't assigned to a card holder yet");
   }

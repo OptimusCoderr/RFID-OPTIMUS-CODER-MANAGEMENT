@@ -18,6 +18,8 @@ import {
   Search,
   UserCircle,
   Settings,
+  UserPlus,
+  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -48,6 +50,8 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/live-encode", label: "Live Encode", icon: Radio, module: "ENCODERS" },
   { to: "/zones", label: "Access Zones", icon: ShieldCheck, module: "ZONES" },
   { to: "/attendance", label: "Attendance", icon: ClipboardCheck, module: "ATTENDANCE" },
+  { to: "/visitors", label: "Visitors", icon: UserPlus, module: "VISITORS" },
+  { to: "/maintenance", label: "Maintenance", icon: Wrench, module: "MAINTENANCE" },
   { to: "/logs", label: "Audit Logs", icon: ScrollText, module: "LOGS" },
 ];
 

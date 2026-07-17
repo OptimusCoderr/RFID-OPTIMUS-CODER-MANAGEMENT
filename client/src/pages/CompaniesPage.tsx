@@ -202,13 +202,15 @@ export default function CompaniesPage() {
 // Industry presets a company could start with — used here purely as a
 // one-click convenience to fill the checkboxes below; the checkboxes
 // themselves are the source of truth that actually gets saved.
+const CORE_MODULES: CompanyModule[] = ["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS"];
+
 const INDUSTRY_DEFAULT_MODULES: Record<CompanyIndustry, CompanyModule[]> = {
-  UNIVERSITY: ["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS"],
-  HOTEL: ["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS"],
-  BUSINESS: ["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS"],
-  GOVERNMENT_ID: ["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS", "CITIZEN_DATA"],
-  INVENTORY: ["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS"],
-  HEALTHCARE: ["CARDS", "ENCODERS", "TEMPLATES", "HOLDERS", "ZONES", "ATTENDANCE", "LOGS", "CITIZEN_DATA"],
+  UNIVERSITY: [...CORE_MODULES, "VISITORS"],
+  HOTEL: [...CORE_MODULES, "VISITORS"],
+  BUSINESS: [...CORE_MODULES, "VISITORS", "MAINTENANCE"],
+  GOVERNMENT_ID: [...CORE_MODULES, "CITIZEN_DATA", "VISITORS"],
+  INVENTORY: [...CORE_MODULES, "MAINTENANCE"],
+  HEALTHCARE: [...CORE_MODULES, "CITIZEN_DATA", "VISITORS"],
 };
 
 function ModuleEditModal({ company, onClose }: { company: Company | null; onClose: () => void }) {

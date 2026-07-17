@@ -28,6 +28,8 @@ const EncoderDetailPage = lazy(() => import("@/pages/EncoderDetailPage"));
 const LiveEncodePage = lazy(() => import("@/pages/LiveEncodePage"));
 const ZonesPage = lazy(() => import("@/pages/ZonesPage"));
 const AttendancePage = lazy(() => import("@/pages/AttendancePage"));
+const VisitorsPage = lazy(() => import("@/pages/VisitorsPage"));
+const MaintenancePage = lazy(() => import("@/pages/MaintenancePage"));
 const LogsPage = lazy(() => import("@/pages/LogsPage"));
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 const CompanySettingsPage = lazy(() => import("@/pages/CompanySettingsPage"));
@@ -73,6 +75,12 @@ export default function App() {
             </Route>
             <Route element={<ProtectedRoute module="ATTENDANCE" />}>
               <Route path="/attendance" element={<AttendancePage />} />
+            </Route>
+            <Route element={<ProtectedRoute module="VISITORS" />}>
+              <Route path="/visitors" element={<VisitorsPage />} />
+            </Route>
+            <Route element={<ProtectedRoute module="MAINTENANCE" />}>
+              <Route path="/maintenance" element={<MaintenancePage />} />
             </Route>
             <Route element={<ProtectedRoute module="LOGS" />}>
               <Route path="/logs" element={<LogsPage />} />

@@ -27,11 +27,12 @@ const CARD_INCLUDE = {
 
 function buildCardWhere(req: Request): Prisma.CardWhereInput {
   const companyId = scopedCompanyId(req);
-  const { status, cardType, holderId, search } = req.query as unknown as {
+  const { status, cardType, holderId, search, hasExpiry } = req.query as unknown as {
     status?: string;
     cardType?: string;
     holderId?: string;
     search?: string;
+    hasExpiry?: boolean;
   };
 
   return {
@@ -39,6 +40,9 @@ function buildCardWhere(req: Request): Prisma.CardWhereInput {
     ...(status ? { status: status as any } : {}),
     ...(cardType ? { cardType: cardType as any } : {}),
     ...(holderId ? { holderId } : {}),
+    // Used by the Visitors page to list only auto-expiring passes, not the
+    // whole company's card inventory.
+    ...(hasExpiry !== undefined ? { expiresAt: hasExpiry ? { not: null } : null } : {}),
     ...(search
       ? {
           OR: [
@@ -249,7 +253,7 @@ export const registerCard = asyncHandler(async (req: Request, res: Response) => 
   const companyId = req.user!.role === "SUPER_ADMIN" ? req.body.companyId : req.user!.companyId;
   if (!companyId) throw ApiError.badRequest("companyId is required");
 
-  const { uid, cardType, label, notes, templateId, registeredByEncoderId, keys } = req.body;
+  const { uid, cardType, label, notes, templateId, registeredByEncoderId, keys, expiresAt } = req.body;
 
   if (templateId) {
     const template = await prisma.cardTemplate.findUnique({ where: { id: templateId } });
@@ -272,6 +276,7 @@ export const registerCard = asyncHandler(async (req: Request, res: Response) => 
       registeredByEncoderId,
       status: "UNASSIGNED",
       issuedAt: new Date(),
+      expiresAt,
       keysEncrypted: keys ? encryptSecret(JSON.stringify(keys)) : undefined,
     },
     include: CARD_INCLUDE,
