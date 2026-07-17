@@ -854,4 +854,132 @@ describe("company + card lifecycle happy path", () => {
       expect(after.body.openMaintenanceTickets).toBe(before.body.openMaintenanceTickets + 1);
     });
   });
+
+  describe("user management: edit, delete, disable/reactivate", () => {
+    let targetUserId: string;
+
+    it("lets a COMPANY_ADMIN create a user without explicitly specifying companyId", async () => {
+      // The client's "New user" form never sends companyId for a
+      // COMPANY_ADMIN caller (the field only renders for SUPER_ADMIN) —
+      // it should fall back to the caller's own company rather than
+      // rejecting the request.
+      const res = await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          email: "no-explicit-company@integration-test-co.example",
+          password: "NoExplicitCompany123!",
+          fullName: "No Explicit Company",
+          role: "VIEWER",
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.companyId).toBe(companyId);
+    });
+
+    beforeAll(async () => {
+      const res = await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          email: "editable-user@integration-test-co.example",
+          password: "EditableUser123!",
+          fullName: "Editable User",
+          role: "OPERATOR",
+          companyId,
+        });
+      targetUserId = res.body.id;
+    });
+
+    it("lets a COMPANY_ADMIN edit a user's name and role", async () => {
+      const res = await request(app)
+        .patch(`/api/users/${targetUserId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ fullName: "Renamed User", role: "MANAGER" });
+      expect(res.status).toBe(200);
+      expect(res.body.fullName).toBe("Renamed User");
+      expect(res.body.role).toBe("MANAGER");
+    });
+
+    it("lets an admin reset another user's password", async () => {
+      const res = await request(app)
+        .patch(`/api/users/${targetUserId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ password: "BrandNewPassword123!" });
+      expect(res.status).toBe(200);
+
+      const loginRes = await request(app)
+        .post("/api/auth/sign-in/email")
+        .send({ email: "editable-user@integration-test-co.example", password: "BrandNewPassword123!" });
+      expect(loginRes.status).toBe(200);
+    });
+
+    it("prevents a COMPANY_ADMIN from escalating a user's role to SUPER_ADMIN", async () => {
+      const res = await request(app)
+        .patch(`/api/users/${targetUserId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ role: "SUPER_ADMIN" });
+      expect(res.status).toBe(403);
+
+      const check = await request(app).get(`/api/users/${targetUserId}`).set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(check.body.role).not.toBe("SUPER_ADMIN");
+    });
+
+    it("lets a SUPER_ADMIN promote a user to SUPER_ADMIN", async () => {
+      const res = await request(app)
+        .patch(`/api/users/${targetUserId}`)
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ role: "SUPER_ADMIN" });
+      expect(res.status).toBe(200);
+      expect(res.body.role).toBe("SUPER_ADMIN");
+
+      // Revert so later tests in this describe block still see a
+      // company-scoped user.
+      await request(app)
+        .patch(`/api/users/${targetUserId}`)
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ role: "OPERATOR" });
+    });
+
+    it("disabling and reactivating a user toggles isActive", async () => {
+      const disableRes = await request(app)
+        .patch(`/api/users/${targetUserId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ isActive: false });
+      expect(disableRes.body.isActive).toBe(false);
+
+      const reactivateRes = await request(app)
+        .patch(`/api/users/${targetUserId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ isActive: true });
+      expect(reactivateRes.body.isActive).toBe(true);
+    });
+
+    it("prevents a user from deleting their own account", async () => {
+      // DELETE /users/:id is role-gated to SUPER_ADMIN/COMPANY_ADMIN, so the
+      // self-delete attempt has to come from one of those roles to actually
+      // reach the self-delete check rather than being blocked earlier.
+      const res = await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          email: "self-delete-check@integration-test-co.example",
+          password: "SelfDeleteCheck123!",
+          fullName: "Self Delete Check",
+          role: "COMPANY_ADMIN",
+          companyId,
+        });
+      const selfToken = await loginAs("self-delete-check@integration-test-co.example", "SelfDeleteCheck123!");
+
+      const selfDeleteRes = await request(app).delete(`/api/users/${res.body.id}`).set("Authorization", `Bearer ${selfToken}`);
+      expect(selfDeleteRes.status).toBe(400);
+    });
+
+    it("lets a COMPANY_ADMIN delete another user in their company", async () => {
+      const res = await request(app).delete(`/api/users/${targetUserId}`).set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res.status).toBe(204);
+
+      const check = await request(app).get(`/api/users/${targetUserId}`).set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(check.status).toBe(404);
+    });
+  });
 });

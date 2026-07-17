@@ -286,9 +286,25 @@ you're `SUPER_ADMIN`).
    (`COMPANY_ADMIN`, `MANAGER`, `OPERATOR`, or `VIEWER`).
 3. They can sign in immediately with that email/password, or you can send
    them to `/forgot-password` to set their own.
-4. Deactivate (rather than delete) a user who leaves — this immediately
-   revokes their access without losing the audit trail of actions they
-   performed while employed.
+4. **Edit** (pencil icon) — update a user's name, role, or reset their
+   password on their behalf (they don't need to know the old one — this is
+   different from the self-service password change on the Profile page).
+   Email can't be changed here; it's their sign-in identity.
+5. **Disable / Reactivate** (the ban/checkmark icon) — disabling
+   immediately revokes access without losing the audit trail of actions
+   they performed while employed; reactivating restores it. Prefer this
+   over deleting for anyone who might come back, or whose past actions
+   (registrations, blocks, encodes) you want to keep attributed to a real
+   person in the [audit log](#611-dashboard-and-audit-logs).
+6. **Delete** (trash icon) — permanently removes the account. Use this for
+   accounts created by mistake or that never need an audit trail kept;
+   otherwise prefer disabling.
+
+You can't edit, disable, or delete your own account from this page — that
+prevents accidentally locking yourself out. Update your own name/password
+from [Profile](#612-your-profile-and-active-sessions) instead. A
+`COMPANY_ADMIN` also can't promote anyone to `SUPER_ADMIN` (platform-wide
+access) — only a `SUPER_ADMIN` can grant that role.
 
 ### 6.2 Card holders
 

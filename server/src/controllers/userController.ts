@@ -43,7 +43,15 @@ export const createUser = asyncHandler(async (req: Request, res: Response) => {
     if (role === "SUPER_ADMIN") throw ApiError.forbidden("Cannot grant super admin role");
     if (companyId && companyId !== req.user!.companyId) throw ApiError.forbidden();
   }
-  if (role !== "SUPER_ADMIN" && !companyId && req.user!.role !== "SUPER_ADMIN") {
+  // The insert below falls back to the caller's own companyId when none is
+  // given in the body — that only leaves a real gap when the caller has no
+  // company of their own to fall back to, i.e. a SUPER_ADMIN creating a
+  // non-SUPER_ADMIN user without saying which company it belongs to. This
+  // used to also reject every COMPANY_ADMIN-created user (their own New
+  // User form never sends companyId at all), even though the insert would
+  // have resolved it correctly — company admins could never actually use
+  // the "New user" button.
+  if (role !== "SUPER_ADMIN" && !companyId && !req.user!.companyId) {
     throw ApiError.badRequest("companyId is required for non-super-admin users");
   }
 
@@ -73,6 +81,12 @@ export const updateUser = asyncHandler(async (req: Request, res: Response) => {
   else if (req.user!.role !== "SUPER_ADMIN") throw ApiError.forbidden();
 
   const { password, ...data } = req.body;
+  // Mirrors createUser's equivalent check — without it, a COMPANY_ADMIN
+  // could PATCH any user in their own company to SUPER_ADMIN and grant
+  // them (or themselves) platform-wide access.
+  if (data.role === "SUPER_ADMIN" && req.user!.role !== "SUPER_ADMIN") {
+    throw ApiError.forbidden("Cannot grant super admin role");
+  }
   const user = await prisma.user.update({ where: { id: req.params.id }, data, select: SAFE_SELECT });
 
   // An admin resetting someone else's password — unlike the self-service
@@ -92,6 +106,7 @@ export const deleteUser = asyncHandler(async (req: Request, res: Response) => {
   if (!target) throw ApiError.notFound("User not found");
   if (target.companyId) assertCompanyAccess(req, target.companyId);
   else if (req.user!.role !== "SUPER_ADMIN") throw ApiError.forbidden();
+  if (target.id === req.user!.id) throw ApiError.badRequest("You cannot delete your own account");
 
   await prisma.user.delete({ where: { id: req.params.id } });
   res.status(204).send();

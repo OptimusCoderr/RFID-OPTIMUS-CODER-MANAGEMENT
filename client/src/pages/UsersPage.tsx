@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Ban, CheckCircle2 } from "lucide-react";
+import { Plus, Ban, CheckCircle2, Pencil, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -22,11 +22,19 @@ interface UserFormState {
 
 const EMPTY_FORM: UserFormState = { email: "", password: "", fullName: "", role: "OPERATOR", companyId: "" };
 
+interface EditFormState {
+  fullName: string;
+  role: Role;
+  password: string;
+}
+
 export default function UsersPage() {
   const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<UserFormState>(EMPTY_FORM);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editForm, setEditForm] = useState<EditFormState>({ fullName: "", role: "OPERATOR", password: "" });
 
   const { data: users, isLoading } = useQuery({
     queryKey: ["users"],
@@ -62,9 +70,47 @@ export default function UsersPage() {
     onError: (err) => toast.error(apiErrorMessage(err)),
   });
 
+  const updateUser = useMutation({
+    mutationFn: async (payload: EditFormState) => {
+      if (!editingUser) return;
+      return (
+        await api.patch(`/users/${editingUser.id}`, {
+          fullName: payload.fullName,
+          role: payload.role,
+          password: payload.password || undefined,
+        })
+      ).data;
+    },
+    onSuccess: () => {
+      toast.success("User updated");
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      setEditingUser(null);
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not update user")),
+  });
+
+  const deleteUser = useMutation({
+    mutationFn: async (id: string) => api.delete(`/users/${id}`),
+    onSuccess: () => {
+      toast.success("User deleted");
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not delete user")),
+  });
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     createUser.mutate(form);
+  }
+
+  function openEdit(u: User) {
+    setEditingUser(u);
+    setEditForm({ fullName: u.fullName, role: u.role, password: "" });
+  }
+
+  function handleEditSubmit(e: FormEvent) {
+    e.preventDefault();
+    updateUser.mutate(editForm);
   }
 
   if (isLoading) return <FullPageSpinner />;
@@ -105,13 +151,31 @@ export default function UsersPage() {
                 </td>
                 <td className="px-4 py-3 text-right">
                   {u.id !== currentUser?.id && (
-                    <button
-                      className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                      onClick={() => toggleActive.mutate(u)}
-                      title={u.isActive ? "Disable user" : "Enable user"}
-                    >
-                      {u.isActive ? <Ban size={16} /> : <CheckCircle2 size={16} />}
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                        onClick={() => openEdit(u)}
+                        title="Edit user"
+                      >
+                        <Pencil size={16} />
+                      </button>
+                      <button
+                        className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                        onClick={() => toggleActive.mutate(u)}
+                        title={u.isActive ? "Disable user" : "Reactivate user"}
+                      >
+                        {u.isActive ? <Ban size={16} /> : <CheckCircle2 size={16} />}
+                      </button>
+                      <button
+                        className="text-slate-400 hover:text-red-600"
+                        onClick={() => {
+                          if (confirm(`Delete ${u.fullName}? This cannot be undone.`)) deleteUser.mutate(u.id);
+                        }}
+                        title="Delete user"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   )}
                 </td>
               </tr>
@@ -168,6 +232,52 @@ export default function UsersPage() {
           )}
           <button type="submit" className="btn-primary w-full" disabled={createUser.isPending}>
             Create user
+          </button>
+        </form>
+      </Modal>
+
+      <Modal open={editingUser !== null} onClose={() => setEditingUser(null)} title={`Edit ${editingUser?.fullName ?? "user"}`}>
+        <form onSubmit={handleEditSubmit} className="space-y-4">
+          <div>
+            <label className="label">Full name</label>
+            <input
+              className="input"
+              required
+              value={editForm.fullName}
+              onChange={(e) => setEditForm((f) => ({ ...f, fullName: e.target.value }))}
+            />
+          </div>
+          <div>
+            <label className="label">Email</label>
+            <input className="input" disabled value={editingUser?.email ?? ""} title="Email can't be changed — it's the sign-in identity" />
+          </div>
+          <div>
+            <label className="label">Role</label>
+            <select
+              className="input"
+              value={editForm.role}
+              onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value as Role }))}
+            >
+              {ROLE_OPTIONS.filter((r) => currentUser?.role === "SUPER_ADMIN" || r !== "SUPER_ADMIN").map((r) => (
+                <option key={r} value={r}>
+                  {r.replace("_", " ")}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">New password (optional)</label>
+            <input
+              type="password"
+              className="input"
+              minLength={8}
+              placeholder="Leave blank to keep their current password"
+              value={editForm.password}
+              onChange={(e) => setEditForm((f) => ({ ...f, password: e.target.value }))}
+            />
+          </div>
+          <button type="submit" className="btn-primary w-full" disabled={updateUser.isPending}>
+            Save changes
           </button>
         </form>
       </Modal>
