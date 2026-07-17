@@ -163,6 +163,17 @@ export interface DesfireApplicationLayout {
   files: DesfireFileLayout[];
 }
 
+// A named set of MIFARE Classic blocks (any sectors, in write order) that
+// together hold one AES-256-GCM encrypted record — e.g. a national ID
+// card's name/ID number/date of birth. Distinct from `sectors[].blocks[]`
+// (plain, independently readable text per block): these bytes are opaque
+// ciphertext on the card, decrypted only via the server (the encryption
+// key never reaches the browser) — see CitizenDataPanel.
+export interface CitizenRecordLayout {
+  fields: string[];
+  blocks: { sector: number; block: number }[];
+}
+
 export interface CardTemplateLayout {
   sectors?: MifareSectorLayout[];
   pages?: NtagPageLayout[];
@@ -171,6 +182,7 @@ export interface CardTemplateLayout {
   // MAC/Encrypted communication modes and legacy DES/3DES keys aren't
   // supported by this platform's live-encode flow.
   applications?: DesfireApplicationLayout[];
+  citizenRecord?: CitizenRecordLayout;
   ndef?: boolean;
   notes?: string;
 }
@@ -233,6 +245,23 @@ export interface OperationLog {
   details?: unknown;
   errorMessage?: string | null;
   performedAt: string;
+}
+
+export type AttendanceType = "CHECK_IN" | "CHECK_OUT";
+
+export interface AttendanceRecord {
+  id: string;
+  companyId: string;
+  cardId: string;
+  card?: { id: string; uid: string; label?: string | null } | null;
+  holderId?: string | null;
+  holder?: { id: string; fullName: string; department?: string | null; employeeId?: string | null } | null;
+  zoneId?: string | null;
+  zone?: { id: string; name: string } | null;
+  encoderId?: string | null;
+  encoder?: { id: string; name: string } | null;
+  type: AttendanceType;
+  recordedAt: string;
 }
 
 export interface PaginatedResponse<T> {

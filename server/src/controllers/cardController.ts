@@ -4,7 +4,15 @@ import { prisma } from "../lib/prisma.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { assertCompanyAccess, scopedCompanyId } from "../middleware/rbac.js";
-import { encryptSecret, decryptSecret, generateMifareKey } from "../utils/crypto.js";
+import {
+  encryptSecret,
+  decryptSecret,
+  generateMifareKey,
+  generateDataKey,
+  encryptForCard,
+  decryptForCard,
+  citizenRecordCapacityBytes,
+} from "../utils/crypto.js";
 import { logOperation } from "../services/operationLogService.js";
 import { notifyCompanyAdmins } from "../services/notificationService.js";
 import { toCsv } from "../utils/csv.js";
@@ -104,6 +112,11 @@ export const generateCardKeys = asyncHandler(async (req: Request, res: Response)
     keys[`${sector}A`] = generateMifareKey();
     keys[`${sector}B`] = generateMifareKey();
   }
+  // Also (re)generate the card's data-encryption key — used by
+  // prepareCitizenWrite/decodeCitizenRead below for any template that
+  // configures an encrypted citizen record. Harmless to have even if the
+  // card's template doesn't use one.
+  keys.dataKey = generateDataKey();
 
   await prisma.card.update({ where: { id: card.id }, data: { keysEncrypted: encryptSecret(JSON.stringify(keys)) } });
 
@@ -120,11 +133,130 @@ export const generateCardKeys = asyncHandler(async (req: Request, res: Response)
   res.json({ keys });
 });
 
+interface CitizenRecordLayout {
+  fields: string[];
+  blocks: { sector: number; block: number }[];
+}
+
+function getCitizenRecord(template: { layout: unknown } | null): CitizenRecordLayout {
+  const record = (template?.layout as any)?.citizenRecord as CitizenRecordLayout | undefined;
+  if (!record) throw ApiError.badRequest("This card's template has no encrypted citizen record configured");
+  return record;
+}
+
+function getDataKey(card: { keysEncrypted: string | null }): string {
+  if (!card.keysEncrypted) throw ApiError.badRequest("Generate this card's keys before writing citizen data");
+  const keys = JSON.parse(decryptSecret(card.keysEncrypted)) as Record<string, string>;
+  if (!keys.dataKey) throw ApiError.badRequest("This card has no data encryption key — regenerate its keys");
+  return keys.dataKey;
+}
+
+// Encrypts the given field values into one AES-256-GCM blob sized to exactly
+// fill the template's configured blocks, then hands back only opaque
+// per-block ciphertext — the data key itself never reaches the client, only
+// the sector auth keys already exposed by getCardKeys (a deliberately
+// smaller trust boundary: a browser needs the auth key to *access* a block,
+// but never needs the data key to *understand* what's on it).
+export const prepareCitizenWrite = asyncHandler(async (req: Request, res: Response) => {
+  const card = await prisma.card.findUnique({ where: { id: req.params.id }, include: { template: true } });
+  if (!card) throw ApiError.notFound("Card not found");
+  assertCompanyAccess(req, card.companyId);
+
+  const record = getCitizenRecord(card.template);
+  const dataKey = getDataKey(card);
+
+  const fields: Record<string, string> = {};
+  for (const name of record.fields) fields[name] = String(req.body.fields?.[name] ?? "");
+
+  const capacity = citizenRecordCapacityBytes(record.blocks.length);
+  const plaintext = Buffer.from(JSON.stringify(fields), "utf8");
+  if (plaintext.length > capacity) {
+    throw ApiError.badRequest(
+      `Citizen data is too large for this card (${plaintext.length} bytes, ${capacity} available) — shorten the values or add more blocks to the template`
+    );
+  }
+  const padded = Buffer.concat([plaintext, Buffer.alloc(capacity - plaintext.length)]);
+  const blob = encryptForCard(padded, dataKey);
+
+  const blocks = record.blocks.map((b, i) => ({
+    sector: b.sector,
+    block: b.block,
+    dataHex: blob.subarray(i * 16, (i + 1) * 16).toString("hex"),
+  }));
+
+  await logOperation({
+    companyId: card.companyId,
+    cardId: card.id,
+    userId: req.user!.id,
+    operationType: "WRITE",
+    status: "SUCCESS",
+    details: { action: "prepare_citizen_write", fields: record.fields },
+  });
+
+  res.json({ blocks });
+});
+
+// Reverses prepareCitizenWrite: given the raw hex actually read back off the
+// card's configured blocks, reassembles and decrypts the blob server-side
+// and returns the plain field values.
+export const decodeCitizenRead = asyncHandler(async (req: Request, res: Response) => {
+  const card = await prisma.card.findUnique({ where: { id: req.params.id }, include: { template: true } });
+  if (!card) throw ApiError.notFound("Card not found");
+  assertCompanyAccess(req, card.companyId);
+
+  const record = getCitizenRecord(card.template);
+  const dataKey = getDataKey(card);
+
+  const provided = req.body.blocks as { block: number; dataHex: string }[];
+  const byBlock = new Map(provided.map((b) => [b.block, b.dataHex]));
+  const chunks: Buffer[] = [];
+  for (const b of record.blocks) {
+    const hex = byBlock.get(b.block);
+    if (!hex) throw ApiError.badRequest(`Missing block ${b.block} in the submitted read data`);
+    chunks.push(Buffer.from(hex, "hex"));
+  }
+  const blob = Buffer.concat(chunks);
+
+  let padded: Buffer;
+  try {
+    padded = decryptForCard(blob, dataKey);
+  } catch {
+    throw ApiError.badRequest("Could not decrypt this card's data — it may be blank, corrupted, or written with a different key");
+  }
+
+  const nullIndex = padded.indexOf(0);
+  const plaintext = (nullIndex === -1 ? padded : padded.subarray(0, nullIndex)).toString("utf8");
+  let fields: Record<string, string>;
+  try {
+    fields = JSON.parse(plaintext);
+  } catch {
+    throw ApiError.badRequest("Decrypted data wasn't valid — this card may not have been written by this app");
+  }
+
+  await logOperation({
+    companyId: card.companyId,
+    cardId: card.id,
+    userId: req.user!.id,
+    operationType: "READ",
+    status: "SUCCESS",
+    details: { action: "decode_citizen_read" },
+  });
+
+  res.json({ fields });
+});
+
 export const registerCard = asyncHandler(async (req: Request, res: Response) => {
   const companyId = req.user!.role === "SUPER_ADMIN" ? req.body.companyId : req.user!.companyId;
   if (!companyId) throw ApiError.badRequest("companyId is required");
 
   const { uid, cardType, label, notes, templateId, registeredByEncoderId, keys } = req.body;
+
+  if (templateId) {
+    const template = await prisma.cardTemplate.findUnique({ where: { id: templateId } });
+    if (!template || template.companyId !== companyId) {
+      throw ApiError.badRequest("Template does not belong to this company");
+    }
+  }
 
   const existing = await prisma.card.findUnique({ where: { companyId_uid: { companyId, uid } } });
   if (existing) throw ApiError.conflict("A card with this UID is already registered for this company");
@@ -163,6 +295,13 @@ export const updateCard = asyncHandler(async (req: Request, res: Response) => {
   const existing = await prisma.card.findUnique({ where: { id: req.params.id } });
   if (!existing) throw ApiError.notFound("Card not found");
   assertCompanyAccess(req, existing.companyId);
+
+  if (req.body.templateId) {
+    const template = await prisma.cardTemplate.findUnique({ where: { id: req.body.templateId } });
+    if (!template || template.companyId !== existing.companyId) {
+      throw ApiError.badRequest("Template does not belong to this company");
+    }
+  }
 
   const { keys, ...rest } = req.body;
   const data: Prisma.CardUpdateInput = { ...rest };
@@ -324,9 +463,9 @@ export const bulkImportCards = asyncHandler(async (req: Request, res: Response) 
   if (!Array.isArray(rows) || rows.length === 0) throw ApiError.badRequest("rows must be a non-empty array");
   if (rows.length > MAX_BULK_IMPORT_ROWS) throw ApiError.badRequest(`A single import is limited to ${MAX_BULK_IMPORT_ROWS} rows`);
 
-  let created = 0;
-  let skipped = 0;
   const errors: { row: number; uid?: string; error: string }[] = [];
+  const candidates: { row: number; uid: string; cardType: string; label?: string; templateId?: string }[] = [];
+  const seenUids = new Set<string>();
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -339,35 +478,65 @@ export const bulkImportCards = asyncHandler(async (req: Request, res: Response) 
       errors.push({ row: i + 1, uid, error: "Missing cardType" });
       continue;
     }
+    if (seenUids.has(uid)) {
+      errors.push({ row: i + 1, uid, error: "Duplicate UID within this import" });
+      continue;
+    }
+    seenUids.add(uid);
+    candidates.push({ row: i + 1, uid, cardType: row.cardType, label: row.label, templateId: row.templateId });
+  }
 
-    try {
-      const existing = await prisma.card.findUnique({ where: { companyId_uid: { companyId, uid } } });
-      if (existing) {
-        skipped += 1;
-        continue;
-      }
-      const card = await prisma.card.create({
-        data: {
+  let created = 0;
+  let skipped = 0;
+
+  // Batched instead of one query per row — a full 500-row import used to
+  // mean up to ~1500 sequential round-trips (existence check + create + log
+  // per row); this brings it down to a handful of queries total.
+  if (candidates.length > 0) {
+    const existing = await prisma.card.findMany({
+      where: { companyId, uid: { in: candidates.map((c) => c.uid) } },
+      select: { uid: true },
+    });
+    const existingUids = new Set(existing.map((c) => c.uid));
+
+    // A templateId that doesn't belong to this company is dropped rather
+    // than failing the row — the card still gets created, just without a
+    // template, instead of a stray cross-tenant reference silently leaking
+    // another company's template name onto this card later.
+    const requestedTemplateIds = [...new Set(candidates.map((c) => c.templateId).filter((id): id is string => Boolean(id)))];
+    const validTemplates =
+      requestedTemplateIds.length > 0
+        ? await prisma.cardTemplate.findMany({ where: { id: { in: requestedTemplateIds }, companyId }, select: { id: true } })
+        : [];
+    const validTemplateIds = new Set(validTemplates.map((t) => t.id));
+
+    const toCreate = candidates.filter((c) => !existingUids.has(c.uid));
+    skipped = candidates.length - toCreate.length;
+
+    if (toCreate.length > 0) {
+      const createdCards = await prisma.card.createManyAndReturn({
+        data: toCreate.map((c) => ({
           companyId,
-          uid,
-          cardType: row.cardType as any,
-          label: row.label || undefined,
-          templateId: row.templateId || undefined,
+          uid: c.uid,
+          cardType: c.cardType as any,
+          label: c.label || undefined,
+          templateId: c.templateId && validTemplateIds.has(c.templateId) ? c.templateId : undefined,
           status: "UNASSIGNED",
           issuedAt: new Date(),
-        },
+        })),
       });
-      await logOperation({
-        companyId,
-        cardId: card.id,
-        userId: req.user!.id,
-        operationType: "REGISTER",
-        status: "SUCCESS",
-        details: { uid, cardType: row.cardType, source: "bulk_import" },
+      created = createdCards.length;
+
+      await prisma.operationLog.createMany({
+        data: createdCards.map((card) => ({
+          companyId,
+          cardId: card.id,
+          userId: req.user!.id,
+          operationType: "REGISTER" as const,
+          status: "SUCCESS" as const,
+          details: { uid: card.uid, cardType: card.cardType, source: "bulk_import" },
+        })),
       });
-      created += 1;
-    } catch (err) {
-      errors.push({ row: i + 1, uid, error: err instanceof Error ? err.message : "Unknown error" });
     }
   }
 

@@ -8,7 +8,16 @@ import { Modal } from "@/components/ui/Modal";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
 import { CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
-import type { CardTemplate, CardType, DesfireApplicationLayout, DesfireFileLayout, DesfireFileType, MifareSectorLayout, NtagPageLayout } from "@/types";
+import type {
+  CardTemplate,
+  CardType,
+  CitizenRecordLayout,
+  DesfireApplicationLayout,
+  DesfireFileLayout,
+  DesfireFileType,
+  MifareSectorLayout,
+  NtagPageLayout,
+} from "@/types";
 
 const isMifareClassic = (t: CardType) => t.startsWith("MIFARE_CLASSIC");
 const isPageBased = (t: CardType) => t.startsWith("NTAG") || t.startsWith("MIFARE_ULTRALIGHT");
@@ -25,6 +34,8 @@ export default function TemplatesPage() {
   const [sectors, setSectors] = useState<MifareSectorLayout[]>([]);
   const [pages, setPages] = useState<NtagPageLayout[]>([]);
   const [applications, setApplications] = useState<DesfireApplicationLayout[]>([]);
+  const [citizenFields, setCitizenFields] = useState<string[]>([]);
+  const [citizenBlocks, setCitizenBlocks] = useState<{ sector: number; block: number }[]>([]);
   const [isDefault, setIsDefault] = useState(false);
 
   const { data: templates, isLoading } = useQuery({
@@ -44,6 +55,10 @@ export default function TemplatesPage() {
             sectors: isMifareClassic(cardType) ? sectors : undefined,
             pages: isPageBased(cardType) ? pages : undefined,
             applications: isDesfire(cardType) ? applications : undefined,
+            citizenRecord:
+              isMifareClassic(cardType) && citizenFields.length > 0 && citizenBlocks.length > 0
+                ? { fields: citizenFields, blocks: citizenBlocks }
+                : undefined,
           },
         })
       ).data,
@@ -72,6 +87,8 @@ export default function TemplatesPage() {
     setSectors([]);
     setPages([]);
     setApplications([]);
+    setCitizenFields([]);
+    setCitizenBlocks([]);
     setIsDefault(false);
   }
 
@@ -112,6 +129,7 @@ export default function TemplatesPage() {
               <p className="mt-3 text-xs text-slate-400">{t.layout.sectors.length} configured sector(s)</p>
             )}
             {t.layout.pages && <p className="mt-3 text-xs text-slate-400">{t.layout.pages.length} page range(s)</p>}
+            {t.layout.citizenRecord && <CitizenRecordSummary record={t.layout.citizenRecord} />}
             {t.layout.applications && (
               <p className="mt-3 text-xs text-slate-400">
                 {t.layout.applications.length} application(s),{" "}
@@ -149,6 +167,9 @@ export default function TemplatesPage() {
           {isMifareClassic(cardType) && (
             <SectorEditor sectors={sectors} setSectors={setSectors} />
           )}
+          {isMifareClassic(cardType) && (
+            <CitizenRecordEditor fields={citizenFields} setFields={setCitizenFields} blocks={citizenBlocks} setBlocks={setCitizenBlocks} />
+          )}
           {isPageBased(cardType) && <PageEditor pages={pages} setPages={setPages} />}
           {isDesfire(cardType) && <ApplicationEditor applications={applications} setApplications={setApplications} />}
 
@@ -163,6 +184,14 @@ export default function TemplatesPage() {
         </form>
       </Modal>
     </div>
+  );
+}
+
+function CitizenRecordSummary({ record }: { record: CitizenRecordLayout }) {
+  return (
+    <p className="mt-3 text-xs text-slate-400">
+      Encrypted record: {record.fields.join(", ")} ({record.blocks.length} block{record.blocks.length === 1 ? "" : "s"})
+    </p>
   );
 }
 
@@ -185,34 +214,186 @@ function SectorEditor({
           <Plus size={14} /> Add sector
         </button>
       </div>
-      <div className="space-y-2">
+      <div className="space-y-3">
         {sectors.map((s, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <input
-              type="number"
-              className="input w-20"
-              value={s.sector}
-              onChange={(e) => setSectors(sectors.map((row, idx) => (idx === i ? { ...row, sector: Number(e.target.value) } : row)))}
+          <div key={i} className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                className="input w-20"
+                title="Sector number"
+                value={s.sector}
+                onChange={(e) => setSectors(sectors.map((row, idx) => (idx === i ? { ...row, sector: Number(e.target.value) } : row)))}
+              />
+              <input
+                className="input font-mono"
+                placeholder="Key A (hex)"
+                value={s.keyA ?? ""}
+                onChange={(e) => setSectors(sectors.map((row, idx) => (idx === i ? { ...row, keyA: e.target.value } : row)))}
+              />
+              <input
+                className="input font-mono"
+                placeholder="Key B (hex, optional)"
+                value={s.keyB ?? ""}
+                onChange={(e) => setSectors(sectors.map((row, idx) => (idx === i ? { ...row, keyB: e.target.value } : row)))}
+              />
+              <button type="button" className="text-slate-400 hover:text-red-600" onClick={() => setSectors(sectors.filter((_, idx) => idx !== i))}>
+                <X size={16} />
+              </button>
+            </div>
+
+            <BlockEditor
+              blocks={s.blocks ?? []}
+              setBlocks={(blocks) => setSectors(sectors.map((row, idx) => (idx === i ? { ...row, blocks } : row)))}
             />
-            <input
-              className="input font-mono"
-              placeholder="Key A (hex)"
-              value={s.keyA ?? ""}
-              onChange={(e) => setSectors(sectors.map((row, idx) => (idx === i ? { ...row, keyA: e.target.value } : row)))}
-            />
-            <input
-              className="input font-mono"
-              placeholder="Key B (hex, optional)"
-              value={s.keyB ?? ""}
-              onChange={(e) => setSectors(sectors.map((row, idx) => (idx === i ? { ...row, keyB: e.target.value } : row)))}
-            />
-            <button type="button" className="text-slate-400 hover:text-red-600" onClick={() => setSectors(sectors.filter((_, idx) => idx !== i))}>
-              <X size={16} />
-            </button>
           </div>
         ))}
         {sectors.length === 0 && <p className="text-xs text-slate-400">No sectors configured — factory default keys will be assumed.</p>}
       </div>
+    </div>
+  );
+}
+
+// Labels specific data blocks within a sector (e.g. block 4 = "Full name") so
+// Live Encode's Card Data panel can show a plain-text field for it instead of
+// requiring raw hex. Block 3 of every 4-block sector is a key/access-bits
+// trailer — writing card data there would corrupt the sector's own keys.
+function BlockEditor({
+  blocks,
+  setBlocks,
+}: {
+  blocks: { block: number; purpose: string }[];
+  setBlocks: (b: { block: number; purpose: string }[]) => void;
+}) {
+  return (
+    <div className="mt-2 ml-2 space-y-1.5 border-l border-slate-100 pl-3 dark:border-slate-800">
+      {blocks.map((b, i) => (
+        <div key={i} className="flex items-center gap-2 text-sm">
+          <input
+            type="number"
+            className="input w-16"
+            title="Block number"
+            value={b.block}
+            onChange={(e) => setBlocks(blocks.map((row, idx) => (idx === i ? { ...row, block: Number(e.target.value) } : row)))}
+          />
+          <input
+            className="input flex-1"
+            placeholder="Purpose (e.g. Full name)"
+            value={b.purpose}
+            onChange={(e) => setBlocks(blocks.map((row, idx) => (idx === i ? { ...row, purpose: e.target.value } : row)))}
+          />
+          <button type="button" className="text-slate-400 hover:text-red-600" onClick={() => setBlocks(blocks.filter((_, idx) => idx !== i))}>
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+      <button type="button" className="btn-secondary" onClick={() => setBlocks([...blocks, { block: blocks.length, purpose: "" }])}>
+        <Plus size={12} /> Label a data block
+      </button>
+      {blocks.length === 0 && (
+        <p className="text-xs text-slate-400">
+          No labeled blocks yet — add one to let Live Encode read/write plain text here instead of raw hex.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Nonce + tag overhead the server reserves per encrypted record — see
+// CARD_RECORD_OVERHEAD_BYTES in server/src/utils/crypto.ts. Duplicated here
+// purely so the template editor can show a live capacity estimate; the
+// server is the actual source of truth and re-validates on write.
+const CITIZEN_RECORD_OVERHEAD_BYTES = 16;
+
+function CitizenRecordEditor({
+  fields,
+  setFields,
+  blocks,
+  setBlocks,
+}: {
+  fields: string[];
+  setFields: (f: string[]) => void;
+  blocks: { sector: number; block: number }[];
+  setBlocks: (b: { sector: number; block: number }[]) => void;
+}) {
+  const capacity = blocks.length * 16 - CITIZEN_RECORD_OVERHEAD_BYTES;
+
+  return (
+    <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+      <label className="label mb-1">Encrypted citizen record (optional)</label>
+      <p className="mb-3 text-xs text-slate-400">
+        For national ID / citizen-info use cases: the fields below are combined, AES-256-GCM encrypted, and split
+        across the blocks you list — the card only ever holds ciphertext, and the encryption key never leaves the
+        server. Independent from the plain labeled blocks above.
+      </p>
+
+      <div className="mb-3">
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-xs font-medium text-slate-500">Fields</span>
+          <button type="button" className="btn-secondary" onClick={() => setFields([...fields, ""])}>
+            <Plus size={12} /> Add field
+          </button>
+        </div>
+        <div className="space-y-1.5">
+          {fields.map((f, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input
+                className="input flex-1"
+                placeholder="e.g. Full name, National ID number, Date of birth"
+                value={f}
+                onChange={(e) => setFields(fields.map((row, idx) => (idx === i ? e.target.value : row)))}
+              />
+              <button type="button" className="text-slate-400 hover:text-red-600" onClick={() => setFields(fields.filter((_, idx) => idx !== i))}>
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+          {fields.length === 0 && <p className="text-xs text-slate-400">No fields yet.</p>}
+        </div>
+      </div>
+
+      <div>
+        <div className="mb-1 flex items-center justify-between">
+          <span className="text-xs font-medium text-slate-500">Blocks (sector + block, in write order)</span>
+          <button type="button" className="btn-secondary" onClick={() => setBlocks([...blocks, { sector: 0, block: blocks.length }])}>
+            <Plus size={12} /> Add block
+          </button>
+        </div>
+        <div className="space-y-1.5">
+          {blocks.map((b, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input
+                type="number"
+                className="input w-24"
+                title="Sector"
+                placeholder="Sector"
+                value={b.sector}
+                onChange={(e) => setBlocks(blocks.map((row, idx) => (idx === i ? { ...row, sector: Number(e.target.value) } : row)))}
+              />
+              <input
+                type="number"
+                className="input w-24"
+                title="Block"
+                placeholder="Block"
+                value={b.block}
+                onChange={(e) => setBlocks(blocks.map((row, idx) => (idx === i ? { ...row, block: Number(e.target.value) } : row)))}
+              />
+              <button type="button" className="text-slate-400 hover:text-red-600" onClick={() => setBlocks(blocks.filter((_, idx) => idx !== i))}>
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+          {blocks.length === 0 && <p className="text-xs text-slate-400">No blocks yet — each block adds 16 bytes of card capacity.</p>}
+        </div>
+      </div>
+
+      {blocks.length > 0 && (
+        <p className={`mt-2 text-xs ${capacity < 20 ? "text-amber-600" : "text-slate-400"}`}>
+          ~{Math.max(capacity, 0)} bytes usable for all fields combined (as compact JSON — keep values short; this
+          is real MIFARE Classic block capacity, not a soft limit). Avoid block 3, 7, 11... within a 4-block sector —
+          those are key trailers, and writing to them would corrupt the sector's own keys.
+        </p>
+      )}
     </div>
   );
 }

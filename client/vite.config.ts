@@ -14,4 +14,12 @@ export default defineConfig({
       "/socket.io": { target: "http://localhost:4000", ws: true, changeOrigin: true },
     },
   },
+  // Same proxy as the dev server — lets `vite preview` (checking the actual
+  // production build locally) talk to the API too, not just `vite dev`.
+  preview: {
+    proxy: {
+      "/api": { target: "http://localhost:4000", changeOrigin: true },
+      "/socket.io": { target: "http://localhost:4000", ws: true, changeOrigin: true },
+    },
+  },
 });

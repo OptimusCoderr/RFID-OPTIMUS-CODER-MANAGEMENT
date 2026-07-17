@@ -15,11 +15,11 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 enum Role {
-  SUPER_ADMIN   // platform owner, sees all companies
+  SUPER_ADMIN // platform owner, sees all companies
   COMPANY_ADMIN // full control within their own company
-  MANAGER       // manage cards/holders/encoders, no user management
-  OPERATOR      // day-to-day encode/scan operations
-  VIEWER        // read-only
+  MANAGER // manage cards/holders/encoders, no user management
+  OPERATOR // day-to-day encode/scan operations
+  VIEWER // read-only
 }
 
 enum CardType {
@@ -98,6 +98,11 @@ enum OperationType {
   LOGOUT
 }
 
+enum AttendanceType {
+  CHECK_IN
+  CHECK_OUT
+}
+
 enum OperationStatus {
   SUCCESS
   FAILED
@@ -119,25 +124,26 @@ enum NotificationType {
 // ---------------------------------------------------------------------------
 
 model Company {
-  id            String   @id @default(uuid())
-  name          String
-  slug          String   @unique
-  contactEmail  String?
-  contactPhone  String?
-  address       String?
-  logoUrl       String?
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(uuid())
+  name         String
+  slug         String   @unique
+  contactEmail String?
+  contactPhone String?
+  address      String?
+  logoUrl      String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  users         User[]
-  holders       CardHolder[]
-  encoders      Encoder[]
-  cards         Card[]
-  templates     CardTemplate[]
-  accessZones   AccessZone[]
-  operationLogs OperationLog[]
-  notifications Notification[]
+  users             User[]
+  holders           CardHolder[]
+  encoders          Encoder[]
+  cards             Card[]
+  templates         CardTemplate[]
+  accessZones       AccessZone[]
+  operationLogs     OperationLog[]
+  notifications     Notification[]
+  attendanceRecords AttendanceRecord[]
 
   @@map("companies")
 }
@@ -158,8 +164,8 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  companyId     String?
-  company       Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   operationLogs OperationLog[]
   notifications Notification[]
@@ -242,21 +248,22 @@ model Jwks {
 // ---------------------------------------------------------------------------
 
 model CardHolder {
-  id          String   @id @default(uuid())
-  companyId   String
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  fullName    String
-  email       String?
-  phone       String?
-  employeeId  String?
-  department  String?
-  photoUrl    String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  fullName   String
+  email      String?
+  phone      String?
+  employeeId String?
+  department String?
+  photoUrl   String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  cards       Card[]
+  cards             Card[]
+  attendanceRecords AttendanceRecord[]
 
   @@index([companyId])
   @@map("card_holders")
@@ -267,26 +274,27 @@ model CardHolder {
 // ---------------------------------------------------------------------------
 
 model Encoder {
-  id               String                @id @default(uuid())
-  companyId        String
-  company          Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  name             String
-  type             EncoderType
-  connectionType   EncoderConnectionType @default(USB)
-  serialNumber     String?
-  location         String?
-  firmwareVersion  String?
-  agentKey         String                @unique // key the local agent process authenticates with
-  status           EncoderStatus         @default(OFFLINE)
-  lastSeenAt       DateTime?
-  isActive         Boolean               @default(true)
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
+  name            String
+  type            EncoderType
+  connectionType  EncoderConnectionType @default(USB)
+  serialNumber    String?
+  location        String?
+  firmwareVersion String?
+  agentKey        String                @unique // key the local agent process authenticates with
+  status          EncoderStatus         @default(OFFLINE)
+  lastSeenAt      DateTime?
+  isActive        Boolean               @default(true)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
 
-  cardsRegistered  Card[]                @relation("RegisteredByEncoder")
-  operationLogs    OperationLog[]
-  cardAllocations  CardEncoderAllocation[]
+  cardsRegistered   Card[]                  @relation("RegisteredByEncoder")
+  operationLogs     OperationLog[]
+  cardAllocations   CardEncoderAllocation[]
+  attendanceRecords AttendanceRecord[]
 
   @@index([companyId])
   @@map("encoders")
@@ -297,22 +305,22 @@ model Encoder {
 // ---------------------------------------------------------------------------
 
 model CardTemplate {
-  id           String   @id @default(uuid())
-  companyId    String
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  name         String
-  cardType     CardType
-  description  String?
+  name        String
+  cardType    CardType
+  description String?
   // MIFARE Classic: per-sector Key A / Key B + access bits.
   // NTAG/Ultralight: page map (start page, page count, purpose).
   // Stored as JSON so the layout stays flexible per card family.
-  layout       Json
-  isDefault    Boolean  @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  layout      Json
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  cards        Card[]
+  cards Card[]
 
   @@index([companyId])
   @@map("card_templates")
@@ -323,41 +331,42 @@ model CardTemplate {
 // ---------------------------------------------------------------------------
 
 model Card {
-  id                String     @id @default(uuid())
-  companyId         String
-  company           Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  uid               String     // hex UID as read from the chip
-  cardType          CardType
-  status            CardStatus @default(UNASSIGNED)
-  label             String?
-  notes             String?
+  uid      String // hex UID as read from the chip
+  cardType CardType
+  status   CardStatus @default(UNASSIGNED)
+  label    String?
+  notes    String?
 
-  templateId        String?
-  template          CardTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  templateId String?
+  template   CardTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
-  holderId          String?
-  holder            CardHolder?   @relation(fields: [holderId], references: [id], onDelete: SetNull)
+  holderId String?
+  holder   CardHolder? @relation(fields: [holderId], references: [id], onDelete: SetNull)
 
   registeredByEncoderId String?
-  registeredByEncoder   Encoder?  @relation("RegisteredByEncoder", fields: [registeredByEncoderId], references: [id], onDelete: SetNull)
+  registeredByEncoder   Encoder? @relation("RegisteredByEncoder", fields: [registeredByEncoderId], references: [id], onDelete: SetNull)
 
   // Encrypted at the application layer (AES-256-GCM) before storage — never store raw keys.
-  keysEncrypted     String?
+  keysEncrypted String?
   // Last full memory dump (sectors/pages), non-sensitive, for quick inspection in the UI.
-  lastReadData      Json?
+  lastReadData  Json?
 
-  issuedAt          DateTime?
-  expiresAt         DateTime?
-  lastSeenAt        DateTime?
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  issuedAt   DateTime?
+  expiresAt  DateTime?
+  lastSeenAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
-  accessZones       CardAccessZone[]
-  operationLogs     OperationLog[]
+  accessZones        CardAccessZone[]
+  operationLogs      OperationLog[]
   // Encoders this card is allowed to be used with. Empty = unrestricted
   // (usable with any encoder in the company) — allocation is opt-in per card.
   encoderAllocations CardEncoderAllocation[]
+  attendanceRecords  AttendanceRecord[]
 
   @@unique([companyId, uid])
   @@index([companyId])
@@ -370,28 +379,29 @@ model Card {
 // ---------------------------------------------------------------------------
 
 model AccessZone {
-  id          String   @id @default(uuid())
-  companyId   String
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   name        String
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  cards       CardAccessZone[]
+  cards             CardAccessZone[]
+  attendanceRecords AttendanceRecord[]
 
   @@index([companyId])
   @@map("access_zones")
 }
 
 model CardAccessZone {
-  id          String     @id @default(uuid())
-  cardId      String
-  card        Card       @relation(fields: [cardId], references: [id], onDelete: Cascade)
-  zoneId      String
-  zone        AccessZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
-  grantedAt   DateTime   @default(now())
+  id        String     @id @default(uuid())
+  cardId    String
+  card      Card       @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  zoneId    String
+  zone      AccessZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  grantedAt DateTime   @default(now())
 
   @@unique([cardId, zoneId])
   @@map("card_access_zones")
@@ -415,22 +425,61 @@ model CardEncoderAllocation {
 }
 
 // ---------------------------------------------------------------------------
+// Attendance (check-in/check-out tap events, e.g. university lecture
+// attendance, workplace time tracking). A tap alternates CHECK_IN/CHECK_OUT
+// per holder, independently per zone — see attendanceService.ts.
+// ---------------------------------------------------------------------------
+
+model AttendanceRecord {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  cardId String
+  card   Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  // Denormalized from the card at record time — kept even if the card is
+  // later reassigned to a different holder, so history stays accurate.
+  holderId String?
+  holder   CardHolder? @relation(fields: [holderId], references: [id], onDelete: SetNull)
+
+  // Optional: which class/room/session this attendance is scoped to. Null
+  // means a general, company-wide check-in/out, tracked independently from
+  // any per-zone attendance for the same holder.
+  zoneId String?
+  zone   AccessZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+
+  encoderId String?
+  encoder   Encoder? @relation(fields: [encoderId], references: [id], onDelete: SetNull)
+
+  type       AttendanceType
+  recordedAt DateTime       @default(now())
+
+  @@index([companyId])
+  @@index([holderId])
+  @@index([cardId])
+  @@index([zoneId])
+  @@index([recordedAt])
+  @@map("attendance_records")
+}
+
+// ---------------------------------------------------------------------------
 // Audit trail
 // ---------------------------------------------------------------------------
 
 model OperationLog {
-  id            String          @id @default(uuid())
-  companyId     String
-  company       Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  cardId        String?
-  card          Card?           @relation(fields: [cardId], references: [id], onDelete: SetNull)
+  cardId String?
+  card   Card?   @relation(fields: [cardId], references: [id], onDelete: SetNull)
 
-  encoderId     String?
-  encoder       Encoder?        @relation(fields: [encoderId], references: [id], onDelete: SetNull)
+  encoderId String?
+  encoder   Encoder? @relation(fields: [encoderId], references: [id], onDelete: SetNull)
 
-  userId        String?
-  user          User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   operationType OperationType
   status        OperationStatus
@@ -449,12 +498,12 @@ model OperationLog {
 // ---------------------------------------------------------------------------
 
 model Notification {
-  id        String           @id @default(uuid())
+  id        String  @id @default(uuid())
   companyId String
-  company   Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  userId    String
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   type      NotificationType
   title     String

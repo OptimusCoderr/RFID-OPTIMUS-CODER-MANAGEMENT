@@ -3,7 +3,15 @@ import * as cardController from "../controllers/cardController.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/rbac.js";
 import { validate } from "../middleware/validate.js";
-import { registerCardBody, updateCardBody, assignCardBody, cardListQuery, cardEncodersBody } from "../validators/card.js";
+import {
+  registerCardBody,
+  updateCardBody,
+  assignCardBody,
+  cardListQuery,
+  cardEncodersBody,
+  prepareCitizenWriteBody,
+  decodeCitizenReadBody,
+} from "../validators/card.js";
 import { idParams } from "../validators/common.js";
 
 const router = Router();
@@ -22,6 +30,18 @@ router.post(
   requireRole(...MANAGER_UP),
   validate({ params: idParams }),
   cardController.generateCardKeys
+);
+router.post(
+  "/:id/citizen-data/prepare-write",
+  requireRole(...OPERATOR_UP),
+  validate({ params: idParams, body: prepareCitizenWriteBody }),
+  cardController.prepareCitizenWrite
+);
+router.post(
+  "/:id/citizen-data/decode-read",
+  requireRole(...OPERATOR_UP),
+  validate({ params: idParams, body: decodeCitizenReadBody }),
+  cardController.decodeCitizenRead
 );
 
 router.post("/", requireRole(...OPERATOR_UP), validate({ body: registerCardBody }), cardController.registerCard);

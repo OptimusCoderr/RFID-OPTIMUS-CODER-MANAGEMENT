@@ -50,10 +50,31 @@ const desfireApplicationSchema = z.object({
   files: z.array(desfireFileSchema).max(32).default([]),
 });
 
+// A named set of MIFARE Classic blocks (any sectors, in write order) that
+// together hold one AES-256-GCM encrypted record — e.g. a national ID
+// card's name/ID number/date of birth. Unlike `sectors[].blocks[].purpose`
+// (plain, independently readable per block), these bytes are opaque
+// ciphertext on the card; only this app can decrypt them (see
+// cardController.ts's prepareCitizenWrite/decodeCitizenRead), using a
+// per-card key that never leaves the server.
+const citizenRecordSchema = z
+  .object({
+    fields: z.array(z.string().min(1).max(60)).min(1).max(12),
+    blocks: z.array(z.object({ sector: z.number().int().min(0), block: z.number().int().min(0) })).min(1).max(16),
+  })
+  // A block number is a physical location — repeating one means the ciphertext
+  // chunk meant for it gets silently overwritten by whichever duplicate writes
+  // last, corrupting the whole encrypted record with no error at write time.
+  .refine(
+    (record) => new Set(record.blocks.map((b) => b.block)).size === record.blocks.length,
+    { message: "citizenRecord.blocks must not repeat the same block number", path: ["blocks"] }
+  );
+
 export const templateLayoutSchema = z.object({
   sectors: z.array(mifareSectorSchema).optional(),
   pages: z.array(ntagPageSchema).optional(),
   applications: z.array(desfireApplicationSchema).optional(),
+  citizenRecord: citizenRecordSchema.optional(),
   ndef: z.boolean().optional(),
   notes: z.string().max(1000).optional(),
 });

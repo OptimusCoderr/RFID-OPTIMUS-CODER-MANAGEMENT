@@ -30,6 +30,14 @@ export const cardEncodersBody = z.object({
   encoderIds: z.array(z.string().uuid()).min(1),
 });
 
+export const prepareCitizenWriteBody = z.object({
+  fields: z.record(z.string().max(500)),
+});
+
+export const decodeCitizenReadBody = z.object({
+  blocks: z.array(z.object({ block: z.number().int().min(0), dataHex: z.string().regex(/^[0-9a-fA-F]{32}$/) })).min(1),
+});
+
 export const cardListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
