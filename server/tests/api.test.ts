@@ -137,6 +137,72 @@ describe("company + card lifecycle happy path", () => {
     expect(res.body.data.some((c: { id: string }) => c.id === cardId)).toBe(true);
   });
 
+  it("lets the company admin edit a card's label and notes", async () => {
+    const res = await request(app)
+      .patch(`/api/cards/${cardId}`)
+      .set("Authorization", `Bearer ${companyAdminToken}`)
+      .send({ label: "Renamed Badge", notes: "some notes" });
+    expect(res.status).toBe(200);
+    expect(res.body.label).toBe("Renamed Badge");
+    expect(res.body.notes).toBe("some notes");
+  });
+
+  it("lets the company admin clear a card's label and notes back to null", async () => {
+    const res = await request(app)
+      .patch(`/api/cards/${cardId}`)
+      .set("Authorization", `Bearer ${companyAdminToken}`)
+      .send({ label: null, notes: null });
+    expect(res.status).toBe(200);
+    expect(res.body.label).toBeNull();
+    expect(res.body.notes).toBeNull();
+  });
+
+  it("rejects an OPERATOR deleting a card, but allows editing it", async () => {
+    const operatorRes = await request(app)
+      .post("/api/users")
+      .set("Authorization", `Bearer ${companyAdminToken}`)
+      .send({
+        email: "operator@integration-test-co.example",
+        password: "Operator123!",
+        fullName: "Integration Operator",
+        role: "OPERATOR",
+        companyId,
+      });
+    expect(operatorRes.status).toBe(201);
+    const operatorToken = await loginAs("operator@integration-test-co.example", "Operator123!");
+
+    const editRes = await request(app)
+      .patch(`/api/cards/${cardId}`)
+      .set("Authorization", `Bearer ${operatorToken}`)
+      .send({ label: "Operator Edited" });
+    expect(editRes.status).toBe(200);
+    expect(editRes.body.label).toBe("Operator Edited");
+
+    const deleteRes = await request(app)
+      .delete(`/api/cards/${cardId}`)
+      .set("Authorization", `Bearer ${operatorToken}`);
+    expect(deleteRes.status).toBe(403);
+  });
+
+  it("lets a company admin delete a card", async () => {
+    const createRes = await request(app)
+      .post("/api/cards")
+      .set("Authorization", `Bearer ${companyAdminToken}`)
+      .send({ uid: "04DEAD1234", cardType: "NTAG213" });
+    expect(createRes.status).toBe(201);
+    const scratchCardId = createRes.body.id;
+
+    const deleteRes = await request(app)
+      .delete(`/api/cards/${scratchCardId}`)
+      .set("Authorization", `Bearer ${companyAdminToken}`);
+    expect(deleteRes.status).toBe(204);
+
+    const getRes = await request(app)
+      .get(`/api/cards/${scratchCardId}`)
+      .set("Authorization", `Bearer ${companyAdminToken}`);
+    expect(getRes.status).toBe(404);
+  });
+
   it("blocking a card generates a notification for the company admin", async () => {
     const blockRes = await request(app)
       .post(`/api/cards/${cardId}/block`)
@@ -232,6 +298,30 @@ describe("company + card lifecycle happy path", () => {
           },
         });
       expect(res.status).toBe(201);
+    });
+
+    it("lets a company admin edit an existing template's name and layout", async () => {
+      const createRes = await request(app)
+        .post("/api/templates")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          name: "Editable Template",
+          cardType: "MIFARE_CLASSIC_1K",
+          layout: { sectors: [{ sector: 1, keyA: "FFFFFFFFFFFF" }] },
+        });
+      expect(createRes.status).toBe(201);
+      const templateId = createRes.body.id;
+
+      const updateRes = await request(app)
+        .patch(`/api/templates/${templateId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          name: "Renamed Template",
+          layout: { sectors: [{ sector: 1, keyA: "FFFFFFFFFFFF" }, { sector: 2, keyA: "FFFFFFFFFFFF" }] },
+        });
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body.name).toBe("Renamed Template");
+      expect(updateRes.body.layout.sectors).toHaveLength(2);
     });
 
     it("rejects a citizen record block that lands on a sector trailer", async () => {

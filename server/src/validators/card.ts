@@ -16,8 +16,8 @@ export const registerCardBody = z.object({
 });
 
 export const updateCardBody = z.object({
-  label: z.string().max(200).optional(),
-  notes: z.string().max(1000).optional(),
+  label: z.string().max(200).nullable().optional(),
+  notes: z.string().max(1000).nullable().optional(),
   status: z.nativeEnum(CardStatus).optional(),
   templateId: z.string().uuid().nullable().optional(),
   expiresAt: z.coerce.date().optional(),

@@ -381,9 +381,14 @@ re-decide it every time you register one:
 6. Templates are informational/configuration metadata; the actual
    encode/write happens from the **Live Encode** page using whichever
    template you attach to a card.
-7. Templates you create from a preset are ordinary templates — edit or
-   **delete** (trash icon) them the same as any other; nothing about
-   starting from a preset restricts what you can do with it afterward.
+7. Templates you create from a preset are ordinary templates — **edit**
+   (pencil icon) or **delete** (trash icon) them the same as any other;
+   nothing about starting from a preset restricts what you can do with it
+   afterward. Editing reopens the same form pre-filled with the
+   template's current name, card type, and full layout — every field
+   stays editable, including sectors/pages/applications and the
+   encrypted citizen record. A template's company can't be changed after
+   creation (the field is shown but disabled while editing).
 
 ### 6.4 Registering and encoding cards
 
@@ -566,6 +571,17 @@ From a card's detail page (or in bulk from the Cards list):
   Retired cards stay in the audit trail but are excluded from active use.
 - The system also auto-expires cards past their `expiresAt` date via a
   daily background job, and warns admins 7 days ahead of expiry.
+
+**Editing and deleting cards.** From a card's detail page, the **Edit**
+button opens a form for its label, template, status, and notes — use it to
+fix a typo'd label, reassign it to a different template of the same card
+type, or correct a status that's out of sync (prefer the lifecycle buttons
+above for block/unblock/lost/retire, since those log the right audit
+action; the edit form's status field is an escape hatch for the rest).
+Operators and above can edit; **Delete** (also on the detail page, and as a
+trash icon on each row of the Cards list) permanently removes a card and
+its history, and needs Manager role or above — a stricter bar than editing,
+both enforced server-side, not just hidden in the UI.
 
 ### 6.7 Restricting a card to specific encoders
 

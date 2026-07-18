@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Plus, Search, Download, Upload, ShieldOff, ShieldCheck, X, Radio } from "lucide-react";
+import { Plus, Search, Download, Upload, ShieldOff, ShieldCheck, X, Radio, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage, downloadCsv } from "@/lib/api";
 import { parseCsv } from "@/lib/csv";
@@ -15,6 +15,9 @@ import { useAuth } from "@/context/AuthContext";
 import { CARD_STATUS_OPTIONS, CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
 import { groupByCompany } from "@/lib/groupByCompany";
 import type { Card, CardTemplate, CardType, Company, Encoder, PaginatedResponse } from "@/types";
+
+// Matches DELETE /cards/:id's role gate (cardRoutes.ts).
+const DELETE_ROLES = new Set(["SUPER_ADMIN", "COMPANY_ADMIN", "MANAGER"]);
 
 interface BulkImportResult {
   created: number;
@@ -238,6 +241,15 @@ export default function CardsPage() {
     onError: () => toast.error("Bulk update failed"),
   });
 
+  const deleteCard = useMutation({
+    mutationFn: async (id: string) => api.delete(`/cards/${id}`),
+    onSuccess: () => {
+      toast.success("Card deleted");
+      queryClient.invalidateQueries({ queryKey: ["cards"] });
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not delete card")),
+  });
+
   function handleExportSelected() {
     const rows = data?.data.filter((c) => selected.has(c.id)) ?? [];
     const csv = toCsv(rows, [
@@ -261,6 +273,7 @@ export default function CardsPage() {
   // Picking one company from the filter above shows a normal flat list.
   const cardGroups =
     user?.role === "SUPER_ADMIN" && !filterCompanyId && data && data.data.length > 0 ? groupByCompany(data.data) : null;
+  const columnCount = user && DELETE_ROLES.has(user.role) ? 7 : 6;
 
   function cardRow(card: Card) {
     return (
@@ -279,6 +292,19 @@ export default function CardsPage() {
         <td className="px-4 py-3">
           <Badge tone={card.status}>{formatEnum(card.status)}</Badge>
         </td>
+        {user && DELETE_ROLES.has(user.role) && (
+          <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="text-slate-400 hover:text-red-600"
+              title="Delete card"
+              onClick={() => {
+                if (confirm(`Permanently delete card ${card.uid}? This cannot be undone.`)) deleteCard.mutate(card.id);
+              }}
+            >
+              <Trash2 size={16} />
+            </button>
+          </td>
+        )}
       </tr>
     );
   }
@@ -403,13 +429,14 @@ export default function CardsPage() {
                 <th className="px-4 py-3">Type</th>
                 <th className="px-4 py-3">Holder</th>
                 <th className="px-4 py-3">Status</th>
+                {user && DELETE_ROLES.has(user.role) && <th className="px-4 py-3" />}
               </tr>
             </thead>
             {cardGroups ? (
               cardGroups.map((g) => (
                 <tbody key={g.companyId ?? "none"} className="divide-y divide-slate-100 dark:divide-slate-800">
                   <tr className="bg-slate-50 dark:bg-slate-900/50">
-                    <td colSpan={6} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    <td colSpan={columnCount} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       {g.companyName} <span className="font-normal normal-case text-slate-400">({g.items.length} on this page)</span>
                     </td>
                   </tr>
@@ -421,7 +448,7 @@ export default function CardsPage() {
                 {data?.data.map(cardRow)}
                 {data?.data.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                    <td colSpan={columnCount} className="px-4 py-8 text-center text-slate-400">
                       No cards match these filters.
                     </td>
                   </tr>

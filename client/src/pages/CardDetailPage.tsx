@@ -1,27 +1,54 @@
-import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { FormEvent, useState } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ShieldOff, ShieldCheck, UserRound, UserX, AlertTriangle, Archive, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ShieldOff,
+  ShieldCheck,
+  UserRound,
+  UserX,
+  AlertTriangle,
+  Archive,
+  X,
+  Pencil,
+  Trash2,
+  Save,
+} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
-import { FullPageSpinner } from "@/components/ui/Spinner";
+import { FullPageSpinner, Spinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
+import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/context/AuthContext";
 import { formatEnum } from "@/lib/constants";
-import type { Card, CardHolder, Encoder, OperationLog, PaginatedResponse } from "@/types";
+import type { Card, CardHolder, CardTemplate, Encoder, OperationLog, PaginatedResponse } from "@/types";
 
 const MIFARE_CLASSIC_TYPES = new Set(["MIFARE_CLASSIC_1K", "MIFARE_CLASSIC_4K", "MIFARE_CLASSIC_MINI"]);
 const KEY_MANAGER_ROLES = new Set(["SUPER_ADMIN", "COMPANY_ADMIN", "MANAGER"]);
+// Matches DELETE /cards/:id's role gate (cardRoutes.ts) — stricter than the
+// OPERATOR_UP bar on editing, since deleting loses history a block/retire
+// would otherwise preserve.
+const DELETE_ROLES = new Set(["SUPER_ADMIN", "COMPANY_ADMIN", "MANAGER"]);
+
+interface EditFormState {
+  label: string;
+  notes: string;
+  templateId: string;
+  status: Card["status"];
+}
 
 export default function CardDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [holderId, setHolderId] = useState("");
   const [encoderToGrant, setEncoderToGrant] = useState("");
   const [encoderExpiryInput, setEncoderExpiryInput] = useState("");
   const [revealedKeys, setRevealedKeys] = useState<Record<string, string> | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState<EditFormState>({ label: "", notes: "", templateId: "", status: "UNASSIGNED" });
 
   const { data: card, isLoading } = useQuery({
     queryKey: ["card", id],
@@ -44,6 +71,13 @@ export default function CardDetailPage() {
     queryKey: ["encoders"],
     queryFn: async () => (await api.get<Encoder[]>("/encoders")).data,
   });
+
+  const { data: templates } = useQuery({
+    queryKey: ["templates"],
+    queryFn: async () => (await api.get<CardTemplate[]>("/templates")).data,
+    enabled: editOpen,
+  });
+  const availableTemplates = templates?.filter((t) => t.cardType === card?.cardType) ?? [];
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ["card", id] });
@@ -115,6 +149,50 @@ export default function CardDetailPage() {
     onError: (err) => toast.error(apiErrorMessage(err)),
   });
 
+  const updateCard = useMutation({
+    mutationFn: async (payload: EditFormState) =>
+      (
+        await api.patch<Card>(`/cards/${id}`, {
+          label: payload.label || null,
+          notes: payload.notes || null,
+          templateId: payload.templateId || null,
+          status: payload.status,
+        })
+      ).data,
+    onSuccess: () => {
+      toast.success("Card updated");
+      invalidate();
+      setEditOpen(false);
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not update card")),
+  });
+
+  const deleteCard = useMutation({
+    mutationFn: async () => api.delete(`/cards/${id}`),
+    onSuccess: () => {
+      toast.success("Card deleted");
+      queryClient.invalidateQueries({ queryKey: ["cards"] });
+      navigate("/cards");
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not delete card")),
+  });
+
+  function openEdit() {
+    if (!card) return;
+    setEditForm({
+      label: card.label ?? "",
+      notes: card.notes ?? "",
+      templateId: card.templateId ?? "",
+      status: card.status,
+    });
+    setEditOpen(true);
+  }
+
+  function handleEditSubmit(e: FormEvent) {
+    e.preventDefault();
+    updateCard.mutate(editForm);
+  }
+
   if (isLoading || !card) return <FullPageSpinner />;
 
   return (
@@ -130,7 +208,23 @@ export default function CardDetailPage() {
             {formatEnum(card.cardType)} {card.label && `· ${card.label}`}
           </p>
         </div>
-        <Badge tone={card.status}>{formatEnum(card.status)}</Badge>
+        <div className="flex items-center gap-2">
+          <Badge tone={card.status}>{formatEnum(card.status)}</Badge>
+          <button className="btn-secondary" onClick={openEdit}>
+            <Pencil size={15} /> Edit
+          </button>
+          {user && DELETE_ROLES.has(user.role) && (
+            <button
+              className="btn-danger"
+              onClick={() => {
+                if (confirm(`Permanently delete card ${card.uid}? This cannot be undone.`)) deleteCard.mutate();
+              }}
+              disabled={deleteCard.isPending}
+            >
+              <Trash2 size={15} /> Delete
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -342,6 +436,58 @@ export default function CardDetailPage() {
           {(!logs || logs.data.length === 0) && <p className="text-sm text-slate-400">No activity recorded yet.</p>}
         </div>
       </div>
+
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title={`Edit ${card.uid}`}>
+        <form onSubmit={handleEditSubmit} className="space-y-4">
+          <div>
+            <label className="label">Label</label>
+            <input className="input" value={editForm.label} onChange={(e) => setEditForm((f) => ({ ...f, label: e.target.value }))} />
+          </div>
+          <div>
+            <label className="label">Template</label>
+            <select
+              className="input"
+              value={editForm.templateId}
+              onChange={(e) => setEditForm((f) => ({ ...f, templateId: e.target.value }))}
+            >
+              <option value="">No template</option>
+              {availableTemplates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            {availableTemplates.length === 0 && (
+              <p className="mt-1 text-xs text-slate-400">No templates exist yet for {formatEnum(card.cardType)}.</p>
+            )}
+          </div>
+          <div>
+            <label className="label">Status</label>
+            <select
+              className="input"
+              value={editForm.status}
+              onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value as Card["status"] }))}
+            >
+              {(["UNASSIGNED", "ACTIVE", "ASSIGNED", "BLOCKED", "LOST", "EXPIRED", "RETIRED"] as const).map((s) => (
+                <option key={s} value={s}>
+                  {formatEnum(s)}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-slate-400">
+              Prefer the Lifecycle buttons for block/unblock/lost/retire — they log the right audit action. Use this
+              only to fix a status that's out of sync.
+            </p>
+          </div>
+          <div>
+            <label className="label">Notes</label>
+            <textarea className="input" rows={3} value={editForm.notes} onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))} />
+          </div>
+          <button type="submit" className="btn-primary w-full" disabled={updateCard.isPending}>
+            {updateCard.isPending ? <Spinner className="h-4 w-4 text-white" /> : <Save size={16} />} Save changes
+          </button>
+        </form>
+      </Modal>
     </div>
   );
 }

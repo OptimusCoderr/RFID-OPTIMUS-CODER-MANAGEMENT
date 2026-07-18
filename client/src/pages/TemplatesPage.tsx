@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, X } from "lucide-react";
+import { Pencil, Plus, Trash2, X } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -36,6 +36,7 @@ export default function TemplatesPage() {
   const citizenDataEnabled = hasModule(user, "CITIZEN_DATA");
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [cardType, setCardType] = useState<CardType>("MIFARE_CLASSIC_1K");
@@ -88,6 +89,34 @@ export default function TemplatesPage() {
     onError: (err) => toast.error(apiErrorMessage(err, "Could not create template")),
   });
 
+  const updateTemplate = useMutation({
+    mutationFn: async () =>
+      (
+        await api.patch(`/templates/${editingId}`, {
+          name,
+          cardType,
+          description: description || undefined,
+          isDefault,
+          layout: {
+            sectors: isMifareClassic(cardType) ? sectors : undefined,
+            pages: isPageBased(cardType) ? pages : undefined,
+            applications: isDesfire(cardType) ? applications : undefined,
+            citizenRecord:
+              isMifareClassic(cardType) && citizenFields.length > 0 && citizenBlocks.length > 0
+                ? { fields: citizenFields, blocks: citizenBlocks }
+                : undefined,
+          },
+        })
+      ).data,
+    onSuccess: () => {
+      toast.success("Template updated");
+      queryClient.invalidateQueries({ queryKey: ["templates"] });
+      resetForm();
+      setModalOpen(false);
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not update template")),
+  });
+
   const deleteTemplate = useMutation({
     mutationFn: async (id: string) => api.delete(`/templates/${id}`),
     onSuccess: () => {
@@ -98,6 +127,7 @@ export default function TemplatesPage() {
   });
 
   function resetForm() {
+    setEditingId(null);
     setName("");
     setDescription("");
     setCardType("MIFARE_CLASSIC_1K");
@@ -109,6 +139,32 @@ export default function TemplatesPage() {
     setIsDefault(false);
     setCompanyId("");
     setPresetId("");
+  }
+
+  function openCreate() {
+    resetForm();
+    setModalOpen(true);
+  }
+
+  function openEdit(t: CardTemplate) {
+    setEditingId(t.id);
+    setName(t.name);
+    setDescription(t.description ?? "");
+    setCardType(t.cardType);
+    setSectors(t.layout.sectors ?? []);
+    setPages(t.layout.pages ?? []);
+    setApplications(t.layout.applications ?? []);
+    setCitizenFields(t.layout.citizenRecord?.fields ?? []);
+    setCitizenBlocks(t.layout.citizenRecord?.blocks ?? []);
+    setIsDefault(t.isDefault);
+    setCompanyId(t.companyId ?? "");
+    setPresetId("");
+    setModalOpen(true);
+  }
+
+  function closeModal() {
+    setModalOpen(false);
+    resetForm();
   }
 
   // Pre-fills the same editable fields below from a starter preset — nothing
@@ -149,7 +205,11 @@ export default function TemplatesPage() {
       toast.error(mifareBlockIssue(badBlock) ?? `Block ${badBlock} can't be written to`);
       return;
     }
-    createTemplate.mutate();
+    if (editingId) {
+      updateTemplate.mutate();
+    } else {
+      createTemplate.mutate();
+    }
   }
 
   if (isLoading) return <FullPageSpinner />;
@@ -160,7 +220,7 @@ export default function TemplatesPage() {
         title="Card Templates"
         description="Define the sector/key layout for MIFARE Classic or the page map for NTAG/Ultralight tags."
         actions={
-          <button className="btn-primary" onClick={() => setModalOpen(true)}>
+          <button className="btn-primary" onClick={openCreate}>
             <Plus size={16} /> New template
           </button>
         }
@@ -174,9 +234,14 @@ export default function TemplatesPage() {
                 <h3 className="font-semibold">{t.name}</h3>
                 <p className="text-xs text-slate-400">{formatEnum(t.cardType)}</p>
               </div>
-              <button className="text-slate-400 hover:text-red-600" onClick={() => deleteTemplate.mutate(t.id)}>
-                <Trash2 size={15} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button className="text-slate-400 hover:text-blue-600" onClick={() => openEdit(t)}>
+                  <Pencil size={15} />
+                </button>
+                <button className="text-slate-400 hover:text-red-600" onClick={() => deleteTemplate.mutate(t.id)}>
+                  <Trash2 size={15} />
+                </button>
+              </div>
             </div>
             {t.isDefault && <Badge tone="ACTIVE">Default for type</Badge>}
             {t.description && <p className="mt-2 text-sm text-slate-500">{t.description}</p>}
@@ -196,33 +261,35 @@ export default function TemplatesPage() {
         {templates?.length === 0 && <p className="text-sm text-slate-400">No templates yet.</p>}
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="New card template" wide>
+      <Modal open={modalOpen} onClose={closeModal} title={editingId ? `Edit ${name || "template"}` : "New card template"} wide>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-            <label className="label">Start from a preset (optional)</label>
-            <select className="input" value={presetId} onChange={(e) => applyPreset(e.target.value)}>
-              <option value="">Start from scratch</option>
-              {(Object.keys(INDUSTRY_PRESET_LABELS) as (keyof typeof INDUSTRY_PRESET_LABELS)[]).map((industry) => {
-                const options = TEMPLATE_PRESETS.filter(
-                  (p) => p.industry === industry && (!p.citizenFields || citizenDataEnabled)
-                );
-                if (options.length === 0) return null;
-                return (
-                  <optgroup key={industry} label={INDUSTRY_PRESET_LABELS[industry]}>
-                    {options.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                );
-              })}
-            </select>
-            <p className="mt-1 text-xs text-slate-400">
-              Fills in a name, card type, and a starting set of labeled blocks for a common use case — everything
-              below stays fully editable, and you can always add, remove, or delete templates afterward.
-            </p>
-          </div>
+          {!editingId && (
+            <div className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+              <label className="label">Start from a preset (optional)</label>
+              <select className="input" value={presetId} onChange={(e) => applyPreset(e.target.value)}>
+                <option value="">Start from scratch</option>
+                {(Object.keys(INDUSTRY_PRESET_LABELS) as (keyof typeof INDUSTRY_PRESET_LABELS)[]).map((industry) => {
+                  const options = TEMPLATE_PRESETS.filter(
+                    (p) => p.industry === industry && (!p.citizenFields || citizenDataEnabled)
+                  );
+                  if (options.length === 0) return null;
+                  return (
+                    <optgroup key={industry} label={INDUSTRY_PRESET_LABELS[industry]}>
+                      {options.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
+              </select>
+              <p className="mt-1 text-xs text-slate-400">
+                Fills in a name, card type, and a starting set of labeled blocks for a common use case — everything
+                below stays fully editable, and you can always add, remove, or delete templates afterward.
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label">Name</label>
@@ -247,7 +314,13 @@ export default function TemplatesPage() {
           {user?.role === "SUPER_ADMIN" && (
             <div>
               <label className="label">Company</label>
-              <select className="input" required value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+              <select
+                className="input"
+                required
+                disabled={!!editingId}
+                value={companyId}
+                onChange={(e) => setCompanyId(e.target.value)}
+              >
                 <option value="" disabled>
                   Select a company
                 </option>
@@ -257,6 +330,7 @@ export default function TemplatesPage() {
                   </option>
                 ))}
               </select>
+              {editingId && <p className="mt-1 text-xs text-slate-400">A template's company can't be changed after creation.</p>}
             </div>
           )}
 
@@ -280,8 +354,12 @@ export default function TemplatesPage() {
             Make this the default template for {formatEnum(cardType)}
           </label>
 
-          <button type="submit" className="btn-primary w-full" disabled={createTemplate.isPending}>
-            Create template
+          <button
+            type="submit"
+            className="btn-primary w-full"
+            disabled={editingId ? updateTemplate.isPending : createTemplate.isPending}
+          >
+            {editingId ? "Save changes" : "Create template"}
           </button>
         </form>
       </Modal>
