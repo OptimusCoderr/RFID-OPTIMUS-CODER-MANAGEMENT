@@ -182,6 +182,16 @@ export function initWebsocket(httpServer: HttpServer): Server {
             if (card && data.role !== "SUPER_ADMIN" && card.companyId !== data.companyId) {
               throw new Error("Forbidden");
             }
+
+            // Independent of card.status (see Card.writeProtected in
+            // schema.prisma) — reads, attendance, and zone access all still
+            // work on a write-protected card; only the write-shaped commands
+            // below are blocked. Unrecognized commands default-deny here too,
+            // same as the role check above, rather than assuming READ.
+            if (card?.writeProtected && COMMAND_TO_OPERATION[payload.command] !== "READ") {
+              throw new Error("This card is write-protected — remove write protection before writing to it");
+            }
+
             const now = new Date();
 
             // The card's own overall expiry (e.g. a Visitors quick-issue

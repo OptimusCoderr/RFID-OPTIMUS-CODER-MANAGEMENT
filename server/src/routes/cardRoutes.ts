@@ -70,6 +70,18 @@ router.post("/:id/block", requireRole(...MANAGER_UP), validate({ params: idParam
 router.post("/:id/unblock", requireRole(...MANAGER_UP), validate({ params: idParams }), cardController.unblockCard);
 router.post("/:id/lost", requireRole(...OPERATOR_UP), validate({ params: idParams }), cardController.markLostCard);
 router.post("/:id/retire", requireRole(...MANAGER_UP), validate({ params: idParams }), cardController.retireCard);
+router.post(
+  "/:id/write-protect",
+  requireRole(...MANAGER_UP),
+  validate({ params: idParams }),
+  cardController.writeProtectCard
+);
+router.post(
+  "/:id/write-unprotect",
+  requireRole(...MANAGER_UP),
+  validate({ params: idParams }),
+  cardController.writeUnprotectCard
+);
 
 router.post(
   "/:id/encoders/grant",

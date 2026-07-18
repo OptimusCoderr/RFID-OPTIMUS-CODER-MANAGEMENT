@@ -1430,6 +1430,157 @@ describe("company + card lifecycle happy path", () => {
     });
   });
 
+  describe("write-protected cards: block writes without touching card status", () => {
+    let wpEncoderId: string;
+    let wpCardId: string;
+    let agentSocket: ClientSocket;
+    let managerToken: string;
+    let operatorToken: string;
+
+    async function connectDashboard(token: string): Promise<ClientSocket> {
+      const socket = ioClient(`http://127.0.0.1:${env.port}/dashboard`, { auth: { token }, forceNew: true });
+      await new Promise<void>((resolve, reject) => {
+        socket.on("connect", () => resolve());
+        socket.on("connect_error", reject);
+      });
+      return socket;
+    }
+
+    function sendCommand(socket: ClientSocket, body: Record<string, unknown>): Promise<{ ok: boolean; error?: string; commandId?: string }> {
+      return new Promise((resolve) => socket.emit("encoder:command", body, resolve));
+    }
+
+    beforeAll(async () => {
+      const encoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Write Protect Test Encoder", type: "ACR122U" });
+      wpEncoderId = encoderRes.body.id;
+
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04AACC0001", cardType: "NTAG213" });
+      wpCardId = cardRes.body.id;
+
+      // Just enough of a fake agent to bring the encoder ONLINE — the
+      // write-protected check rejects before a command is ever dispatched to
+      // it, so it doesn't need to actually answer anything.
+      agentSocket = ioClient(`http://127.0.0.1:${env.port}/agent`, { auth: { agentKey: encoderRes.body.agentKey }, forceNew: true });
+      await new Promise<void>((resolve, reject) => {
+        agentSocket.on("connect", () => resolve());
+        agentSocket.on("connect_error", reject);
+      });
+
+      await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          email: "manager-writeprotect@integration-test-co.example",
+          password: "ManagerOnly123!",
+          fullName: "Write Protect Manager",
+          role: "MANAGER",
+          companyId,
+        });
+      managerToken = await loginAs("manager-writeprotect@integration-test-co.example", "ManagerOnly123!");
+
+      await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          email: "operator-writeprotect@integration-test-co.example",
+          password: "OperatorOnly123!",
+          fullName: "Write Protect Operator",
+          role: "OPERATOR",
+          companyId,
+        });
+      operatorToken = await loginAs("operator-writeprotect@integration-test-co.example", "OperatorOnly123!");
+    });
+
+    afterAll(() => {
+      agentSocket?.close();
+    });
+
+    it("rejects write-protect from an OPERATOR — MANAGER_UP only, same tier as block/unblock", async () => {
+      const res = await request(app)
+        .post(`/api/cards/${wpCardId}/write-protect`)
+        .set("Authorization", `Bearer ${operatorToken}`);
+      expect(res.status).toBe(403);
+    });
+
+    it("write-protects a card and blocks a write over the websocket", async () => {
+      const res = await request(app)
+        .post(`/api/cards/${wpCardId}/write-protect`)
+        .set("Authorization", `Bearer ${managerToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.writeProtected).toBe(true);
+      expect(res.body.status).toBe("UNASSIGNED"); // status itself is untouched
+
+      const socket = await connectDashboard(managerToken);
+      const ack = await sendCommand(socket, {
+        encoderId: wpEncoderId,
+        cardId: wpCardId,
+        command: "WRITE_BLOCK",
+        args: { block: 4, data: "00".repeat(16), key: "FFFFFFFFFFFF", keyType: "A" },
+      });
+      socket.close();
+      expect(ack.ok).toBe(false);
+      expect(ack.error).toMatch(/write-protected/i);
+    });
+
+    it("still allows a READ on a write-protected card", async () => {
+      const socket = await connectDashboard(managerToken);
+      const ack = await sendCommand(socket, { encoderId: wpEncoderId, cardId: wpCardId, command: "READ_UID" });
+      socket.close();
+      expect(ack.ok).toBe(true);
+    });
+
+    it("still allows attendance taps on a write-protected card", async () => {
+      const holderRes = await request(app)
+        .post("/api/holders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ fullName: "Write Protect Test Holder" });
+      await request(app)
+        .post(`/api/cards/${wpCardId}/assign`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId: holderRes.body.id });
+
+      const res = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: wpCardId });
+      expect(res.status).toBe(201);
+    });
+
+    it("removes write protection and allows writes again", async () => {
+      const unprotectRes = await request(app)
+        .post(`/api/cards/${wpCardId}/write-unprotect`)
+        .set("Authorization", `Bearer ${managerToken}`);
+      expect(unprotectRes.status).toBe(200);
+      expect(unprotectRes.body.writeProtected).toBe(false);
+
+      const socket = await connectDashboard(managerToken);
+      const ack = await sendCommand(socket, {
+        encoderId: wpEncoderId,
+        cardId: wpCardId,
+        command: "WRITE_BLOCK",
+        args: { block: 4, data: "00".repeat(16), key: "FFFFFFFFFFFF", keyType: "A" },
+      });
+      socket.close();
+      expect(ack.ok).toBe(true);
+    });
+
+    it("the generic PATCH /cards/:id cannot set writeProtected — only the dedicated endpoints can", async () => {
+      const res = await request(app)
+        .patch(`/api/cards/${wpCardId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ writeProtected: true, label: "still works" });
+      expect(res.status).toBe(200);
+      expect(res.body.label).toBe("still works");
+      expect(res.body.writeProtected).toBe(false); // unrecognized field silently stripped by the Zod schema
+    });
+  });
+
   describe("hotel: time-limited encoder allocation", () => {
     let encoderAId: string;
     let encoderBId: string;

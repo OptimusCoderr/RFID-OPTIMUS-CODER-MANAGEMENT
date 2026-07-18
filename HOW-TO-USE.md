@@ -580,6 +580,17 @@ From a card's detail page (or in bulk from the Cards list):
   Retired cards stay in the audit trail but are excluded from active use.
 - The system also auto-expires cards past their `expiresAt` date via a
   daily background job, and warns admins 7 days ahead of expiry.
+- **Write-protect / Remove write protection** — blocks every non-read
+  encoder command (write, format, lock, key-change, clone, etc.) from Live
+  Encode, without changing the card's status at all: reads, attendance
+  taps, and zone access checks all keep working normally, and the card can
+  still be assigned/unassigned. Use this when you want a card to stay in
+  active use but be temporarily un-writable — e.g. a master card you don't
+  want accidentally re-encoded — rather than pulling it out of service
+  entirely with Block. Enforced server-side in the same websocket handler
+  as the other command checks, so it can't be bypassed by hitting the
+  command API directly; needs Manager role or above, same tier as
+  Block/Retire.
 
 **Editing and deleting cards.** From a card's detail page, the **Edit**
 button opens a form for its label, template, status, and notes — use it to

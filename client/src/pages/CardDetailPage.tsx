@@ -13,6 +13,8 @@ import {
   Pencil,
   Trash2,
   Save,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import toast from "react-hot-toast";
@@ -130,6 +132,8 @@ export default function CardDetailPage() {
     unblock: "Card unblocked",
     lost: "Card marked lost",
     retire: "Card retired",
+    "write-protect": "Card write-protected — reads still work, writes are blocked",
+    "write-unprotect": "Write protection removed",
   };
 
   const action = useMutation({
@@ -218,6 +222,11 @@ export default function CardDetailPage() {
         </div>
         <div className="flex items-center gap-2">
           <Badge tone={card.status}>{formatEnum(card.status)}</Badge>
+          {card.writeProtected && (
+            <Badge tone="WRITE_PROTECTED">
+              <Lock size={11} className="mr-1 inline" /> Write-protected
+            </Badge>
+          )}
           <button className="btn-secondary" onClick={openEdit}>
             <Pencil size={15} /> Edit
           </button>
@@ -291,7 +300,22 @@ export default function CardDetailPage() {
             <button className="btn-danger" disabled={action.isPending} onClick={() => action.mutate("retire")}>
               <Archive size={15} /> Retire
             </button>
+            {!card.writeProtected && (
+              <button className="btn-secondary" disabled={action.isPending} onClick={() => action.mutate("write-protect")}>
+                <Lock size={15} /> Write-protect
+              </button>
+            )}
+            {card.writeProtected && (
+              <button className="btn-secondary" disabled={action.isPending} onClick={() => action.mutate("write-unprotect")}>
+                <Unlock size={15} /> Remove write protection
+              </button>
+            )}
           </div>
+          <p className="text-xs text-slate-400">
+            Write-protect blocks writes/format/key-change/etc from Live Encode without touching this card's status —
+            reads, attendance taps, and zone access still work normally. Unlike Block, it doesn't stop the card from
+            being assigned or used elsewhere.
+          </p>
 
           {card.accessZones && card.accessZones.length > 0 && (
             <>

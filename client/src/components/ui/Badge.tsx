@@ -9,6 +9,7 @@ const COLOR_MAP: Record<string, string> = {
   LOST: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
   EXPIRED: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
   RETIRED: "bg-slate-200 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
+  WRITE_PROTECTED: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
   // encoder / general status
   ONLINE: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
   OFFLINE: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",

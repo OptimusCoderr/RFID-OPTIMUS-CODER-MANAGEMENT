@@ -425,6 +425,15 @@ model Card {
   label    String?
   notes    String?
 
+  // Blocks every non-READ encoder command (write/format/lock/key-change/
+  // clone/etc — see COMMAND_TO_OPERATION in websocket/index.ts) while still
+  // allowing reads, attendance taps, and zone access checks — unlike
+  // CardStatus, which either leaves the card fully usable or (via BLOCKED/
+  // LOST/RETIRED/EXPIRED) locks it out of lifecycle actions entirely. Opt-in
+  // and independent of status, toggled via the dedicated write-protect/
+  // write-unprotect endpoints (MANAGER_UP-only, same tier as block/unblock).
+  writeProtected Boolean @default(false)
+
   templateId String?
   template   CardTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 

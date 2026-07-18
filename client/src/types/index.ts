@@ -250,6 +250,7 @@ export interface Card {
   uid: string;
   cardType: CardType;
   status: CardStatus;
+  writeProtected: boolean;
   label?: string | null;
   notes?: string | null;
   templateId?: string | null;

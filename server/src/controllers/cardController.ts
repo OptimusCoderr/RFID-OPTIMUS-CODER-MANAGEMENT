@@ -463,6 +463,34 @@ export const unblockCard = asyncHandler((req, res) => setStatus(req, res, "ACTIV
 export const markLostCard = asyncHandler((req, res) => setStatus(req, res, "LOST", "BLOCK"));
 export const retireCard = asyncHandler((req, res) => setStatus(req, res, "RETIRED", "BLOCK"));
 
+// Independent of status (see Card.writeProtected in schema.prisma) — blocks
+// every non-READ encoder command in the websocket handler while leaving the
+// card otherwise fully usable (reads, attendance, zone access all still
+// work), unlike BLOCKED which locks out lifecycle actions but currently
+// doesn't touch the encode path at all.
+async function setWriteProtected(req: Request, res: Response, writeProtected: boolean) {
+  const existing = await prisma.card.findUnique({ where: { id: req.params.id } });
+  if (!existing) throw ApiError.notFound("Card not found");
+  assertCompanyAccess(req, existing.companyId);
+
+  const card = await prisma.card.update({ where: { id: req.params.id }, data: { writeProtected }, include: CARD_INCLUDE });
+
+  await logOperation({
+    companyId: existing.companyId,
+    cardId: card.id,
+    userId: req.user!.id,
+    operationType: "UPDATE",
+    status: "SUCCESS",
+    details: { action: writeProtected ? "write_protect" : "write_unprotect" },
+  });
+
+  const { keysEncrypted, ...safe } = card;
+  res.json(safe);
+}
+
+export const writeProtectCard = asyncHandler((req, res) => setWriteProtected(req, res, true));
+export const writeUnprotectCard = asyncHandler((req, res) => setWriteProtected(req, res, false));
+
 export const deleteCard = asyncHandler(async (req: Request, res: Response) => {
   const existing = await prisma.card.findUnique({ where: { id: req.params.id } });
   if (!existing) throw ApiError.notFound("Card not found");
