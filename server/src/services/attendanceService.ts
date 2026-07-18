@@ -1,5 +1,6 @@
 import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../utils/ApiError.js";
+import { withSerializableRetry } from "../utils/serializableRetry.js";
 import { computeEncoderOpenState } from "./attendanceSessionService.js";
 
 const ATTENDANCE_INCLUDE = {
@@ -82,25 +83,41 @@ export async function recordAttendance(params: {
   }
 
   const zoneId = params.zoneId ?? null;
-  const last = await prisma.attendanceRecord.findFirst({
-    where: { companyId: params.companyId, holderId: card.holderId, zoneId },
-    orderBy: { recordedAt: "desc" },
-  });
-  const type = last?.type === "CHECK_IN" ? "CHECK_OUT" : "CHECK_IN";
+  const cardId = card.id;
+  const holderId = card.holderId;
 
-  return prisma.attendanceRecord.create({
-    data: {
-      companyId: params.companyId,
-      cardId: card.id,
-      holderId: card.holderId,
-      zoneId: zoneId ?? undefined,
-      encoderId: params.encoderId ?? undefined,
-      sessionId: sessionId ?? undefined,
-      sessionLabel: sessionLabel ?? undefined,
-      type,
-    },
-    include: ATTENDANCE_INCLUDE,
-  });
+  // The read-then-decide-then-write toggle below is a classic check-then-act
+  // race: two near-simultaneous taps for the same holder+zone (plausible
+  // when several encoders share one general, zoneId:null scope) could both
+  // read the same "last" record and both insert CHECK_IN, breaking the
+  // alternation. Serializable isolation + retry (see serializableRetry.ts)
+  // closes that.
+  return withSerializableRetry(() =>
+    prisma.$transaction(
+      async (tx) => {
+        const last = await tx.attendanceRecord.findFirst({
+          where: { companyId: params.companyId, holderId, zoneId },
+          orderBy: { recordedAt: "desc" },
+        });
+        const type = last?.type === "CHECK_IN" ? "CHECK_OUT" : "CHECK_IN";
+
+        return tx.attendanceRecord.create({
+          data: {
+            companyId: params.companyId,
+            cardId,
+            holderId,
+            zoneId: zoneId ?? undefined,
+            encoderId: params.encoderId ?? undefined,
+            sessionId: sessionId ?? undefined,
+            sessionLabel: sessionLabel ?? undefined,
+            type,
+          },
+          include: ATTENDANCE_INCLUDE,
+        });
+      },
+      { isolationLevel: "Serializable" }
+    )
+  );
 }
 
 export { ATTENDANCE_INCLUDE };

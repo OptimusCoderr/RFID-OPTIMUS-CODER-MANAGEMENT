@@ -45,6 +45,29 @@ export const decodeCitizenReadBody = z.object({
   blocks: z.array(z.object({ block: z.number().int().min(0), dataHex: z.string().regex(/^[0-9a-fA-F]{32}$/) })).min(1),
 });
 
+// Only validates the batch's outer shape (rows is a non-empty array of
+// plain row objects, capped at 500) — cardController.bulkImportCards
+// deliberately reports bad UIDs, missing cardType, and duplicates as
+// per-row errors in its 200 response rather than rejecting the whole
+// import, so individual field values are intentionally left loose here
+// (a stricter schema would 400 the entire batch instead of surfacing a
+// per-row error for the one bad row, which is the whole point of a CSV
+// import's error report).
+export const bulkImportCardsBody = z.object({
+  companyId: z.string().uuid().optional(),
+  rows: z
+    .array(
+      z.object({
+        uid: z.string().optional(),
+        cardType: z.string().optional(),
+        label: z.string().max(200).optional(),
+        templateId: z.string().optional(),
+      })
+    )
+    .min(1, "rows must be a non-empty array")
+    .max(500, "A single import is limited to 500 rows"),
+});
+
 export const cardListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),

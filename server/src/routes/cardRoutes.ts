@@ -11,6 +11,7 @@ import {
   cardEncodersBody,
   prepareCitizenWriteBody,
   decodeCitizenReadBody,
+  bulkImportCardsBody,
 } from "../validators/card.js";
 import { idParams } from "../validators/common.js";
 
@@ -45,7 +46,12 @@ router.post(
 );
 
 router.post("/", requireRole(...OPERATOR_UP), validate({ body: registerCardBody }), cardController.registerCard);
-router.post("/bulk-import", requireRole(...OPERATOR_UP), cardController.bulkImportCards);
+router.post(
+  "/bulk-import",
+  requireRole(...OPERATOR_UP),
+  validate({ body: bulkImportCardsBody }),
+  cardController.bulkImportCards
+);
 router.patch(
   "/:id",
   requireRole(...OPERATOR_UP),

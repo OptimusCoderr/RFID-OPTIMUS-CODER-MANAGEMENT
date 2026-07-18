@@ -566,6 +566,7 @@ model AttendanceRecord {
   @@index([holderId])
   @@index([cardId])
   @@index([zoneId])
+  @@index([encoderId])
   @@index([sessionId])
   @@index([recordedAt])
   @@map("attendance_records")
@@ -678,6 +679,16 @@ model OperationLog {
   @@index([companyId])
   @@index([cardId])
   @@index([performedAt])
+  // Covers the Audit Logs page's default view (this company's logs, newest
+  // first, no other filter) as a single ordered index scan instead of an
+  // index scan on companyId alone followed by a sort.
+  @@index([companyId, performedAt])
+  // encoderId/userId were previously unindexed despite buildLogWhere
+  // (logController.ts) filtering on both — every "show me this encoder's"
+  // or "show me this user's" audit trail fell back to scanning the whole
+  // company partition.
+  @@index([encoderId])
+  @@index([userId])
   @@map("operation_logs")
 }
 

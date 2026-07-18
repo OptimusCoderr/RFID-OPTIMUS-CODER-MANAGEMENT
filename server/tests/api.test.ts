@@ -254,6 +254,46 @@ describe("company + card lifecycle happy path", () => {
     expect(notifRes.body.data.some((n: { type: string }) => n.type === "CARD_BLOCKED")).toBe(true);
   });
 
+  it("setting BLOCKED via the generic PATCH also generates a notification, same as the dedicated /block endpoint", async () => {
+    const cardRes = await request(app)
+      .post("/api/cards")
+      .set("Authorization", `Bearer ${companyAdminToken}`)
+      .send({ uid: "04B0AC4000", cardType: "NTAG213" });
+
+    const patchRes = await request(app)
+      .patch(`/api/cards/${cardRes.body.id}`)
+      .set("Authorization", `Bearer ${companyAdminToken}`)
+      .send({ status: "BLOCKED" });
+    expect(patchRes.status).toBe(200);
+    expect(patchRes.body.status).toBe("BLOCKED");
+
+    const notifRes = await request(app).get("/api/notifications").set("Authorization", `Bearer ${companyAdminToken}`);
+    const matches = notifRes.body.data.filter(
+      (n: { type: string; link: string }) => n.type === "CARD_BLOCKED" && n.link === `/cards/${cardRes.body.id}`
+    );
+    expect(matches.length).toBeGreaterThan(0);
+  });
+
+  it("rejects assigning or unassigning a blocked card, so it can't be silently reactivated", async () => {
+    // cardId is BLOCKED from the previous test.
+    const holderRes = await request(app)
+      .post("/api/holders")
+      .set("Authorization", `Bearer ${companyAdminToken}`)
+      .send({ fullName: "Bypass Attempt Holder" });
+
+    const assignRes = await request(app)
+      .post(`/api/cards/${cardId}/assign`)
+      .set("Authorization", `Bearer ${companyAdminToken}`)
+      .send({ holderId: holderRes.body.id });
+    expect(assignRes.status).toBe(400);
+
+    const unassignRes = await request(app).post(`/api/cards/${cardId}/unassign`).set("Authorization", `Bearer ${companyAdminToken}`);
+    expect(unassignRes.status).toBe(400);
+
+    const check = await request(app).get(`/api/cards/${cardId}`).set("Authorization", `Bearer ${companyAdminToken}`);
+    expect(check.body.status).toBe("BLOCKED");
+  });
+
   it("logs the operations to the audit trail", async () => {
     const res = await request(app).get("/api/logs").set("Authorization", `Bearer ${companyAdminToken}`);
     expect(res.status).toBe(200);
@@ -317,6 +357,32 @@ describe("company + card lifecycle happy path", () => {
           },
         });
       expect(res.status).toBe(400);
+    });
+
+    it("only ever leaves one template marked isDefault per cardType, even under concurrent writes", async () => {
+      // Seed one existing default so the race exercises both the create
+      // path's and update path's "clear other defaults" transaction.
+      const firstRes = await request(app)
+        .post("/api/templates")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Default Race Template A", cardType: "NTAG213", isDefault: true, layout: {} });
+      expect(firstRes.body.isDefault).toBe(true);
+
+      const results = await Promise.all(
+        Array.from({ length: 5 }, (_, i) =>
+          request(app)
+            .post("/api/templates")
+            .set("Authorization", `Bearer ${companyAdminToken}`)
+            .send({ name: `Default Race Template ${i}`, cardType: "NTAG213", isDefault: true, layout: {} })
+        )
+      );
+      expect(results.every((r) => r.status === 201)).toBe(true);
+
+      const listRes = await request(app).get("/api/templates").set("Authorization", `Bearer ${companyAdminToken}`);
+      const ntagDefaults = listRes.body.filter(
+        (t: { cardType: string; isDefault: boolean }) => t.cardType === "NTAG213" && t.isDefault
+      );
+      expect(ntagDefaults).toHaveLength(1);
     });
 
     it("accepts a valid citizen record", async () => {
