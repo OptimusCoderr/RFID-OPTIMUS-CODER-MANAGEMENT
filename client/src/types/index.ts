@@ -218,13 +218,28 @@ export interface CardTemplate {
   createdAt: string;
 }
 
+export interface AccessZoneCardGrant {
+  id: string;
+  grantedAt: string;
+  card: { id: string; uid: string; label?: string | null; holder?: { fullName: string } | null };
+}
+
+export interface AccessZoneEncoderGrant {
+  id: string;
+  grantedAt: string;
+  encoder: { id: string; name: string; location?: string | null };
+}
+
 export interface AccessZone {
   id: string;
   companyId: string;
   name: string;
   description?: string | null;
   createdAt: string;
-  _count?: { cards: number };
+  _count?: { cards: number; encoders: number };
+  // Only present on the single-zone GET (ZonesPage's manage panel), not the list.
+  cards?: AccessZoneCardGrant[];
+  encoders?: AccessZoneEncoderGrant[];
 }
 
 export interface Card {

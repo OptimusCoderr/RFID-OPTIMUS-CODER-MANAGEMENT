@@ -8,10 +8,23 @@ export const listZones = asyncHandler(async (req: Request, res: Response) => {
   const companyId = scopedCompanyId(req);
   const zones = await prisma.accessZone.findMany({
     where: companyId ? { companyId } : {},
-    include: { _count: { select: { cards: true } } },
+    include: { _count: { select: { cards: true, encoders: true } } },
     orderBy: { name: "asc" },
   });
   res.json(zones);
+});
+
+export const getZone = asyncHandler(async (req: Request, res: Response) => {
+  const zone = await prisma.accessZone.findUnique({
+    where: { id: req.params.id },
+    include: {
+      cards: { include: { card: { select: { id: true, uid: true, label: true, holder: { select: { fullName: true } } } } } },
+      encoders: { include: { encoder: { select: { id: true, name: true, location: true } } } },
+    },
+  });
+  if (!zone) throw ApiError.notFound("Access zone not found");
+  assertCompanyAccess(req, zone.companyId);
+  res.json(zone);
 });
 
 export const createZone = asyncHandler(async (req: Request, res: Response) => {
@@ -67,5 +80,37 @@ export const revokeZoneAccess = asyncHandler(async (req: Request, res: Response)
   assertCompanyAccess(req, zone.companyId);
 
   await prisma.cardAccessZone.deleteMany({ where: { zoneId: zone.id, cardId: { in: req.body.cardIds } } });
+  res.status(204).send();
+});
+
+export const grantZoneEncoders = asyncHandler(async (req: Request, res: Response) => {
+  const zone = await prisma.accessZone.findUnique({ where: { id: req.params.id } });
+  if (!zone) throw ApiError.notFound("Access zone not found");
+  assertCompanyAccess(req, zone.companyId);
+
+  const encoders = await prisma.encoder.findMany({ where: { id: { in: req.body.encoderIds }, companyId: zone.companyId } });
+  if (encoders.length !== req.body.encoderIds.length) {
+    throw ApiError.badRequest("One or more encoders do not belong to this company");
+  }
+
+  await prisma.$transaction(
+    encoders.map((encoder) =>
+      prisma.encoderAccessZone.upsert({
+        where: { encoderId_zoneId: { encoderId: encoder.id, zoneId: zone.id } },
+        update: {},
+        create: { encoderId: encoder.id, zoneId: zone.id },
+      })
+    )
+  );
+
+  res.status(204).send();
+});
+
+export const revokeZoneEncoders = asyncHandler(async (req: Request, res: Response) => {
+  const zone = await prisma.accessZone.findUnique({ where: { id: req.params.id } });
+  if (!zone) throw ApiError.notFound("Access zone not found");
+  assertCompanyAccess(req, zone.companyId);
+
+  await prisma.encoderAccessZone.deleteMany({ where: { zoneId: zone.id, encoderId: { in: req.body.encoderIds } } });
   res.status(204).send();
 });

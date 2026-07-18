@@ -623,9 +623,23 @@ Access zones are a lightweight way to model "what does this card open,"
 layered on top of the inventory system (this platform manages the *cards*,
 not physical door hardware itself):
 
-1. **Zones → New zone** — e.g. "Pool Deck", "Server Room", "3rd Floor".
-2. **Grant access to a card** by UID from the zone's card.
-3. A card's detail page lists every zone it currently has access to.
+1. **Zones → New zone** — e.g. "Pool Deck", "Server Room", "3rd Floor". Use
+   the pencil icon on an existing zone to rename it or edit its description
+   afterward (its company can't be changed once created).
+2. Click **Manage access** on a zone to open a combined panel for both:
+   - **Cards with access** — grant by typing a card's UID, or revoke with
+     the **×** on any granted card's row. A card's detail page also lists
+     every zone it currently has access to.
+   - **Encoders tied to this zone** — pick an encoder from the dropdown and
+     click **Tie** to record which physical reader(s) are installed in that
+     zone (e.g. "the Server Room door reader"), or untie with the **×**.
+     This is informational context only — it does **not** restrict which
+     cards that encoder will accept; use [Restricting a card to specific
+     encoders](#67-restricting-a-card-to-specific-encoders) on a card's
+     detail page for actual access control. Both grant/revoke actions are
+     enforced server-side (an encoder can only be tied to a zone in its own
+     company), not just hidden in the UI.
+3. Each zone card on the list shows a running count of cards and encoders.
 
 ### 6.9 Bulk actions and CSV import/export
 

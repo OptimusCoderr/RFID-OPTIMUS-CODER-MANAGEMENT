@@ -1122,6 +1122,114 @@ describe("company + card lifecycle happy path", () => {
     });
   });
 
+  describe("access zones: editing, and tying cards + encoders", () => {
+    let zoneId: string;
+    let zoneEncoderId: string;
+    let zoneCardId: string;
+
+    beforeAll(async () => {
+      const zoneRes = await request(app)
+        .post("/api/zones")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Server Room", description: "Data center access" });
+      zoneId = zoneRes.body.id;
+
+      const encoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Server Room Door Reader", type: "ACR122U" });
+      zoneEncoderId = encoderRes.body.id;
+
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04B0AC2000", cardType: "NTAG213" });
+      zoneCardId = cardRes.body.id;
+    });
+
+    it("lets a manager edit the zone's name and description", async () => {
+      const res = await request(app)
+        .patch(`/api/zones/${zoneId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Server Room (Renamed)", description: "Updated description" });
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe("Server Room (Renamed)");
+      expect(res.body.description).toBe("Updated description");
+    });
+
+    it("ties an encoder to the zone", async () => {
+      const res = await request(app)
+        .post(`/api/zones/${zoneId}/grant-encoders`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ encoderIds: [zoneEncoderId] });
+      expect(res.status).toBe(204);
+    });
+
+    it("grants a card access to the zone", async () => {
+      const res = await request(app)
+        .post(`/api/zones/${zoneId}/grant`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardIds: [zoneCardId] });
+      expect(res.status).toBe(204);
+    });
+
+    it("returns the tied encoder and granted card on the zone detail endpoint", async () => {
+      const res = await request(app).get(`/api/zones/${zoneId}`).set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.encoders).toHaveLength(1);
+      expect(res.body.encoders[0].encoder.id).toBe(zoneEncoderId);
+      expect(res.body.cards).toHaveLength(1);
+      expect(res.body.cards[0].card.id).toBe(zoneCardId);
+    });
+
+    it("reflects the encoder/card counts on the zone list endpoint", async () => {
+      const res = await request(app).get("/api/zones").set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res.status).toBe(200);
+      const zone = res.body.find((z: { id: string }) => z.id === zoneId);
+      expect(zone._count.encoders).toBe(1);
+      expect(zone._count.cards).toBe(1);
+    });
+
+    it("rejects tying an encoder that belongs to a different company", async () => {
+      const otherCompanyRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Zone Test Other Co", slug: "zone-test-other-co" });
+      await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({
+          email: "admin@zone-test-other-co.example",
+          password: "OtherAdmin123!",
+          fullName: "Zone Test Other Admin",
+          role: "COMPANY_ADMIN",
+          companyId: otherCompanyRes.body.id,
+        });
+      const otherAdminToken = await loginAs("admin@zone-test-other-co.example", "OtherAdmin123!");
+      const otherEncoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${otherAdminToken}`)
+        .send({ name: "Other Co Encoder", type: "ACR122U" });
+
+      const res = await request(app)
+        .post(`/api/zones/${zoneId}/grant-encoders`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ encoderIds: [otherEncoderRes.body.id] });
+      expect(res.status).toBe(400);
+    });
+
+    it("unties the encoder from the zone", async () => {
+      const res = await request(app)
+        .post(`/api/zones/${zoneId}/revoke-encoders`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ encoderIds: [zoneEncoderId] });
+      expect(res.status).toBe(204);
+
+      const getRes = await request(app).get(`/api/zones/${zoneId}`).set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(getRes.body.encoders).toHaveLength(0);
+    });
+  });
+
   describe("industry & module gating", () => {
     it("self-registering with an industry seeds that industry's default modules, without CITIZEN_DATA", async () => {
       const res = await request(app).post("/api/auth/register-company").send({

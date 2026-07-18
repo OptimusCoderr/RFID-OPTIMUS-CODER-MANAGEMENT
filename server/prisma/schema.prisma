@@ -358,6 +358,11 @@ model Encoder {
   cardAllocations    CardEncoderAllocation[]
   attendanceRecords  AttendanceRecord[]
   attendanceSessions AttendanceSession[]
+  // Zones this encoder is installed in / controls access to. Purely
+  // informational context (e.g. "this reader is the Main Warehouse Floor
+  // door") — unlike CardEncoderAllocation, it does not restrict which
+  // cards this encoder will accept.
+  accessZones        EncoderAccessZone[]
 
   @@index([companyId])
   @@map("encoders")
@@ -458,6 +463,7 @@ model AccessZone {
   updatedAt   DateTime @updatedAt
 
   cards              CardAccessZone[]
+  encoders           EncoderAccessZone[]
   attendanceRecords  AttendanceRecord[]
   attendanceSessions AttendanceSession[]
 
@@ -475,6 +481,20 @@ model CardAccessZone {
 
   @@unique([cardId, zoneId])
   @@map("card_access_zones")
+}
+
+// Which encoder(s) are installed in / control a given zone — informational
+// context only (see the `accessZones` comment on Encoder above).
+model EncoderAccessZone {
+  id        String     @id @default(uuid())
+  encoderId String
+  encoder   Encoder    @relation(fields: [encoderId], references: [id], onDelete: Cascade)
+  zoneId    String
+  zone      AccessZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  grantedAt DateTime   @default(now())
+
+  @@unique([encoderId, zoneId])
+  @@map("encoder_access_zones")
 }
 
 // ---------------------------------------------------------------------------
