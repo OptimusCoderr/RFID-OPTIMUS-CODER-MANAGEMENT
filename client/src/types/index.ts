@@ -131,6 +131,7 @@ export interface Encoder {
   isActive: boolean;
   createdAt: string;
   agentKey?: string;
+  accessZones?: { zone: { id: string; name: string } }[];
 }
 
 export interface MifareSectorLayout {
@@ -259,7 +260,7 @@ export interface Card {
   hasStoredKeys?: boolean;
   lastReadData?: unknown;
   accessZones?: { zone: { id: string; name: string } }[];
-  encoderAllocations?: { encoder: { id: string; name: string }; expiresAt?: string | null }[];
+  encoderAllocations?: { encoder: { id: string; name: string; location?: string | null }; expiresAt?: string | null }[];
   issuedAt?: string | null;
   expiresAt?: string | null;
   lastSeenAt?: string | null;

@@ -23,7 +23,7 @@ const CARD_INCLUDE = {
   template: { select: { id: true, name: true } },
   registeredByEncoder: { select: { id: true, name: true } },
   accessZones: { include: { zone: { select: { id: true, name: true } } } },
-  encoderAllocations: { include: { encoder: { select: { id: true, name: true } } } },
+  encoderAllocations: { include: { encoder: { select: { id: true, name: true, location: true } } } },
 } satisfies Prisma.CardInclude;
 
 function buildCardWhere(req: Request): Prisma.CardWhereInput {

@@ -193,6 +193,14 @@ export default function LiveEncodePage() {
       )
   );
 
+  const allowedEncoderNames = useMemo(
+    () =>
+      (matchedCard?.encoderAllocations ?? [])
+        .filter((a) => !a.expiresAt || new Date(a.expiresAt) > new Date())
+        .map((a) => a.encoder.name),
+    [matchedCard]
+  );
+
   function sendCommand(e: FormEvent) {
     e.preventDefault();
     if (!socket || !encoderId) return;
@@ -243,6 +251,7 @@ export default function LiveEncodePage() {
             {encoders?.map((enc) => (
               <option key={enc.id} value={enc.id}>
                 {enc.name}
+                {enc.location ? ` (${enc.location})` : ""}
               </option>
             ))}
           </select>
@@ -250,6 +259,11 @@ export default function LiveEncodePage() {
             <Badge tone={liveStatus}>{liveStatus ?? "—"}</Badge>
             <span className="text-xs text-slate-400">{connected ? "Live updates connected" : "Connecting..."}</span>
           </div>
+          {selectedEncoder?.accessZones && selectedEncoder.accessZones.length > 0 && (
+            <p className="mt-2 text-xs text-slate-400">
+              Installed in: {selectedEncoder.accessZones.map((g) => g.zone.name).join(", ")}
+            </p>
+          )}
 
           <div className="mt-5 flex items-center gap-2 text-sm text-slate-500">
             <Radio size={15} className={detectedUid ? "text-emerald-500" : "text-slate-300"} />
@@ -302,7 +316,13 @@ export default function LiveEncodePage() {
                 <span className="font-medium">{matchedCard.label ?? matchedCard.uid}</span>
                 <Badge tone={matchedCard.status}>{matchedCard.status}</Badge>
               </div>
-              <Link to={`/cards/${matchedCard.id}`} className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline dark:text-brand-400">
+              {matchedCard.template && <p className="text-xs text-slate-500">Template: {matchedCard.template.name}</p>}
+              {matchedCard.accessZones && matchedCard.accessZones.length > 0 && (
+                <p className="mt-1 text-xs text-slate-500">
+                  Zone access: {matchedCard.accessZones.map((g) => g.zone.name).join(", ")}
+                </p>
+              )}
+              <Link to={`/cards/${matchedCard.id}`} className="mt-1 inline-flex items-center gap-1 text-xs text-brand-600 hover:underline dark:text-brand-400">
                 Open card <ExternalLink size={12} />
               </Link>
             </div>
@@ -311,6 +331,7 @@ export default function LiveEncodePage() {
           {cardRestrictedToOtherEncoders && (
             <p className="mt-3 text-xs text-amber-600">
               This card is restricted to a different encoder — commands sent from here will be rejected.
+              {allowedEncoderNames.length > 0 && <> Allowed: {allowedEncoderNames.join(", ")}.</>}
             </p>
           )}
         </div>

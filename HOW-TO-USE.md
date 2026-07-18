@@ -406,18 +406,27 @@ pick the card type and optional template/label/notes.
 1. Plug in the encoder and start its local agent (see
    [Setting up a physical encoder](#8-setting-up-a-physical-encoder)).
 2. On the Live Encode page, select that encoder from the dropdown — its
-   live status (Online/Offline/Busy) shows immediately.
+   location (if set) shows next to its name, and its live status
+   (Online/Offline/Busy) shows immediately below. If the encoder is tied to
+   an access zone (see [6.8](#68-access-zones)), an "Installed in: &lt;zone&gt;"
+   line appears too — purely informational context about where that reader
+   physically sits.
 3. Tap a card on the reader. If it's unknown, a quick "register it" panel
    appears — pick the card type, an optional **template**, and an optional
    label, then register. Picking a template here means the next step (the
    guided **Card data** form) is ready immediately, with no separate trip
    to the Cards page needed.
 4. If it's already known, its status/holder shows immediately with a link
-   to its detail page. If the card has no template yet, the **Card data**
-   panel offers a template picker with an **Assign** button right there —
-   pick one, assign it, and the plain-text form appears in place without
-   leaving the page.
-5. The **Card data** panel (see [6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys))
+   to its detail page, along with its assigned **template** name (if any)
+   and any **access zones** it currently has access to. If the card has no
+   template yet, the **Card data** panel offers a template picker with an
+   **Assign** button right there — pick one, assign it, and the plain-text
+   form appears in place without leaving the page.
+5. If the tapped card is restricted to a different encoder (see
+   [6.7](#67-restricting-a-card-to-specific-encoders)), the warning names
+   which encoder(s) it's actually allowed on, so you know where to take it
+   instead of guessing.
+6. The **Card data** panel (see [6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys))
    is the main way most people write to a card — plain fields, no hex or
    block numbers. Raw block/hex/DESFire commands (write a MIFARE Classic
    block with a given key, partition a DESFire card into

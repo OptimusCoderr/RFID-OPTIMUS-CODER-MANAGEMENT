@@ -20,6 +20,7 @@ const SAFE_SELECT = {
   isActive: true,
   createdAt: true,
   updatedAt: true,
+  accessZones: { include: { zone: { select: { id: true, name: true } } } },
   // agentKey intentionally omitted — only surfaced once, at creation/rotation
 } as const;
 
