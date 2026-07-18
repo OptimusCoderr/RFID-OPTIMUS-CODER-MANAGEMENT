@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
 import { Pencil, Plus, Settings, ShieldCheck, Trash2, X } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
@@ -113,7 +114,9 @@ export default function ZonesPage() {
 
   const grantCardAccess = useMutation({
     mutationFn: async () => {
-      const { data } = await api.get<PaginatedResponse<Card>>("/cards", { params: { search: grantUid, pageSize: 1 } });
+      const { data } = await api.get<PaginatedResponse<Card>>("/cards", {
+        params: { search: grantUid, pageSize: 1, companyId: manageZone!.companyId },
+      });
       const card = data.data.find((c) => c.uid.toLowerCase() === grantUid.trim().toLowerCase());
       if (!card) throw new Error("No card found with that UID");
       await api.post(`/zones/${manageZoneId}/grant`, { cardIds: [card.id] });
@@ -123,7 +126,7 @@ export default function ZonesPage() {
       queryClient.invalidateQueries({ queryKey: ["zones"] });
       setGrantUid("");
     },
-    onError: (err) => toast.error(err instanceof Error ? err.message : apiErrorMessage(err)),
+    onError: (err) => toast.error(axios.isAxiosError(err) ? apiErrorMessage(err) : err instanceof Error ? err.message : "Something went wrong"),
   });
 
   const revokeCardAccess = useMutation({
