@@ -301,6 +301,17 @@ export const updateCard = asyncHandler(async (req: Request, res: Response) => {
   if (!existing) throw ApiError.notFound("Card not found");
   assertCompanyAccess(req, existing.companyId);
 
+  // A card already assigned to a holder is in use by that person — setting
+  // an expiresAt on it is how this app issues/extends a visitor pass (see
+  // VisitorsPage), so allowing that here would let someone's real badge get
+  // silently turned into a temporary guest pass. Extending an *existing*
+  // visitor pass's own duration still works fine: those cards are never
+  // assigned to a holder in the first place, so existing.holderId is null
+  // for them.
+  if (req.body.expiresAt !== undefined && existing.holderId) {
+    throw ApiError.badRequest("This card is already assigned to a card holder and can't also be issued as a visitor pass");
+  }
+
   if (req.body.templateId) {
     const template = await prisma.cardTemplate.findUnique({ where: { id: req.body.templateId } });
     if (!template || template.companyId !== existing.companyId) {

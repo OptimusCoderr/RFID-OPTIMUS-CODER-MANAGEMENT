@@ -823,7 +823,14 @@ expiry set in the same step:
 1. Enter the card's **UID** by hand, or **scan it from an online encoder** —
    pick the encoder from the dropdown, click **Scan**, and tap the card;
    the UID field fills in automatically (the same pattern used on the
-   [Cards](#63-registering-a-card) register form).
+   [Cards](#63-registering-a-card) register form). If that UID already
+   belongs to an existing card, an inline warning appears right away — and
+   if it's already assigned to a real card holder, the warning names them
+   — with **Issue pass** disabled until you change the UID. This is
+   enforced server-side too (not just this warning): registering a
+   duplicate UID always fails, and a card already assigned to a holder
+   can't have an expiry set on it, so an employee's real badge can never
+   get silently turned into a visitor pass.
 2. Pick a **card type**, and optionally a visitor name/purpose as the
    label.
 3. Pick how long the pass should last — **1 hour / 4 hours / 1 day / 1
