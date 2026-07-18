@@ -305,6 +305,8 @@ export interface AttendanceRecord {
 
 export type ManualOverride = "NONE" | "FORCE_OPEN" | "FORCE_CLOSED";
 
+export type AttendanceMode = "FREE" | "CHECK_IN_ONLY" | "CHECK_OUT_ONLY" | "ONCE";
+
 export interface SessionState {
   isOpen: boolean;
   reason: "manual_open" | "manual_closed" | "scheduled_open" | "scheduled_closed" | "no_schedule";
@@ -324,6 +326,7 @@ export interface AttendanceSession {
   startTime?: string | null;
   endTime?: string | null;
   manualOverride: ManualOverride;
+  mode: AttendanceMode;
   createdAt: string;
   updatedAt: string;
   state: SessionState;

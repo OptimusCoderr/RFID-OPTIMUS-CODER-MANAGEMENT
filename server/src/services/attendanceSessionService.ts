@@ -1,4 +1,4 @@
-import type { ManualOverride } from "@prisma/client";
+import type { AttendanceMode, AttendanceType, ManualOverride } from "@prisma/client";
 
 export interface SessionScheduleInput {
   // 0 = Sunday .. 6 = Saturday.
@@ -113,4 +113,29 @@ export function computeEncoderOpenState(
   }
 
   return { isOpen: false, openSessionId: null };
+}
+
+export type AttendanceTypeDecision = { type: AttendanceType } | { rejected: true; reason: string };
+
+// Pure decision for what a tap should record, given the schedule's
+// AttendanceMode and the holder's last record in this same scope (per the
+// existing companyId+holderId+zoneId toggle key in attendanceService.ts —
+// `last` is null the very first time this holder is seen in that scope).
+// FREE reproduces the original unlimited-alternation behavior exactly, so
+// existing schedules (all created before this field existed, defaulting to
+// FREE) are unaffected.
+export function nextAttendanceType(mode: AttendanceMode, last: { type: AttendanceType } | null): AttendanceTypeDecision {
+  switch (mode) {
+    case "CHECK_IN_ONLY":
+      return last ? { rejected: true, reason: "This card has already checked in" } : { type: "CHECK_IN" };
+    case "CHECK_OUT_ONLY":
+      return last ? { rejected: true, reason: "This card has already checked out" } : { type: "CHECK_OUT" };
+    case "ONCE":
+      if (!last) return { type: "CHECK_IN" };
+      if (last.type === "CHECK_IN") return { type: "CHECK_OUT" };
+      return { rejected: true, reason: "This card has already checked in and out" };
+    case "FREE":
+    default:
+      return { type: last?.type === "CHECK_IN" ? "CHECK_OUT" : "CHECK_IN" };
+  }
 }

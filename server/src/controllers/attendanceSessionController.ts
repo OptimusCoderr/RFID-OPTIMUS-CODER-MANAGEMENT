@@ -50,7 +50,7 @@ export const listAttendanceSessions = asyncHandler(async (req: Request, res: Res
 });
 
 export const createAttendanceSession = asyncHandler(async (req: Request, res: Response) => {
-  const { encoderId, zoneId, label, description, daysOfWeek, startTime, endTime } = req.body;
+  const { encoderId, zoneId, label, description, daysOfWeek, startTime, endTime, mode } = req.body;
   const encoder = await loadEncoder(req, encoderId);
   await assertZoneBelongsToCompany(zoneId, encoder.companyId);
 
@@ -64,6 +64,7 @@ export const createAttendanceSession = asyncHandler(async (req: Request, res: Re
       daysOfWeek,
       startTime: startTime ?? undefined,
       endTime: endTime ?? undefined,
+      mode,
     },
     include: SESSION_INCLUDE,
   });
@@ -73,7 +74,7 @@ export const createAttendanceSession = asyncHandler(async (req: Request, res: Re
 
 export const updateAttendanceSession = asyncHandler(async (req: Request, res: Response) => {
   const existing = await loadSession(req, req.params.id);
-  const { encoderId, zoneId, label, description, daysOfWeek, startTime, endTime } = req.body;
+  const { encoderId, zoneId, label, description, daysOfWeek, startTime, endTime, mode } = req.body;
 
   // Moving a schedule to a different encoder ("this course changed rooms")
   // — optional, and re-validated against the same company either way.
@@ -90,6 +91,7 @@ export const updateAttendanceSession = asyncHandler(async (req: Request, res: Re
       daysOfWeek: daysOfWeek ?? undefined,
       startTime: startTime === undefined ? undefined : startTime,
       endTime: endTime === undefined ? undefined : endTime,
+      mode: mode ?? undefined,
     },
     include: SESSION_INCLUDE,
   });

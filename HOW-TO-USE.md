@@ -794,16 +794,20 @@ a [card holder](#62-card-holders).
    [access zone](#68-access-zones) to scope attendance to one room/class.
    Zone and general attendance track independently: a student's lecture-hall
    check-in state doesn't affect their library check-in state.
-2. As cards are tapped on the selected encoder, each tap **alternates**
-   check-in and check-out for that holder automatically — no separate
-   "start session" step, and a missed tap just leaves the next one correctly
-   reversed. The live feed shows each tap as it happens; results are also
-   written to the **Records** table below with full filtering — by
-   **Schedule** (which saved schedule, e.g. "CS101 Lecture" vs "MATH201
-   Lecture", was open when the tap happened — snapshotted at tap time, so it
-   stays correct even if you later rename or delete that schedule), zone,
-   check-in/out type, and a **From/To** date range — plus CSV export that
-   respects every one of those filters, so you can pull just one class's or
+2. By default, as cards are tapped on the selected encoder, each tap
+   **alternates** check-in and check-out for that holder automatically — no
+   separate "start session" step, and a missed tap just leaves the next one
+   correctly reversed. A schedule's **Mode** (see below) can instead cap this
+   at one check-in, one check-out, or one full in/out cycle per card. The
+   live feed shows each tap as it happens; results are also written to the
+   **Records** table below — including each holder's **ID number** (their
+   [card holder](#62-card-holders) employee/student ID, if one's on file) —
+   with full filtering by **Schedule** (which saved schedule, e.g. "CS101
+   Lecture" vs "MATH201 Lecture", was open when the tap happened —
+   snapshotted at tap time, so it stays correct even if you later rename or
+   delete that schedule), zone, check-in/out type, and a **From/To** date
+   range — plus CSV export that respects every one of those filters and
+   includes the ID number column too, so you can pull just one class's or
    one date range's attendance history instead of everything at once.
 3. A card that's blocked, lost, retired, or not yet assigned to a holder is
    rejected with a clear reason in the feed rather than silently recording
@@ -830,8 +834,9 @@ the **Saved schedules** table below the tap panel:
    department, or shift the schedule represents. An optional **Description**
    holds extra context (room number, term, anything that doesn't belong in
    the label itself). Pick the **Encoder** it applies to, optionally a
-   **Zone**, then the **days of the week** and a **start/end time** (e.g.
-   Mon/Wed/Fri, 09:00–10:00), and click **Create schedule**.
+   **Zone**, a **Mode** (see below), then the **days of the week** and a
+   **start/end time** (e.g. Mon/Wed/Fri, 09:00–10:00), and click **Create
+   schedule**.
 2. Once saved, that encoder only accepts attendance taps while **at least
    one** of its schedules says it's open — a course meeting right now keeps
    the door working even if a different course sharing the same reader is
@@ -853,6 +858,23 @@ the **Saved schedules** table below the tap panel:
    works at any time, exactly like before this feature existed. Schedules
    are entirely opt-in, per encoder, and there's no limit on how many one
    encoder can have.
+6. Each schedule's **Mode** controls what a repeat tap from the same card is
+   allowed to do, on top of the open/closed check above:
+   - **Free (check in/out at will)** — the default, and the original
+     behavior: taps alternate check-in/check-out with no limit.
+   - **Check-in only, once** — a card can only ever record a single
+     check-in here; a repeat tap is rejected with "This card has already
+     checked in." Useful for a one-way entry gate or a single-scan event.
+   - **Check-out only, once** — the mirror of the above, for a single-scan
+     exit point.
+   - **Check in & out, once each** — a card gets exactly one check-in then
+     one check-out; a third tap is rejected with "This card has already
+     checked in and out." Useful when you want to guarantee one clean
+     round-trip per card (e.g. a borrow/return desk) without allowing
+     unlimited back-and-forth.
+
+   The mode only applies while that schedule is the one open on the
+   encoder — a general tap with no schedule open always behaves as Free.
 
 Whether an encoder is currently open is always computed live — the OR of
 every one of its schedules' own live states at the moment of the tap (or
