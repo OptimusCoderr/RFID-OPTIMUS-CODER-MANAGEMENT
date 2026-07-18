@@ -8,6 +8,7 @@ import { generateAgentKey } from "../utils/crypto.js";
 const SAFE_SELECT = {
   id: true,
   companyId: true,
+  company: { select: { id: true, name: true } },
   name: true,
   type: true,
   connectionType: true,
@@ -19,6 +20,7 @@ const SAFE_SELECT = {
   isActive: true,
   createdAt: true,
   updatedAt: true,
+  accessZones: { include: { zone: { select: { id: true, name: true } } } },
   // agentKey intentionally omitted — only surfaced once, at creation/rotation
 } as const;
 
@@ -27,7 +29,10 @@ export const listEncoders = asyncHandler(async (req: Request, res: Response) => 
   const encoders = await prisma.encoder.findMany({
     where: companyId ? { companyId } : {},
     select: SAFE_SELECT,
-    orderBy: { name: "asc" },
+    // A SUPER_ADMIN browsing across every company (companyId === null, i.e.
+    // no ?companyId= filter) gets encoders pre-sorted by company so the
+    // client can render one section per company instead of a mixed grid.
+    orderBy: companyId ? { name: "asc" } : [{ company: { name: "asc" } }, { name: "asc" }],
   });
   res.json(encoders);
 });

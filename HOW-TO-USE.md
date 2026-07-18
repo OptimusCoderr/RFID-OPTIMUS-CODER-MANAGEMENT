@@ -281,6 +281,16 @@ holders, cards, visitor passes) shows an extra required **Company** field
 for them to pick which company the new record belongs to. Everyone else
 doesn't see that field — their own company is used automatically.
 
+Browsing across every company at once is also organized by company for a
+`SUPER_ADMIN`: **Users**, **Card Holders**, and **Encoders** are split into
+one section per company (with a count), instead of one long mixed list.
+**Cards** works a little differently since it's paginated (a company could
+have thousands) — each page is still pre-sorted so a company's cards
+cluster together with a header, and a **Company** dropdown next to the
+other filters lets you scope the whole list down to just one company's
+cards, paged normally. Everyone else only ever has one company's data to
+begin with, so they see the plain list as before.
+
 ## 6. Everyday workflows
 
 ### 6.1 Managing your team (Users)
@@ -371,9 +381,14 @@ re-decide it every time you register one:
 6. Templates are informational/configuration metadata; the actual
    encode/write happens from the **Live Encode** page using whichever
    template you attach to a card.
-7. Templates you create from a preset are ordinary templates — edit or
-   **delete** (trash icon) them the same as any other; nothing about
-   starting from a preset restricts what you can do with it afterward.
+7. Templates you create from a preset are ordinary templates — **edit**
+   (pencil icon) or **delete** (trash icon) them the same as any other;
+   nothing about starting from a preset restricts what you can do with it
+   afterward. Editing reopens the same form pre-filled with the
+   template's current name, card type, and full layout — every field
+   stays editable, including sectors/pages/applications and the
+   encrypted citizen record. A template's company can't be changed after
+   creation (the field is shown but disabled while editing).
 
 ### 6.4 Registering and encoding cards
 
@@ -391,18 +406,27 @@ pick the card type and optional template/label/notes.
 1. Plug in the encoder and start its local agent (see
    [Setting up a physical encoder](#8-setting-up-a-physical-encoder)).
 2. On the Live Encode page, select that encoder from the dropdown — its
-   live status (Online/Offline/Busy) shows immediately.
+   location (if set) shows next to its name, and its live status
+   (Online/Offline/Busy) shows immediately below. If the encoder is tied to
+   an access zone (see [6.8](#68-access-zones)), an "Installed in: &lt;zone&gt;"
+   line appears too — purely informational context about where that reader
+   physically sits.
 3. Tap a card on the reader. If it's unknown, a quick "register it" panel
    appears — pick the card type, an optional **template**, and an optional
    label, then register. Picking a template here means the next step (the
    guided **Card data** form) is ready immediately, with no separate trip
    to the Cards page needed.
 4. If it's already known, its status/holder shows immediately with a link
-   to its detail page. If the card has no template yet, the **Card data**
-   panel offers a template picker with an **Assign** button right there —
-   pick one, assign it, and the plain-text form appears in place without
-   leaving the page.
-5. The **Card data** panel (see [6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys))
+   to its detail page, along with its assigned **template** name (if any)
+   and any **access zones** it currently has access to. If the card has no
+   template yet, the **Card data** panel offers a template picker with an
+   **Assign** button right there — pick one, assign it, and the plain-text
+   form appears in place without leaving the page.
+5. If the tapped card is restricted to a different encoder (see
+   [6.7](#67-restricting-a-card-to-specific-encoders)), the warning names
+   which encoder(s) it's actually allowed on, so you know where to take it
+   instead of guessing.
+6. The **Card data** panel (see [6.5](#65-storing-structured-data-on-a-card-businessuniversity-ids-and-random-per-card-keys))
    is the main way most people write to a card — plain fields, no hex or
    block numbers. Raw block/hex/DESFire commands (write a MIFARE Classic
    block with a given key, partition a DESFire card into
@@ -557,6 +581,17 @@ From a card's detail page (or in bulk from the Cards list):
 - The system also auto-expires cards past their `expiresAt` date via a
   daily background job, and warns admins 7 days ahead of expiry.
 
+**Editing and deleting cards.** From a card's detail page, the **Edit**
+button opens a form for its label, template, status, and notes — use it to
+fix a typo'd label, reassign it to a different template of the same card
+type, or correct a status that's out of sync (prefer the lifecycle buttons
+above for block/unblock/lost/retire, since those log the right audit
+action; the edit form's status field is an escape hatch for the rest).
+Operators and above can edit; **Delete** (also on the detail page, and as a
+trash icon on each row of the Cards list) permanently removes a card and
+its history, and needs Manager role or above — a stricter bar than editing,
+both enforced server-side, not just hidden in the UI.
+
 ### 6.7 Restricting a card to specific encoders
 
 By default, **any card can be used with any encoder in your company** — no
@@ -597,9 +632,23 @@ Access zones are a lightweight way to model "what does this card open,"
 layered on top of the inventory system (this platform manages the *cards*,
 not physical door hardware itself):
 
-1. **Zones → New zone** — e.g. "Pool Deck", "Server Room", "3rd Floor".
-2. **Grant access to a card** by UID from the zone's card.
-3. A card's detail page lists every zone it currently has access to.
+1. **Zones → New zone** — e.g. "Pool Deck", "Server Room", "3rd Floor". Use
+   the pencil icon on an existing zone to rename it or edit its description
+   afterward (its company can't be changed once created).
+2. Click **Manage access** on a zone to open a combined panel for both:
+   - **Cards with access** — grant by typing a card's UID, or revoke with
+     the **×** on any granted card's row. A card's detail page also lists
+     every zone it currently has access to.
+   - **Encoders tied to this zone** — pick an encoder from the dropdown and
+     click **Tie** to record which physical reader(s) are installed in that
+     zone (e.g. "the Server Room door reader"), or untie with the **×**.
+     This is informational context only — it does **not** restrict which
+     cards that encoder will accept; use [Restricting a card to specific
+     encoders](#67-restricting-a-card-to-specific-encoders) on a card's
+     detail page for actual access control. Both grant/revoke actions are
+     enforced server-side (an encoder can only be tied to a zone in its own
+     company), not just hidden in the UI.
+3. Each zone card on the list shows a running count of cards and encoders.
 
 ### 6.9 Bulk actions and CSV import/export
 

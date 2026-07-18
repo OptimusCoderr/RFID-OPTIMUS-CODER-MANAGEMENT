@@ -18,11 +18,12 @@ import { notifyCompanyAdmins } from "../services/notificationService.js";
 import { toCsv } from "../utils/csv.js";
 
 const CARD_INCLUDE = {
+  company: { select: { id: true, name: true } },
   holder: { select: { id: true, fullName: true, department: true, employeeId: true } },
   template: { select: { id: true, name: true } },
   registeredByEncoder: { select: { id: true, name: true } },
   accessZones: { include: { zone: { select: { id: true, name: true } } } },
-  encoderAllocations: { include: { encoder: { select: { id: true, name: true } } } },
+  encoderAllocations: { include: { encoder: { select: { id: true, name: true, location: true } } } },
 } satisfies Prisma.CardInclude;
 
 function buildCardWhere(req: Request): Prisma.CardWhereInput {
@@ -58,12 +59,20 @@ export const listCards = asyncHandler(async (req: Request, res: Response) => {
   const { page, pageSize } = req.query as unknown as { page: number; pageSize: number };
   const where = buildCardWhere(req);
 
+  // A SUPER_ADMIN browsing across every company (no ?companyId= filter)
+  // gets cards pre-clustered by company — sorting by company name first so
+  // consecutive rows in any given page already share a company, letting the
+  // client render a group header per company instead of a mixed list.
+  // Scoped to one company already, that first key is a no-op.
+  const orderBy: Prisma.CardOrderByWithRelationInput[] =
+    scopedCompanyId(req) === null ? [{ company: { name: "asc" } }, { createdAt: "desc" }] : [{ createdAt: "desc" }];
+
   const [total, cards] = await Promise.all([
     prisma.card.count({ where }),
     prisma.card.findMany({
       where,
       include: CARD_INCLUDE,
-      orderBy: { createdAt: "desc" },
+      orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
@@ -334,14 +343,39 @@ export const updateCard = asyncHandler(async (req: Request, res: Response) => {
     details: { fields: Object.keys(rest) },
   });
 
+  // The dedicated /block and /lost endpoints notify company admins when they
+  // change a card's status — this generic PATCH can set the same status
+  // field directly (kept as an escape hatch for fixing a status that's out
+  // of sync, see the client's edit form), so it needs to raise the same
+  // notification when it's used that way, or admins silently miss a card
+  // going BLOCKED/LOST through this path.
+  if (rest.status === "BLOCKED" || rest.status === "LOST") {
+    await notifyCompanyAdmins(existing.companyId, {
+      type: rest.status === "LOST" ? "CARD_LOST" : "CARD_BLOCKED",
+      title: rest.status === "LOST" ? "Card reported lost" : "Card blocked",
+      message: `${card.label ?? card.uid} was marked ${rest.status.toLowerCase()}.`,
+      link: `/cards/${card.id}`,
+    }).catch(() => undefined);
+  }
+
   const { keysEncrypted, ...safe } = card;
   res.json(safe);
 });
+
+// Assign/unassign are OPERATOR_UP (cardRoutes.ts) while block/unblock/lost/
+// retire are MANAGER_UP-only (setStatus below) — without this check, an
+// OPERATOR could silently reactivate a blocked/lost/retired card just by
+// assigning or unassigning it, skipping the stricter role gate entirely and
+// leaving no BLOCK/UNBLOCK audit entry or admin notification behind.
+const LIFECYCLE_LOCKED_STATUSES = new Set(["BLOCKED", "LOST", "RETIRED", "EXPIRED"]);
 
 export const assignCard = asyncHandler(async (req: Request, res: Response) => {
   const existing = await prisma.card.findUnique({ where: { id: req.params.id } });
   if (!existing) throw ApiError.notFound("Card not found");
   assertCompanyAccess(req, existing.companyId);
+  if (LIFECYCLE_LOCKED_STATUSES.has(existing.status)) {
+    throw ApiError.badRequest(`This card is ${existing.status.toLowerCase()} and must be unblocked before it can be assigned`);
+  }
 
   const holder = await prisma.cardHolder.findUnique({ where: { id: req.body.holderId } });
   if (!holder || holder.companyId !== existing.companyId) {
@@ -371,6 +405,9 @@ export const unassignCard = asyncHandler(async (req: Request, res: Response) => 
   const existing = await prisma.card.findUnique({ where: { id: req.params.id } });
   if (!existing) throw ApiError.notFound("Card not found");
   assertCompanyAccess(req, existing.companyId);
+  if (LIFECYCLE_LOCKED_STATUSES.has(existing.status)) {
+    throw ApiError.badRequest(`This card is ${existing.status.toLowerCase()} and must be unblocked before it can be unassigned`);
+  }
 
   const card = await prisma.card.update({
     where: { id: req.params.id },
@@ -469,15 +506,13 @@ interface BulkImportRow {
   templateId?: string;
 }
 
-const MAX_BULK_IMPORT_ROWS = 500;
-
 export const bulkImportCards = asyncHandler(async (req: Request, res: Response) => {
   const companyId = req.user!.role === "SUPER_ADMIN" ? req.body.companyId : req.user!.companyId;
   if (!companyId) throw ApiError.badRequest("companyId is required");
 
+  // Non-empty and <=500 rows are already enforced by bulkImportCardsBody
+  // (validators/card.ts) before this handler runs.
   const rows = req.body.rows as BulkImportRow[];
-  if (!Array.isArray(rows) || rows.length === 0) throw ApiError.badRequest("rows must be a non-empty array");
-  if (rows.length > MAX_BULK_IMPORT_ROWS) throw ApiError.badRequest(`A single import is limited to ${MAX_BULK_IMPORT_ROWS} rows`);
 
   const errors: { row: number; uid?: string; error: string }[] = [];
   const candidates: { row: number; uid: string; cardType: string; label?: string; templateId?: string }[] = [];

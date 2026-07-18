@@ -37,4 +37,17 @@ router.post(
 );
 router.get("/me", authenticate, authController.me);
 
+// better-auth's own POST /sign-up/email is never called by this app's
+// client — the only sign-up paths are /register-company above (self-service)
+// and POST /api/users (admin-created, authenticated+RBAC-checked), both of
+// which call auth.api.signUpEmail() programmatically rather than over HTTP.
+// role/companyId being input:false (see auth/index.ts) already stops the
+// raw endpoint from being useful for privilege escalation, but there's still
+// no legitimate reason to let it create accounts at all, so it's blocked
+// outright here — matched before app.ts's catch-all forwards everything
+// else under /api/auth/* to better-auth.
+router.post("/sign-up/email", (_req, res) => {
+  res.status(404).json({ message: "Not found" });
+});
+
 export default router;

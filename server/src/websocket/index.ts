@@ -65,6 +65,13 @@ const COMMAND_TO_OPERATION: Record<string, OperationType> = {
 // authenticated company member can send.
 const DESTRUCTIVE_COMMANDS = new Set(["CREATE_APPLICATION", "DELETE_APPLICATION", "DELETE_FILE", "FORMAT_PICC"]);
 const MANAGER_UP_ROLES = new Set(["SUPER_ADMIN", "COMPANY_ADMIN", "MANAGER"]);
+// Matches every REST card/encoder mutation route's role floor (see
+// cardRoutes.ts etc). Any command that isn't a plain read — write, create,
+// delete, format, lock, key-change, clone — needs at least OPERATOR;
+// unrecognized commands are treated as writes (default-deny) rather than
+// silently falling through to "read", unlike the audit-log classification
+// below which defaults unknown commands to READ for logging purposes only.
+const OPERATOR_UP_ROLES = new Set(["SUPER_ADMIN", "COMPANY_ADMIN", "MANAGER", "OPERATOR"]);
 
 let io: Server | undefined;
 
@@ -129,6 +136,10 @@ export function initWebsocket(httpServer: HttpServer): Server {
           }
           if (encoder.status === "OFFLINE") throw new Error("Encoder is offline");
 
+          if (COMMAND_TO_OPERATION[payload.command] !== "READ" && !OPERATOR_UP_ROLES.has(data.role)) {
+            throw new Error("You do not have permission to run this command");
+          }
+
           if (DESTRUCTIVE_COMMANDS.has(payload.command) && !MANAGER_UP_ROLES.has(data.role)) {
             throw new Error("You do not have permission to run this command");
           }
@@ -163,6 +174,14 @@ export function initWebsocket(httpServer: HttpServer): Server {
               where: { id: payload.cardId },
               include: { encoderAllocations: { select: { encoderId: true, expiresAt: true } } },
             });
+            // Without this, a caller could pass any company's cardId here —
+            // the encoder above is already company-checked, but this lookup
+            // wasn't, so a foreign card's data could be written/read through
+            // one's own encoder, and its uid/label would then leak into this
+            // company's own audit log via the OperationLog row logged below.
+            if (card && data.role !== "SUPER_ADMIN" && card.companyId !== data.companyId) {
+              throw new Error("Forbidden");
+            }
             const now = new Date();
 
             // The card's own overall expiry (e.g. a Visitors quick-issue

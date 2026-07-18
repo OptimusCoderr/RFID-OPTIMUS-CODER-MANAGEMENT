@@ -1,6 +1,7 @@
 import { prisma } from "../lib/prisma.js";
-import { notifyCompanyAdmins } from "../services/notificationService.js";
+import { notifyCompanyAdminsBatch } from "../services/notificationService.js";
 import { NON_TERMINAL_CARD_STATUSES } from "../utils/cardStatus.js";
+import { NotificationType } from "@prisma/client";
 
 const WARNING_WINDOW_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -39,35 +40,54 @@ export async function checkExpiringCards() {
     ).map((n) => n.link)
   );
 
+  // Grouped by company and sent with one batched call per company (see
+  // notifyCompanyAdminsBatch) instead of one notifyCompanyAdmins call per
+  // card — at realistic scale (many short-lived visitor passes expiring on
+  // the same day) that was O(3 queries) sequentially per card instead of a
+  // handful of queries per company.
+  const expiringByCompany = new Map<string, { type: NotificationType; title: string; message: string; link: string }[]>();
   let expiringNotified = 0;
   for (const card of expiringCards) {
     const link = `/cards/${card.id}`;
     if (alreadyNotifiedLinks.has(link)) continue;
 
     const daysLeft = Math.max(1, Math.ceil((card.expiresAt!.getTime() - now.getTime()) / DAY_MS));
-    await notifyCompanyAdmins(card.companyId, {
+    const list = expiringByCompany.get(card.companyId) ?? [];
+    list.push({
       type: "CARD_EXPIRING",
       title: "Card expiring soon",
       message: `${card.label ?? card.uid} expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}.`,
       link,
     });
+    expiringByCompany.set(card.companyId, list);
     expiringNotified += 1;
   }
+  await Promise.all(
+    Array.from(expiringByCompany.entries()).map(([companyId, inputs]) => notifyCompanyAdminsBatch(companyId, inputs))
+  );
 
   const justExpired = await prisma.card.findMany({
     where: { expiresAt: { lt: now }, status: { in: NON_TERMINAL_CARD_STATUSES } },
     select: { id: true, uid: true, label: true, companyId: true },
   });
 
+  if (justExpired.length > 0) {
+    await prisma.card.updateMany({ where: { id: { in: justExpired.map((c) => c.id) } }, data: { status: "EXPIRED" } });
+  }
+  const expiredByCompany = new Map<string, { type: NotificationType; title: string; message: string; link: string }[]>();
   for (const card of justExpired) {
-    await prisma.card.update({ where: { id: card.id }, data: { status: "EXPIRED" } });
-    await notifyCompanyAdmins(card.companyId, {
+    const list = expiredByCompany.get(card.companyId) ?? [];
+    list.push({
       type: "CARD_EXPIRED",
       title: "Card expired",
       message: `${card.label ?? card.uid} has expired and was automatically deactivated.`,
       link: `/cards/${card.id}`,
     });
+    expiredByCompany.set(card.companyId, list);
   }
+  await Promise.all(
+    Array.from(expiredByCompany.entries()).map(([companyId, inputs]) => notifyCompanyAdminsBatch(companyId, inputs))
+  );
 
   return { expiringNotified, expired: justExpired.length };
 }

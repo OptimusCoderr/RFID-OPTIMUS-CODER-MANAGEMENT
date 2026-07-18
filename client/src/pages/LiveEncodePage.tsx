@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Radio, CreditCard, Send, ExternalLink, ChevronDown, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -145,14 +145,21 @@ export default function LiveEncodePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, encoderId]);
 
+  // Guards against out-of-order responses: if card B is tapped while card
+  // A's lookup is still in flight, A's response arriving after B's must not
+  // overwrite the page with A's (now stale) data. Each call gets a ticket;
+  // only the most recently issued ticket is allowed to apply its result.
+  const lookupTicket = useRef(0);
+
   async function lookupCard(uid: string) {
+    const ticket = ++lookupTicket.current;
     setMatchedCard(undefined);
     try {
       const { data } = await api.get<PaginatedResponse<Card>>("/cards", { params: { search: uid, pageSize: 1 } });
       const match = data.data.find((c) => c.uid.toLowerCase() === uid.toLowerCase());
-      setMatchedCard(match ?? null);
+      if (ticket === lookupTicket.current) setMatchedCard(match ?? null);
     } catch {
-      setMatchedCard(null);
+      if (ticket === lookupTicket.current) setMatchedCard(null);
     }
   }
 
@@ -191,6 +198,14 @@ export default function LiveEncodePage() {
       !matchedCard.encoderAllocations.some(
         (a) => a.encoder.id === encoderId && (!a.expiresAt || new Date(a.expiresAt) > new Date())
       )
+  );
+
+  const allowedEncoderNames = useMemo(
+    () =>
+      (matchedCard?.encoderAllocations ?? [])
+        .filter((a) => !a.expiresAt || new Date(a.expiresAt) > new Date())
+        .map((a) => a.encoder.name),
+    [matchedCard]
   );
 
   function sendCommand(e: FormEvent) {
@@ -243,6 +258,7 @@ export default function LiveEncodePage() {
             {encoders?.map((enc) => (
               <option key={enc.id} value={enc.id}>
                 {enc.name}
+                {enc.location ? ` (${enc.location})` : ""}
               </option>
             ))}
           </select>
@@ -250,6 +266,11 @@ export default function LiveEncodePage() {
             <Badge tone={liveStatus}>{liveStatus ?? "—"}</Badge>
             <span className="text-xs text-slate-400">{connected ? "Live updates connected" : "Connecting..."}</span>
           </div>
+          {selectedEncoder?.accessZones && selectedEncoder.accessZones.length > 0 && (
+            <p className="mt-2 text-xs text-slate-400">
+              Installed in: {selectedEncoder.accessZones.map((g) => g.zone.name).join(", ")}
+            </p>
+          )}
 
           <div className="mt-5 flex items-center gap-2 text-sm text-slate-500">
             <Radio size={15} className={detectedUid ? "text-emerald-500" : "text-slate-300"} />
@@ -302,7 +323,13 @@ export default function LiveEncodePage() {
                 <span className="font-medium">{matchedCard.label ?? matchedCard.uid}</span>
                 <Badge tone={matchedCard.status}>{matchedCard.status}</Badge>
               </div>
-              <Link to={`/cards/${matchedCard.id}`} className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline dark:text-brand-400">
+              {matchedCard.template && <p className="text-xs text-slate-500">Template: {matchedCard.template.name}</p>}
+              {matchedCard.accessZones && matchedCard.accessZones.length > 0 && (
+                <p className="mt-1 text-xs text-slate-500">
+                  Zone access: {matchedCard.accessZones.map((g) => g.zone.name).join(", ")}
+                </p>
+              )}
+              <Link to={`/cards/${matchedCard.id}`} className="mt-1 inline-flex items-center gap-1 text-xs text-brand-600 hover:underline dark:text-brand-400">
                 Open card <ExternalLink size={12} />
               </Link>
             </div>
@@ -311,6 +338,7 @@ export default function LiveEncodePage() {
           {cardRestrictedToOtherEncoders && (
             <p className="mt-3 text-xs text-amber-600">
               This card is restricted to a different encoder — commands sent from here will be rejected.
+              {allowedEncoderNames.length > 0 && <> Allowed: {allowedEncoderNames.join(", ")}.</>}
             </p>
           )}
         </div>

@@ -3,6 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { assertCompanyAccess, scopedCompanyId } from "../middleware/rbac.js";
+import { withSerializableRetry } from "../utils/serializableRetry.js";
 
 export const listTemplates = asyncHandler(async (req: Request, res: Response) => {
   const companyId = scopedCompanyId(req);
@@ -24,14 +25,20 @@ export const createTemplate = asyncHandler(async (req: Request, res: Response) =
   const companyId = req.user!.role === "SUPER_ADMIN" ? req.body.companyId : req.user!.companyId;
   if (!companyId) throw ApiError.badRequest("companyId is required");
 
-  if (req.body.isDefault) {
-    await prisma.cardTemplate.updateMany({
-      where: { companyId, cardType: req.body.cardType },
-      data: { isDefault: false },
-    });
-  }
-
-  const template = await prisma.cardTemplate.create({ data: { ...req.body, companyId } });
+  const template = req.body.isDefault
+    ? await withSerializableRetry(() =>
+        prisma.$transaction(
+          async (tx) => {
+            await tx.cardTemplate.updateMany({
+              where: { companyId, cardType: req.body.cardType, isDefault: true },
+              data: { isDefault: false },
+            });
+            return tx.cardTemplate.create({ data: { ...req.body, companyId } });
+          },
+          { isolationLevel: "Serializable" }
+        )
+      )
+    : await prisma.cardTemplate.create({ data: { ...req.body, companyId } });
   res.status(201).json(template);
 });
 
@@ -40,15 +47,26 @@ export const updateTemplate = asyncHandler(async (req: Request, res: Response) =
   if (!existing) throw ApiError.notFound("Template not found");
   assertCompanyAccess(req, existing.companyId);
 
-  if (req.body.isDefault) {
-    await prisma.cardTemplate.updateMany({
-      where: { companyId: existing.companyId, cardType: req.body.cardType ?? existing.cardType, id: { not: existing.id } },
-      data: { isDefault: false },
-    });
-  }
-
   const { companyId: _ignored, ...data } = req.body;
-  const template = await prisma.cardTemplate.update({ where: { id: req.params.id }, data });
+  const template = req.body.isDefault
+    ? await withSerializableRetry(() =>
+        prisma.$transaction(
+          async (tx) => {
+            await tx.cardTemplate.updateMany({
+              where: {
+                companyId: existing.companyId,
+                cardType: req.body.cardType ?? existing.cardType,
+                id: { not: existing.id },
+                isDefault: true,
+              },
+              data: { isDefault: false },
+            });
+            return tx.cardTemplate.update({ where: { id: req.params.id }, data });
+          },
+          { isolationLevel: "Serializable" }
+        )
+      )
+    : await prisma.cardTemplate.update({ where: { id: req.params.id }, data });
   res.json(template);
 });
 

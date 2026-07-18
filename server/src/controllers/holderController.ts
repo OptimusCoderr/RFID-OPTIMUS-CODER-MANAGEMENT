@@ -6,10 +6,30 @@ import { assertCompanyAccess, scopedCompanyId } from "../middleware/rbac.js";
 
 export const listHolders = asyncHandler(async (req: Request, res: Response) => {
   const companyId = scopedCompanyId(req);
+  const { search, limit } = req.query as { search?: string; limit?: string };
   const holders = await prisma.cardHolder.findMany({
-    where: companyId ? { companyId } : {},
-    include: { _count: { select: { cards: true } } },
-    orderBy: { fullName: "asc" },
+    where: {
+      ...(companyId ? { companyId } : {}),
+      // Server-side search (e.g. the command palette, ⌘K) instead of
+      // fetching every holder in the company and filtering client-side —
+      // that used to cost a full unfiltered list load on every keystroke
+      // regardless of how large the company's holder roster is.
+      ...(search
+        ? {
+            OR: [
+              { fullName: { contains: search, mode: "insensitive" } },
+              { employeeId: { contains: search, mode: "insensitive" } },
+              { email: { contains: search, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    },
+    include: { company: { select: { id: true, name: true } }, _count: { select: { cards: true } } },
+    // A SUPER_ADMIN browsing across every company (companyId === null, i.e.
+    // no ?companyId= filter) gets holders pre-sorted by company so the
+    // client can render one section per company instead of a mixed list.
+    orderBy: companyId ? { fullName: "asc" } : [{ company: { name: "asc" } }, { fullName: "asc" }],
+    ...(limit ? { take: Number(limit) } : {}),
   });
   res.json(holders);
 });

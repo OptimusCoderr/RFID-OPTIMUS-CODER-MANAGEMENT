@@ -13,3 +13,8 @@ export const createHolderBody = z.object({
 export const updateHolderBody = createHolderBody.partial().extend({
   isActive: z.boolean().optional(),
 });
+
+export const holderListQuery = z.object({
+  search: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});

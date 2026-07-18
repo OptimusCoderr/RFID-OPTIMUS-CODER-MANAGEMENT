@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Modal } from "@/components/ui/Modal";
 import { FullPageSpinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/context/AuthContext";
+import { groupByCompany } from "@/lib/groupByCompany";
 import type { CardHolder, Company } from "@/types";
 
 interface HolderFormState {
@@ -75,6 +76,38 @@ export default function HoldersPage() {
 
   if (isLoading) return <FullPageSpinner />;
 
+  const groups = user?.role === "SUPER_ADMIN" ? groupByCompany(holders ?? []) : null;
+
+  function holderRow(h: CardHolder) {
+    return (
+      <tr key={h.id}>
+        <td className="px-4 py-3 font-medium">
+          <Link to={`/holders/${h.id}`} className="text-brand-600 hover:underline dark:text-brand-400">
+            {h.fullName}
+          </Link>
+        </td>
+        <td className="px-4 py-3 text-slate-500">{h.employeeId ?? "—"}</td>
+        <td className="px-4 py-3 text-slate-500">{h.department ?? "—"}</td>
+        <td className="px-4 py-3 text-slate-500">{h.email ?? h.phone ?? "—"}</td>
+        <td className="px-4 py-3">
+          <span className="inline-flex items-center gap-1 text-slate-500">
+            <CreditCard size={14} /> {h._count?.cards ?? 0}
+          </span>
+        </td>
+        <td className="px-4 py-3 text-right">
+          <button
+            className="text-slate-400 hover:text-red-600"
+            onClick={() => {
+              if (confirm(`Remove ${h.fullName}?`)) deleteHolder.mutate(h.id);
+            }}
+          >
+            <Trash2 size={16} />
+          </button>
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <div>
       <PageHeader
@@ -99,35 +132,20 @@ export default function HoldersPage() {
               <th className="px-4 py-3" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {holders?.map((h) => (
-              <tr key={h.id}>
-                <td className="px-4 py-3 font-medium">
-                  <Link to={`/holders/${h.id}`} className="text-brand-600 hover:underline dark:text-brand-400">
-                    {h.fullName}
-                  </Link>
-                </td>
-                <td className="px-4 py-3 text-slate-500">{h.employeeId ?? "—"}</td>
-                <td className="px-4 py-3 text-slate-500">{h.department ?? "—"}</td>
-                <td className="px-4 py-3 text-slate-500">{h.email ?? h.phone ?? "—"}</td>
-                <td className="px-4 py-3">
-                  <span className="inline-flex items-center gap-1 text-slate-500">
-                    <CreditCard size={14} /> {h._count?.cards ?? 0}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <button
-                    className="text-slate-400 hover:text-red-600"
-                    onClick={() => {
-                      if (confirm(`Remove ${h.fullName}?`)) deleteHolder.mutate(h.id);
-                    }}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
+          {groups ? (
+            groups.map((g) => (
+              <tbody key={g.companyId ?? "none"} className="divide-y divide-slate-100 dark:divide-slate-800">
+                <tr className="bg-slate-50 dark:bg-slate-900/50">
+                  <td colSpan={6} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    {g.companyName} <span className="font-normal normal-case text-slate-400">({g.items.length})</span>
+                  </td>
+                </tr>
+                {g.items.map(holderRow)}
+              </tbody>
+            ))
+          ) : (
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">{holders?.map(holderRow)}</tbody>
+          )}
         </table>
       </div>
 

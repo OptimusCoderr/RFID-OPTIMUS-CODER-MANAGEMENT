@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 
 interface CommandPaletteContextValue {
   isOpen: boolean;
@@ -23,11 +23,11 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  return (
-    <CommandPaletteContext.Provider value={{ isOpen, open: () => setIsOpen(true), close: () => setIsOpen(false) }}>
-      {children}
-    </CommandPaletteContext.Provider>
-  );
+  const open = useCallback(() => setIsOpen(true), []);
+  const close = useCallback(() => setIsOpen(false), []);
+  const value = useMemo(() => ({ isOpen, open, close }), [isOpen, open, close]);
+
+  return <CommandPaletteContext.Provider value={value}>{children}</CommandPaletteContext.Provider>;
 }
 
 export function useCommandPalette() {

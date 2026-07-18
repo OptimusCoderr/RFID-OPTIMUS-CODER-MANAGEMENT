@@ -48,13 +48,18 @@ export const createCompany = asyncHandler(async (req: Request, res: Response) =>
 export const updateCompany = asyncHandler(async (req: Request, res: Response) => {
   assertCompanyAccess(req, req.params.id);
 
-  // Which modules a company has access to is a platform-level decision —
-  // a COMPANY_ADMIN can update their own company's contact details, but
-  // not grant themselves additional modules.
-  const data = { ...req.body } as { industry?: CompanyIndustry | null; enabledModules?: CompanyModule[] } & Record<string, unknown>;
+  // Which modules a company has access to — and whether it's suspended at
+  // all — are platform-level decisions: a COMPANY_ADMIN can update their
+  // own company's contact details, but not grant themselves additional
+  // modules or self-un-suspend a company a SUPER_ADMIN deactivated.
+  const data = { ...req.body } as { industry?: CompanyIndustry | null; enabledModules?: CompanyModule[]; isActive?: boolean } & Record<
+    string,
+    unknown
+  >;
   if (req.user!.role !== "SUPER_ADMIN") {
     delete data.industry;
     delete data.enabledModules;
+    delete data.isActive;
   } else if (data.industry && data.enabledModules === undefined) {
     data.enabledModules = INDUSTRY_DEFAULT_MODULES[data.industry];
   }

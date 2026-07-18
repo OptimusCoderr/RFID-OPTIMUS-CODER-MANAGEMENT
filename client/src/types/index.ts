@@ -103,6 +103,7 @@ export interface User {
 export interface CardHolder {
   id: string;
   companyId: string;
+  company?: { id: string; name: string } | null;
   fullName: string;
   email?: string | null;
   phone?: string | null;
@@ -118,6 +119,7 @@ export interface CardHolder {
 export interface Encoder {
   id: string;
   companyId: string;
+  company?: { id: string; name: string } | null;
   name: string;
   type: EncoderType;
   connectionType: EncoderConnectionType;
@@ -129,6 +131,7 @@ export interface Encoder {
   isActive: boolean;
   createdAt: string;
   agentKey?: string;
+  accessZones?: { zone: { id: string; name: string } }[];
 }
 
 export interface MifareSectorLayout {
@@ -216,18 +219,34 @@ export interface CardTemplate {
   createdAt: string;
 }
 
+export interface AccessZoneCardGrant {
+  id: string;
+  grantedAt: string;
+  card: { id: string; uid: string; label?: string | null; holder?: { fullName: string } | null };
+}
+
+export interface AccessZoneEncoderGrant {
+  id: string;
+  grantedAt: string;
+  encoder: { id: string; name: string; location?: string | null };
+}
+
 export interface AccessZone {
   id: string;
   companyId: string;
   name: string;
   description?: string | null;
   createdAt: string;
-  _count?: { cards: number };
+  _count?: { cards: number; encoders: number };
+  // Only present on the single-zone GET (ZonesPage's manage panel), not the list.
+  cards?: AccessZoneCardGrant[];
+  encoders?: AccessZoneEncoderGrant[];
 }
 
 export interface Card {
   id: string;
   companyId: string;
+  company?: { id: string; name: string } | null;
   uid: string;
   cardType: CardType;
   status: CardStatus;
@@ -241,7 +260,7 @@ export interface Card {
   hasStoredKeys?: boolean;
   lastReadData?: unknown;
   accessZones?: { zone: { id: string; name: string } }[];
-  encoderAllocations?: { encoder: { id: string; name: string }; expiresAt?: string | null }[];
+  encoderAllocations?: { encoder: { id: string; name: string; location?: string | null }; expiresAt?: string | null }[];
   issuedAt?: string | null;
   expiresAt?: string | null;
   lastSeenAt?: string | null;

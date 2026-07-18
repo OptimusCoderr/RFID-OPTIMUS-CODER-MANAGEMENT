@@ -36,15 +36,16 @@ export async function registerCompany(input: RegisterCompanyInput) {
   });
 
   try {
+    // role/companyId aren't passed here — better-auth's additionalFields
+    // config marks both input: false (see auth/index.ts) so they can't be
+    // set through the request body of any better-auth endpoint, including
+    // this programmatic call. The new user is created as an inert VIEWER
+    // with no company, then immediately promoted to COMPANY_ADMIN of the
+    // company just created above, once signUpEmail has actually succeeded.
     const result = await auth.api.signUpEmail({
-      body: {
-        name: input.fullName,
-        email: input.email,
-        password: input.password,
-        role: "COMPANY_ADMIN",
-        companyId: company.id,
-      },
+      body: { name: input.fullName, email: input.email, password: input.password },
     });
+    await prisma.user.update({ where: { email: input.email }, data: { role: "COMPANY_ADMIN", companyId: company.id } });
     return result;
   } catch (err) {
     await prisma.company.delete({ where: { id: company.id } }).catch(() => undefined);
