@@ -648,6 +648,14 @@ not physical door hardware itself):
      detail page for actual access control. Both grant/revoke actions are
      enforced server-side (an encoder can only be tied to a zone in its own
      company), not just hidden in the UI.
+   - **Recent access activity** — a live-ish (polled every 5s) log of which
+     card was used at which of the zone's encoders and when, like a hotel
+     door lock's access log: "Guest — Door Reader 204 — Jul 18, 22:43." It
+     reuses [Attendance](#615-attendance-check-in--check-out)'s own records
+     for this zone (`CHECK_IN` shows as **Opened**, `CHECK_OUT` as
+     **Closed**) rather than a separate log, so tapping a card at an encoder
+     tied to this zone — e.g. via the [Attendance](#615-attendance-check-in--check-out)
+     page — is what populates it.
 3. Each zone card on the list shows a running count of cards and encoders.
 
 ### 6.9 Bulk actions and CSV import/export
