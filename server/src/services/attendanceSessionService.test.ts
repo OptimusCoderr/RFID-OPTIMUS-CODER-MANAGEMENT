@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeSessionState, computeEncoderOpenState, type SessionScheduleInput } from "./attendanceSessionService.js";
+import { computeSessionState, computeEncoderOpenState, nextAttendanceType, type SessionScheduleInput } from "./attendanceSessionService.js";
 
 // Wednesday, 10:00 local time — a fixed reference point so schedule math
 // (day-of-week, minutes-of-day) doesn't depend on when the suite runs.
@@ -104,5 +104,32 @@ describe("computeEncoderOpenState", () => {
     const open = { id: "math201", ...schedule({ daysOfWeek: [WEDNESDAY], startTime: "09:00", endTime: "11:00" }) };
     const state = computeEncoderOpenState([stopped, open], WEDNESDAY_10AM);
     expect(state).toEqual({ isOpen: true, openSessionId: "math201" });
+  });
+});
+
+describe("nextAttendanceType", () => {
+  it("FREE alternates forever, same as the original unrestricted behavior", () => {
+    expect(nextAttendanceType("FREE", null)).toEqual({ type: "CHECK_IN" });
+    expect(nextAttendanceType("FREE", { type: "CHECK_IN" })).toEqual({ type: "CHECK_OUT" });
+    expect(nextAttendanceType("FREE", { type: "CHECK_OUT" })).toEqual({ type: "CHECK_IN" });
+  });
+
+  it("CHECK_IN_ONLY allows a single check-in, then rejects every further tap", () => {
+    expect(nextAttendanceType("CHECK_IN_ONLY", null)).toEqual({ type: "CHECK_IN" });
+    const rejected = nextAttendanceType("CHECK_IN_ONLY", { type: "CHECK_IN" });
+    expect(rejected).toMatchObject({ rejected: true });
+  });
+
+  it("CHECK_OUT_ONLY allows a single check-out, then rejects every further tap", () => {
+    expect(nextAttendanceType("CHECK_OUT_ONLY", null)).toEqual({ type: "CHECK_OUT" });
+    const rejected = nextAttendanceType("CHECK_OUT_ONLY", { type: "CHECK_OUT" });
+    expect(rejected).toMatchObject({ rejected: true });
+  });
+
+  it("ONCE allows exactly one check-in then one check-out, then rejects a third tap", () => {
+    expect(nextAttendanceType("ONCE", null)).toEqual({ type: "CHECK_IN" });
+    expect(nextAttendanceType("ONCE", { type: "CHECK_IN" })).toEqual({ type: "CHECK_OUT" });
+    const rejected = nextAttendanceType("ONCE", { type: "CHECK_OUT" });
+    expect(rejected).toMatchObject({ rejected: true });
   });
 });

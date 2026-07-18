@@ -703,6 +703,34 @@ describe("company + card lifecycle happy path", () => {
       expect(res.body.data.every((r: { holder: { id: string } }) => r.holder)).toBe(true);
     });
 
+    it("includes the holder's employee/student ID number on the recorded attendance", async () => {
+      const holderRes = await request(app)
+        .post("/api/holders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ fullName: "ID Number Test Student", employeeId: "STU-4521" });
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04CC33DD44", cardType: "NTAG213" });
+      await request(app)
+        .post(`/api/cards/${cardRes.body.id}/assign`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId: holderRes.body.id });
+
+      const res = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: cardRes.body.id });
+      expect(res.status).toBe(201);
+      expect(res.body.holder.employeeId).toBe("STU-4521");
+
+      const listRes = await request(app)
+        .get("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ holderId: holderRes.body.id });
+      expect(listRes.body.data[0].holder.employeeId).toBe("STU-4521");
+    });
+
     it("rejects an operator-below role (VIEWER) from recording attendance", async () => {
       await request(app)
         .post("/api/users")
@@ -1008,6 +1036,164 @@ describe("company + card lifecycle happy path", () => {
         .set("Authorization", `Bearer ${companyAdminToken}`)
         .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
       expect(tapRes.status).toBe(201);
+    });
+  });
+
+  describe("attendance modes: check-in only / check-out only / once / free", () => {
+    async function newHolderAndCard(uid: string): Promise<string> {
+      const holderRes = await request(app)
+        .post("/api/holders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ fullName: `Mode Test Holder ${uid}` });
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid, cardType: "NTAG213" });
+      await request(app)
+        .post(`/api/cards/${cardRes.body.id}/assign`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId: holderRes.body.id });
+      return cardRes.body.id;
+    }
+
+    // A dedicated encoder per schedule keeps each test's mode isolated —
+    // computeEncoderOpenState picks whichever schedule is open first among
+    // ALL of an encoder's schedules, so sharing one encoder across tests
+    // would let an earlier test's still-open schedule win instead of the
+    // one this test just created. daysOfWeek: [] means "no_schedule" —
+    // always open — so each test only exercises the mode itself, not the
+    // schedule window.
+    async function newSchedule(mode: string): Promise<{ sessionId: string; encoderId: string }> {
+      const encoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: `Mode Test Encoder ${mode} ${Math.random().toString(36).slice(2, 8)}`, type: "ACR122U" });
+      const encoderId = encoderRes.body.id;
+
+      const res = await request(app)
+        .post("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ encoderId, label: `Mode Test ${mode}`, daysOfWeek: [], mode });
+      expect(res.status).toBe(201);
+      expect(res.body.mode).toBe(mode);
+      return { sessionId: res.body.id, encoderId };
+    }
+
+    it("defaults new schedules to FREE, unlimited alternation", async () => {
+      const { sessionId, encoderId } = await newSchedule("FREE");
+      const cardId = await newHolderAndCard("04D1000001");
+
+      const first = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(first.body.type).toBe("CHECK_IN");
+      expect(first.body.sessionId).toBe(sessionId);
+
+      const second = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(second.body.type).toBe("CHECK_OUT");
+
+      const third = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(third.status).toBe(201); // FREE keeps alternating indefinitely
+      expect(third.body.type).toBe("CHECK_IN");
+    });
+
+    it("CHECK_IN_ONLY records a single check-in, then rejects a repeat tap from the same card", async () => {
+      const { encoderId } = await newSchedule("CHECK_IN_ONLY");
+      const cardId = await newHolderAndCard("04D1000002");
+
+      const first = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(first.status).toBe(201);
+      expect(first.body.type).toBe("CHECK_IN");
+
+      const second = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(second.status).toBe(400);
+      expect(second.body.error).toMatch(/already checked in/i);
+    });
+
+    it("CHECK_OUT_ONLY records a single check-out, then rejects a repeat tap from the same card", async () => {
+      const { encoderId } = await newSchedule("CHECK_OUT_ONLY");
+      const cardId = await newHolderAndCard("04D1000003");
+
+      const first = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(first.status).toBe(201);
+      expect(first.body.type).toBe("CHECK_OUT");
+
+      const second = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(second.status).toBe(400);
+      expect(second.body.error).toMatch(/already checked out/i);
+    });
+
+    it("ONCE allows exactly one check-in and one check-out, then rejects a third tap", async () => {
+      const { encoderId } = await newSchedule("ONCE");
+      const cardId = await newHolderAndCard("04D1000004");
+
+      const first = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(first.status).toBe(201);
+      expect(first.body.type).toBe("CHECK_IN");
+
+      const second = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(second.status).toBe(201);
+      expect(second.body.type).toBe("CHECK_OUT");
+
+      const third = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(third.status).toBe(400);
+      expect(third.body.error).toMatch(/already checked in and out/i);
+    });
+
+    it("a mode is scoped per holder — a different card is unaffected by another's CHECK_IN_ONLY limit", async () => {
+      const { encoderId } = await newSchedule("CHECK_IN_ONLY");
+      const cardA = await newHolderAndCard("04D1000005");
+      const cardB = await newHolderAndCard("04D1000006");
+
+      const aFirst = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: cardA, encoderId });
+      expect(aFirst.status).toBe(201);
+
+      const bFirst = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: cardB, encoderId });
+      expect(bFirst.status).toBe(201); // a fresh holder, not blocked by A's check-in
+    });
+
+    it("can update a schedule's mode after creation via PATCH", async () => {
+      const { sessionId } = await newSchedule("FREE");
+      const patchRes = await request(app)
+        .patch(`/api/attendance-sessions/${sessionId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ mode: "CHECK_IN_ONLY" });
+      expect(patchRes.status).toBe(200);
+      expect(patchRes.body.mode).toBe("CHECK_IN_ONLY");
     });
   });
 

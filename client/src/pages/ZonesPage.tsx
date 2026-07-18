@@ -1,13 +1,16 @@
 import { FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
+import { format } from "date-fns";
 import { Pencil, Plus, Settings, ShieldCheck, Trash2, X } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Modal } from "@/components/ui/Modal";
+import { Badge } from "@/components/ui/Badge";
 import { FullPageSpinner, Spinner } from "@/components/ui/Spinner";
 import { useAuth } from "@/context/AuthContext";
-import type { AccessZone, Card, Company, Encoder, PaginatedResponse } from "@/types";
+import type { AccessZone, AttendanceRecord, Card, Company, Encoder, PaginatedResponse } from "@/types";
 
 export default function ZonesPage() {
   const { user } = useAuth();
@@ -42,6 +45,24 @@ export default function ZonesPage() {
     queryKey: ["encoders", manageZone?.companyId],
     queryFn: async () => (await api.get<Encoder[]>("/encoders", { params: { companyId: manageZone!.companyId } })).data,
     enabled: Boolean(manageZone),
+  });
+
+  // Which card was tapped at which of this zone's encoders, and when — like
+  // a hotel door-lock's access log. Reuses Attendance's existing records
+  // (CHECK_IN reads as "opened/entered", CHECK_OUT as "closed/exited")
+  // rather than a separate log, since a zone tap already creates one.
+  // Polled rather than pushed over the websocket — good enough for a
+  // recent-activity glance, and avoids wiring up a second live feed.
+  const { data: zoneActivity } = useQuery({
+    queryKey: ["zone-attendance", manageZoneId],
+    queryFn: async () =>
+      (
+        await api.get<PaginatedResponse<AttendanceRecord>>("/attendance", {
+          params: { zoneId: manageZoneId, pageSize: 15 },
+        })
+      ).data.data,
+    enabled: Boolean(manageZoneId),
+    refetchInterval: manageZoneId ? 5000 : false,
   });
 
   function resetForm() {
@@ -113,7 +134,9 @@ export default function ZonesPage() {
 
   const grantCardAccess = useMutation({
     mutationFn: async () => {
-      const { data } = await api.get<PaginatedResponse<Card>>("/cards", { params: { search: grantUid, pageSize: 1 } });
+      const { data } = await api.get<PaginatedResponse<Card>>("/cards", {
+        params: { search: grantUid, pageSize: 1, companyId: manageZone!.companyId },
+      });
       const card = data.data.find((c) => c.uid.toLowerCase() === grantUid.trim().toLowerCase());
       if (!card) throw new Error("No card found with that UID");
       await api.post(`/zones/${manageZoneId}/grant`, { cardIds: [card.id] });
@@ -123,7 +146,7 @@ export default function ZonesPage() {
       queryClient.invalidateQueries({ queryKey: ["zones"] });
       setGrantUid("");
     },
-    onError: (err) => toast.error(err instanceof Error ? err.message : apiErrorMessage(err)),
+    onError: (err) => toast.error(axios.isAxiosError(err) ? apiErrorMessage(err) : err instanceof Error ? err.message : "Something went wrong"),
   });
 
   const revokeCardAccess = useMutation({
@@ -340,6 +363,29 @@ export default function ZonesPage() {
                   <Plus size={14} /> Tie
                 </button>
               </form>
+            </div>
+
+            <div>
+              <h4 className="mb-2 text-sm font-semibold">Recent access activity</h4>
+              <p className="mb-2 text-xs text-slate-400">
+                Which card was used at which of this zone's encoders, and when — like a hotel door lock's access log.
+                Check-in reads as opened/entered, check-out as closed/exited.
+              </p>
+              <div className="max-h-64 space-y-1.5 overflow-y-auto">
+                {zoneActivity?.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700">
+                    <span className="flex items-center gap-2">
+                      <Badge tone={r.type === "CHECK_IN" ? "ACTIVE" : undefined}>{r.type === "CHECK_IN" ? "Opened" : "Closed"}</Badge>
+                      <span>
+                        {r.holder?.fullName ?? r.card?.label ?? r.card?.uid ?? "Unknown card"}
+                        {r.encoder && <span className="text-slate-400"> &middot; {r.encoder.name}</span>}
+                      </span>
+                    </span>
+                    <span className="text-xs text-slate-400">{format(new Date(r.recordedAt), "MMM d, HH:mm:ss")}</span>
+                  </div>
+                ))}
+                {zoneActivity?.length === 0 && <p className="text-xs text-slate-400">No access activity recorded for this zone yet.</p>}
+              </div>
             </div>
           </div>
         )}

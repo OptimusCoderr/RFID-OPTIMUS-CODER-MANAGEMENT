@@ -1,7 +1,8 @@
+import type { AttendanceMode } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../utils/ApiError.js";
 import { withSerializableRetry } from "../utils/serializableRetry.js";
-import { computeEncoderOpenState } from "./attendanceSessionService.js";
+import { computeEncoderOpenState, nextAttendanceType } from "./attendanceSessionService.js";
 
 const ATTENDANCE_INCLUDE = {
   card: { select: { id: true, uid: true, label: true } },
@@ -10,10 +11,13 @@ const ATTENDANCE_INCLUDE = {
   encoder: { select: { id: true, name: true } },
 } as const;
 
-// A tap alternates CHECK_IN/CHECK_OUT for a given holder, tracked
-// independently per zone (a student's lecture-room state doesn't affect
-// their library state) — so no separate "start session" step is needed,
-// and a missed tap just leaves that scope's next tap correctly reversed.
+// By default (AttendanceMode FREE) a tap alternates CHECK_IN/CHECK_OUT for a
+// given holder, tracked independently per zone (a student's lecture-room
+// state doesn't affect their library state) — so no separate "start
+// session" step is needed, and a missed tap just leaves that scope's next
+// tap correctly reversed. A stricter mode on the encoder's open schedule
+// (see nextAttendanceType) can instead cap this at one check-in, one
+// check-out, or one full in/out cycle per holder per scope.
 export async function recordAttendance(params: {
   companyId: string;
   cardId: string;
@@ -70,6 +74,10 @@ export async function recordAttendance(params: {
   // taps on the same shared encoder, which are otherwise indistinguishable.
   let sessionId: string | null = null;
   let sessionLabel: string | null = null;
+  // FREE reproduces the original unrestricted toggle exactly — it's what
+  // applies for any general (no-encoder) tap, and for an encoder whose open
+  // schedule doesn't set a stricter mode.
+  let mode: AttendanceMode = "FREE";
   if (params.encoderId) {
     const sessions = await prisma.attendanceSession.findMany({ where: { encoderId: params.encoderId } });
     const state = computeEncoderOpenState(sessions);
@@ -77,8 +85,10 @@ export async function recordAttendance(params: {
       throw ApiError.badRequest("Attendance is not currently open for this encoder");
     }
     if (state.openSessionId) {
+      const openSession = sessions.find((s) => s.id === state.openSessionId);
       sessionId = state.openSessionId;
-      sessionLabel = sessions.find((s) => s.id === state.openSessionId)?.label ?? null;
+      sessionLabel = openSession?.label ?? null;
+      mode = openSession?.mode ?? "FREE";
     }
   }
 
@@ -99,7 +109,10 @@ export async function recordAttendance(params: {
           where: { companyId: params.companyId, holderId, zoneId },
           orderBy: { recordedAt: "desc" },
         });
-        const type = last?.type === "CHECK_IN" ? "CHECK_OUT" : "CHECK_IN";
+        const decision = nextAttendanceType(mode, last ? { type: last.type } : null);
+        if ("rejected" in decision) {
+          throw ApiError.badRequest(decision.reason);
+        }
 
         return tx.attendanceRecord.create({
           data: {
@@ -110,7 +123,7 @@ export async function recordAttendance(params: {
             encoderId: params.encoderId ?? undefined,
             sessionId: sessionId ?? undefined,
             sessionLabel: sessionLabel ?? undefined,
-            type,
+            type: decision.type,
           },
           include: ATTENDANCE_INCLUDE,
         });

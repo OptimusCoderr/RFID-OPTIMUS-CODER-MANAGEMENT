@@ -10,6 +10,11 @@ const timeString = z
 // many of these — see the AttendanceSession model comment.
 const labelSchema = z.string().trim().min(1, "A label is required").max(200);
 
+// FREE = unlimited alternating check-in/check-out (the original behavior).
+// See AttendanceMode in schema.prisma and nextAttendanceType in
+// attendanceSessionService.ts for what the other modes reject.
+const modeSchema = z.enum(["FREE", "CHECK_IN_ONLY", "CHECK_OUT_ONLY", "ONCE"]);
+
 export const createAttendanceSessionBody = z.object({
   companyId: z.string().uuid().optional(),
   encoderId: z.string().uuid(),
@@ -19,6 +24,7 @@ export const createAttendanceSessionBody = z.object({
   daysOfWeek: z.array(z.number().int().min(0).max(6)).max(7).default([]),
   startTime: timeString.nullable().optional(),
   endTime: timeString.nullable().optional(),
+  mode: modeSchema.default("FREE"),
 });
 
 // A partial update — every field optional except that a label, if given at
@@ -31,6 +37,7 @@ export const updateAttendanceSessionBody = z.object({
   daysOfWeek: z.array(z.number().int().min(0).max(6)).max(7).optional(),
   startTime: timeString.nullable().optional(),
   endTime: timeString.nullable().optional(),
+  mode: modeSchema.optional(),
 });
 
 export const setOverrideBody = z.object({

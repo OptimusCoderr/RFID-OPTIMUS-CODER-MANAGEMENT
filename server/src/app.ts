@@ -33,7 +33,11 @@ export function createApp() {
   app.use(
     rateLimit({
       windowMs: 60_000,
-      limit: 300,
+      // The integration suite runs its whole request volume inside one
+      // short-lived window against a single IP, unlike real traffic — raised
+      // only under NODE_ENV=test (set by tests/setupEnv.ts) so it doesn't
+      // start throwing false-positive 429s as the suite grows.
+      limit: env.nodeEnv === "test" ? 5000 : 300,
       standardHeaders: true,
       legacyHeaders: false,
     })

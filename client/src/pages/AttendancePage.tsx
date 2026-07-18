@@ -11,7 +11,7 @@ import { FullPageSpinner, Spinner } from "@/components/ui/Spinner";
 import { useSocket } from "@/context/SocketContext";
 import { useNow } from "@/hooks/useNow";
 import { formatCountdown } from "@/lib/countdown";
-import type { AccessZone, AttendanceRecord, AttendanceSession, Card, Encoder, ManualOverride, PaginatedResponse } from "@/types";
+import type { AccessZone, AttendanceMode, AttendanceRecord, AttendanceSession, Card, Encoder, ManualOverride, PaginatedResponse } from "@/types";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -23,6 +23,20 @@ const STATE_LABELS: Record<AttendanceSession["state"]["reason"], string> = {
   no_schedule: "No days/times set — always open",
 };
 
+const MODE_LABELS: Record<AttendanceMode, string> = {
+  FREE: "Free (check in/out at will)",
+  CHECK_IN_ONLY: "Check-in only, once",
+  CHECK_OUT_ONLY: "Check-out only, once",
+  ONCE: "Check in & out, once each",
+};
+
+const MODE_HELP: Record<AttendanceMode, string> = {
+  FREE: "Every tap alternates check-in/check-out, with no limit — the original behavior.",
+  CHECK_IN_ONLY: "Each card can only ever record a single check-in here. A repeat tap is rejected.",
+  CHECK_OUT_ONLY: "Each card can only ever record a single check-out here. A repeat tap is rejected.",
+  ONCE: "Each card gets exactly one check-in then one check-out. A third tap is rejected.",
+};
+
 interface ScheduleFormState {
   encoderId: string;
   zoneId: string;
@@ -31,6 +45,7 @@ interface ScheduleFormState {
   daysOfWeek: number[];
   startTime: string;
   endTime: string;
+  mode: AttendanceMode;
 }
 
 const EMPTY_SCHEDULE: ScheduleFormState = {
@@ -41,6 +56,7 @@ const EMPTY_SCHEDULE: ScheduleFormState = {
   daysOfWeek: [],
   startTime: "",
   endTime: "",
+  mode: "FREE",
 };
 
 interface FeedEntry {
@@ -127,6 +143,7 @@ export default function AttendancePage() {
       daysOfWeek: s.daysOfWeek,
       startTime: s.startTime ?? "",
       endTime: s.endTime ?? "",
+      mode: s.mode,
     });
     setModalOpen(true);
   }
@@ -141,6 +158,7 @@ export default function AttendancePage() {
         daysOfWeek: scheduleForm.daysOfWeek,
         startTime: scheduleForm.startTime || null,
         endTime: scheduleForm.endTime || null,
+        mode: scheduleForm.mode,
       };
       return editingId
         ? (await api.patch<AttendanceSession>(`/attendance-sessions/${editingId}`, body)).data
@@ -315,7 +333,8 @@ export default function AttendancePage() {
             Waiting for a tap...
           </div>
           <p className="mt-3 text-xs text-slate-400">
-            Each tap alternates check-in/check-out for that holder, tracked independently per zone.
+            By default each tap alternates check-in/check-out for that holder, tracked independently per zone — set a
+            stricter mode on a schedule below to limit repeat taps.
           </p>
         </div>
 
@@ -354,6 +373,7 @@ export default function AttendancePage() {
               <th className="px-4 py-3">Encoder</th>
               <th className="px-4 py-3">Days</th>
               <th className="px-4 py-3">Time</th>
+              <th className="px-4 py-3">Mode</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3"></th>
             </tr>
@@ -373,6 +393,9 @@ export default function AttendancePage() {
                   </td>
                   <td className="px-4 py-3 text-slate-500">
                     {s.startTime && s.endTime ? `${s.startTime}–${s.endTime}` : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-slate-500" title={MODE_HELP[s.mode]}>
+                    {MODE_LABELS[s.mode]}
                   </td>
                   <td className="px-4 py-3">
                     <span title={STATE_LABELS[s.state.reason]}>
@@ -439,7 +462,7 @@ export default function AttendancePage() {
             })}
             {allSessions?.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
+                <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
                   No schedules saved yet — click "New schedule" to add one.
                 </td>
               </tr>
@@ -547,6 +570,7 @@ export default function AttendancePage() {
               <tr>
                 <th className="px-4 py-3">When</th>
                 <th className="px-4 py-3">Holder</th>
+                <th className="px-4 py-3">ID number</th>
                 <th className="px-4 py-3">Type</th>
                 <th className="px-4 py-3">Schedule</th>
                 <th className="px-4 py-3">Zone</th>
@@ -558,6 +582,7 @@ export default function AttendancePage() {
                 <tr key={r.id}>
                   <td className="px-4 py-3 text-slate-500">{format(new Date(r.recordedAt), "MMM d, HH:mm:ss")}</td>
                   <td className="px-4 py-3 font-medium">{r.holder?.fullName ?? "—"}</td>
+                  <td className="px-4 py-3 font-mono text-slate-500">{r.holder?.employeeId ?? "—"}</td>
                   <td className="px-4 py-3">
                     <Badge tone={r.type === "CHECK_IN" ? "ACTIVE" : undefined}>{r.type === "CHECK_IN" ? "Check-in" : "Check-out"}</Badge>
                   </td>
@@ -568,7 +593,7 @@ export default function AttendancePage() {
               ))}
               {data?.data.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
                     No attendance records match these filters.
                   </td>
                 </tr>
@@ -645,6 +670,21 @@ export default function AttendancePage() {
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className="label">Mode</label>
+            <select
+              className="input"
+              value={scheduleForm.mode}
+              onChange={(e) => setScheduleForm((f) => ({ ...f, mode: e.target.value as AttendanceMode }))}
+            >
+              {(Object.keys(MODE_LABELS) as AttendanceMode[]).map((m) => (
+                <option key={m} value={m}>
+                  {MODE_LABELS[m]}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-slate-400">{MODE_HELP[scheduleForm.mode]}</p>
           </div>
           <div>
             <label className="label">Days</label>

@@ -112,6 +112,22 @@ enum ManualOverride {
   FORCE_CLOSED
 }
 
+// Governs what a tap under a given AttendanceSession is allowed to record,
+// on top of the normal CHECK_IN/CHECK_OUT alternation — see
+// nextAttendanceType in attendanceSessionService.ts for the actual decision
+// logic. FREE is the original toggle-forever behavior and stays the
+// default so existing schedules are unaffected.
+enum AttendanceMode {
+  // Unlimited alternating check-in/check-out, same as before this field existed.
+  FREE
+  // Only ever records a single CHECK_IN per holder per scope; a repeat tap is rejected.
+  CHECK_IN_ONLY
+  // Only ever records a single CHECK_OUT per holder per scope; a repeat tap is rejected.
+  CHECK_OUT_ONLY
+  // One check-in then one check-out, in that order; a third tap is rejected.
+  ONCE
+}
+
 enum MaintenanceStatus {
   OPEN
   IN_PROGRESS
@@ -613,6 +629,10 @@ model AttendanceSession {
   endTime    String?
 
   manualOverride ManualOverride @default(NONE)
+
+  // See AttendanceMode — governs what recordAttendance accepts while this
+  // schedule is the open one, on top of the usual check-in/out alternation.
+  mode AttendanceMode @default(FREE)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
