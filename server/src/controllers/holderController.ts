@@ -8,8 +8,11 @@ export const listHolders = asyncHandler(async (req: Request, res: Response) => {
   const companyId = scopedCompanyId(req);
   const holders = await prisma.cardHolder.findMany({
     where: companyId ? { companyId } : {},
-    include: { _count: { select: { cards: true } } },
-    orderBy: { fullName: "asc" },
+    include: { company: { select: { id: true, name: true } }, _count: { select: { cards: true } } },
+    // A SUPER_ADMIN browsing across every company (companyId === null, i.e.
+    // no ?companyId= filter) gets holders pre-sorted by company so the
+    // client can render one section per company instead of a mixed list.
+    orderBy: companyId ? { fullName: "asc" } : [{ company: { name: "asc" } }, { fullName: "asc" }],
   });
   res.json(holders);
 });

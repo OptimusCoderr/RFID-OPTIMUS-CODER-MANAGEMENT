@@ -9,6 +9,7 @@ import { FullPageSpinner } from "@/components/ui/Spinner";
 import { Badge } from "@/components/ui/Badge";
 import type { Company, Role, User } from "@/types";
 import { useAuth } from "@/context/AuthContext";
+import { groupByCompany } from "@/lib/groupByCompany";
 
 const ROLE_OPTIONS: Role[] = ["SUPER_ADMIN", "COMPANY_ADMIN", "MANAGER", "OPERATOR", "VIEWER"];
 
@@ -115,6 +116,51 @@ export default function UsersPage() {
 
   if (isLoading) return <FullPageSpinner />;
 
+  const isSuperAdmin = currentUser?.role === "SUPER_ADMIN";
+  const groups = isSuperAdmin ? groupByCompany(users ?? []) : null;
+
+  function userRow(u: User) {
+    return (
+      <tr key={u.id}>
+        <td className="px-4 py-3 font-medium">{u.fullName}</td>
+        <td className="px-4 py-3 text-slate-500">{u.email}</td>
+        <td className="px-4 py-3">{u.role.replace("_", " ")}</td>
+        <td className="px-4 py-3">
+          <Badge tone={u.isActive ? "ACTIVE" : "BLOCKED"}>{u.isActive ? "Active" : "Disabled"}</Badge>
+        </td>
+        <td className="px-4 py-3 text-right">
+          {u.id !== currentUser?.id && (
+            <div className="flex items-center justify-end gap-2">
+              <button
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                onClick={() => openEdit(u)}
+                title="Edit user"
+              >
+                <Pencil size={16} />
+              </button>
+              <button
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                onClick={() => toggleActive.mutate(u)}
+                title={u.isActive ? "Disable user" : "Reactivate user"}
+              >
+                {u.isActive ? <Ban size={16} /> : <CheckCircle2 size={16} />}
+              </button>
+              <button
+                className="text-slate-400 hover:text-red-600"
+                onClick={() => {
+                  if (confirm(`Delete ${u.fullName}? This cannot be undone.`)) deleteUser.mutate(u.id);
+                }}
+                title="Delete user"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          )}
+        </td>
+      </tr>
+    );
+  }
+
   return (
     <div>
       <PageHeader
@@ -134,53 +180,24 @@ export default function UsersPage() {
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Email</th>
               <th className="px-4 py-3">Role</th>
-              {currentUser?.role === "SUPER_ADMIN" && <th className="px-4 py-3">Company</th>}
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-            {users?.map((u) => (
-              <tr key={u.id}>
-                <td className="px-4 py-3 font-medium">{u.fullName}</td>
-                <td className="px-4 py-3 text-slate-500">{u.email}</td>
-                <td className="px-4 py-3">{u.role.replace("_", " ")}</td>
-                {currentUser?.role === "SUPER_ADMIN" && <td className="px-4 py-3 text-slate-500">{u.company?.name ?? "—"}</td>}
-                <td className="px-4 py-3">
-                  <Badge tone={u.isActive ? "ACTIVE" : "BLOCKED"}>{u.isActive ? "Active" : "Disabled"}</Badge>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {u.id !== currentUser?.id && (
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                        onClick={() => openEdit(u)}
-                        title="Edit user"
-                      >
-                        <Pencil size={16} />
-                      </button>
-                      <button
-                        className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                        onClick={() => toggleActive.mutate(u)}
-                        title={u.isActive ? "Disable user" : "Reactivate user"}
-                      >
-                        {u.isActive ? <Ban size={16} /> : <CheckCircle2 size={16} />}
-                      </button>
-                      <button
-                        className="text-slate-400 hover:text-red-600"
-                        onClick={() => {
-                          if (confirm(`Delete ${u.fullName}? This cannot be undone.`)) deleteUser.mutate(u.id);
-                        }}
-                        title="Delete user"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
+          {groups ? (
+            groups.map((g) => (
+              <tbody key={g.companyId ?? "none"} className="divide-y divide-slate-100 dark:divide-slate-800">
+                <tr className="bg-slate-50 dark:bg-slate-900/50">
+                  <td colSpan={5} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    {g.companyName} <span className="font-normal normal-case text-slate-400">({g.items.length})</span>
+                  </td>
+                </tr>
+                {g.items.map(userRow)}
+              </tbody>
+            ))
+          ) : (
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">{users?.map(userRow)}</tbody>
+          )}
         </table>
       </div>
 

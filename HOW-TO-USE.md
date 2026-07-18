@@ -281,6 +281,16 @@ holders, cards, visitor passes) shows an extra required **Company** field
 for them to pick which company the new record belongs to. Everyone else
 doesn't see that field — their own company is used automatically.
 
+Browsing across every company at once is also organized by company for a
+`SUPER_ADMIN`: **Users**, **Card Holders**, and **Encoders** are split into
+one section per company (with a count), instead of one long mixed list.
+**Cards** works a little differently since it's paginated (a company could
+have thousands) — each page is still pre-sorted so a company's cards
+cluster together with a header, and a **Company** dropdown next to the
+other filters lets you scope the whole list down to just one company's
+cards, paged normally. Everyone else only ever has one company's data to
+begin with, so they see the plain list as before.
+
 ## 6. Everyday workflows
 
 ### 6.1 Managing your team (Users)

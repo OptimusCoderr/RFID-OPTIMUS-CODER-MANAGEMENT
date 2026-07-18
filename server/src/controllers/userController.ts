@@ -12,6 +12,7 @@ const SAFE_SELECT = {
   fullName: true,
   role: true,
   companyId: true,
+  company: { select: { id: true, name: true } },
   isActive: true,
   lastLoginAt: true,
   createdAt: true,
@@ -22,7 +23,10 @@ export const listUsers = asyncHandler(async (req: Request, res: Response) => {
   const users = await prisma.user.findMany({
     where: companyId ? { companyId } : {},
     select: SAFE_SELECT,
-    orderBy: { fullName: "asc" },
+    // A SUPER_ADMIN browsing across every company (companyId === null, i.e.
+    // no ?companyId= filter) gets users pre-sorted by company so the client
+    // can render one section per company instead of a mixed list.
+    orderBy: companyId ? { fullName: "asc" } : [{ company: { name: "asc" } }, { fullName: "asc" }],
   });
   res.json(users);
 });

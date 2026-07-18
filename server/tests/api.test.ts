@@ -1546,4 +1546,74 @@ describe("company + card lifecycle happy path", () => {
       expect(check.status).toBe(404);
     });
   });
+
+  describe("company grouping for SUPER_ADMIN list views", () => {
+    it("includes a company relation on users/cards/holders/encoders, and sorts unscoped lists by company name first", async () => {
+      const otherCoRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        // Named to alphabetically sort before every other company created in
+        // this suite, so it's a reliable check that unscoped SUPER_ADMIN
+        // lists really are company-name-sorted (see listUsers/listCards/
+        // listHolders/listEncoders), not just returning a company relation.
+        .send({ name: "AAA Grouping Test Co", slug: "aaa-grouping-test-co" });
+      const otherCompanyId = otherCoRes.body.id;
+
+      const userRes = await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({
+          email: "grouping-user@aaa-grouping-test-co.example",
+          password: "GroupingUser123!",
+          fullName: "Grouping User",
+          role: "COMPANY_ADMIN",
+          companyId: otherCompanyId,
+        });
+      const encoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Grouping Encoder", type: "ACR122U", companyId: otherCompanyId });
+      const holderRes = await request(app)
+        .post("/api/holders")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ fullName: "Grouping Holder", companyId: otherCompanyId });
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ uid: "04AAABBBCC", cardType: "NTAG213", companyId: otherCompanyId });
+
+      const usersRes = await request(app).get("/api/users").set("Authorization", `Bearer ${superAdminToken}`);
+      const groupingUser = usersRes.body.find((u: { id: string }) => u.id === userRes.body.id);
+      expect(groupingUser.company?.name).toBe("AAA Grouping Test Co");
+      // The first company-affiliated user in the unscoped list should belong
+      // to the alphabetically-first company.
+      expect(usersRes.body.find((u: { company?: { name: string } }) => u.company)?.company?.name).toBe("AAA Grouping Test Co");
+
+      const encodersRes = await request(app).get("/api/encoders").set("Authorization", `Bearer ${superAdminToken}`);
+      expect(encodersRes.body.find((e: { id: string }) => e.id === encoderRes.body.id).company?.name).toBe("AAA Grouping Test Co");
+      expect(encodersRes.body[0].company?.name).toBe("AAA Grouping Test Co");
+
+      const holdersRes = await request(app).get("/api/holders").set("Authorization", `Bearer ${superAdminToken}`);
+      expect(holdersRes.body.find((h: { id: string }) => h.id === holderRes.body.id).company?.name).toBe("AAA Grouping Test Co");
+      expect(holdersRes.body[0].company?.name).toBe("AAA Grouping Test Co");
+
+      const cardsRes = await request(app)
+        .get("/api/cards")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .query({ pageSize: 100 });
+      const groupingCard = cardsRes.body.data.find((c: { id: string }) => c.id === cardRes.body.id);
+      expect(groupingCard.company?.name).toBe("AAA Grouping Test Co");
+      expect(cardsRes.body.data[0].company?.name).toBe("AAA Grouping Test Co");
+    });
+
+    it("scoping to one company via ?companyId= still returns only that company's cards", async () => {
+      const res = await request(app)
+        .get("/api/cards")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .query({ companyId, pageSize: 100 });
+      expect(res.status).toBe(200);
+      expect(res.body.data.length).toBeGreaterThan(0);
+      expect(res.body.data.every((c: { companyId: string }) => c.companyId === companyId)).toBe(true);
+    });
+  });
 });

@@ -103,6 +103,7 @@ export interface User {
 export interface CardHolder {
   id: string;
   companyId: string;
+  company?: { id: string; name: string } | null;
   fullName: string;
   email?: string | null;
   phone?: string | null;
@@ -118,6 +119,7 @@ export interface CardHolder {
 export interface Encoder {
   id: string;
   companyId: string;
+  company?: { id: string; name: string } | null;
   name: string;
   type: EncoderType;
   connectionType: EncoderConnectionType;
@@ -228,6 +230,7 @@ export interface AccessZone {
 export interface Card {
   id: string;
   companyId: string;
+  company?: { id: string; name: string } | null;
   uid: string;
   cardType: CardType;
   status: CardStatus;

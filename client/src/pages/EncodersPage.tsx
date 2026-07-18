@@ -12,6 +12,7 @@ import { ENCODER_CONNECTION_OPTIONS, ENCODER_TYPE_OPTIONS, formatEnum } from "@/
 import type { Company, Encoder, EncoderConnectionType, EncoderType } from "@/types";
 import { formatDistanceToNow } from "date-fns";
 import { useAuth } from "@/context/AuthContext";
+import { groupByCompany } from "@/lib/groupByCompany";
 
 interface EncoderFormState {
   name: string;
@@ -112,6 +113,44 @@ export default function EncodersPage() {
 
   if (isLoading) return <FullPageSpinner />;
 
+  const groups = currentUser?.role === "SUPER_ADMIN" ? groupByCompany(encoders ?? []) : null;
+
+  function encoderCard(enc: Encoder) {
+    return (
+      <div key={enc.id} className="card p-5">
+        <div className="mb-2 flex items-start justify-between">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300">
+            <Wifi size={18} />
+          </div>
+          <Badge tone={enc.status}>{enc.status}</Badge>
+        </div>
+        <Link to={`/encoders/${enc.id}`} className="font-semibold text-brand-600 hover:underline dark:text-brand-400">
+          {enc.name}
+        </Link>
+        <p className="text-xs text-slate-400">
+          {formatEnum(enc.type)} · {formatEnum(enc.connectionType)}
+        </p>
+        {enc.location && <p className="mt-1 text-sm text-slate-500">{enc.location}</p>}
+        <p className="mt-2 text-xs text-slate-400">
+          {enc.lastSeenAt ? `Last seen ${formatDistanceToNow(new Date(enc.lastSeenAt), { addSuffix: true })}` : "Never connected"}
+        </p>
+        <div className="mt-4 flex gap-2">
+          <button className="btn-secondary flex-1" onClick={() => rotateKey.mutate(enc)}>
+            <KeyRound size={14} /> Rotate key
+          </button>
+          <button
+            className="btn-secondary text-red-600"
+            onClick={() => {
+              if (confirm(`Remove encoder "${enc.name}"?`)) deleteEncoder.mutate(enc.id);
+            }}
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <PageHeader
@@ -124,42 +163,24 @@ export default function EncodersPage() {
         }
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {encoders?.map((enc) => (
-          <div key={enc.id} className="card p-5">
-            <div className="mb-2 flex items-start justify-between">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300">
-                <Wifi size={18} />
-              </div>
-              <Badge tone={enc.status}>{enc.status}</Badge>
+      {groups ? (
+        <div className="space-y-6">
+          {groups.map((g) => (
+            <div key={g.companyId ?? "none"}>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {g.companyName} <span className="font-normal normal-case text-slate-400">({g.items.length})</span>
+              </h3>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">{g.items.map(encoderCard)}</div>
             </div>
-            <Link to={`/encoders/${enc.id}`} className="font-semibold text-brand-600 hover:underline dark:text-brand-400">
-              {enc.name}
-            </Link>
-            <p className="text-xs text-slate-400">
-              {formatEnum(enc.type)} · {formatEnum(enc.connectionType)}
-            </p>
-            {enc.location && <p className="mt-1 text-sm text-slate-500">{enc.location}</p>}
-            <p className="mt-2 text-xs text-slate-400">
-              {enc.lastSeenAt ? `Last seen ${formatDistanceToNow(new Date(enc.lastSeenAt), { addSuffix: true })}` : "Never connected"}
-            </p>
-            <div className="mt-4 flex gap-2">
-              <button className="btn-secondary flex-1" onClick={() => rotateKey.mutate(enc)}>
-                <KeyRound size={14} /> Rotate key
-              </button>
-              <button
-                className="btn-secondary text-red-600"
-                onClick={() => {
-                  if (confirm(`Remove encoder "${enc.name}"?`)) deleteEncoder.mutate(enc.id);
-                }}
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          </div>
-        ))}
-        {encoders?.length === 0 && <p className="text-sm text-slate-400">No encoders registered yet.</p>}
-      </div>
+          ))}
+          {encoders?.length === 0 && <p className="text-sm text-slate-400">No encoders registered yet.</p>}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {encoders?.map(encoderCard)}
+          {encoders?.length === 0 && <p className="text-sm text-slate-400">No encoders registered yet.</p>}
+        </div>
+      )}
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Register an encoder">
         <form onSubmit={handleSubmit} className="space-y-4">

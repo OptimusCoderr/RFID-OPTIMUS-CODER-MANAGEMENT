@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/Badge";
 import { useSocket } from "@/context/SocketContext";
 import { useAuth } from "@/context/AuthContext";
 import { CARD_STATUS_OPTIONS, CARD_TYPE_OPTIONS, formatEnum } from "@/lib/constants";
+import { groupByCompany } from "@/lib/groupByCompany";
 import type { Card, CardTemplate, CardType, Company, Encoder, PaginatedResponse } from "@/types";
 
 interface BulkImportResult {
@@ -49,6 +50,7 @@ export default function CardsPage() {
   const [status, setStatus] = useState("");
   const [cardType, setCardType] = useState("");
   const [search, setSearch] = useState("");
+  const [filterCompanyId, setFilterCompanyId] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [importRows, setImportRows] = useState<Record<string, string>[]>([]);
   const [importResult, setImportResult] = useState<BulkImportResult | null>(null);
@@ -102,11 +104,18 @@ export default function CardsPage() {
   }, [socket, scanning, scanEncoderId]);
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ["cards", { page, status, cardType, search }],
+    queryKey: ["cards", { page, status, cardType, search, filterCompanyId }],
     queryFn: async () =>
       (
         await api.get<PaginatedResponse<Card>>("/cards", {
-          params: { page, pageSize: 20, status: status || undefined, cardType: cardType || undefined, search: search || undefined },
+          params: {
+            page,
+            pageSize: 20,
+            status: status || undefined,
+            cardType: cardType || undefined,
+            search: search || undefined,
+            companyId: filterCompanyId || undefined,
+          },
         })
       ).data,
     placeholderData: (prev) => prev,
@@ -120,7 +129,7 @@ export default function CardsPage() {
   // Selection is page/filter scoped — drop it whenever the visible set changes.
   useEffect(() => {
     setSelected(new Set());
-  }, [page, status, cardType, search]);
+  }, [page, status, cardType, search, filterCompanyId]);
 
   const registerCard = useMutation({
     mutationFn: async (payload: RegisterFormState) =>
@@ -182,7 +191,12 @@ export default function CardsPage() {
     try {
       await downloadCsv(
         "/cards/export",
-        { status: status || undefined, cardType: cardType || undefined, search: search || undefined },
+        {
+          status: status || undefined,
+          cardType: cardType || undefined,
+          search: search || undefined,
+          companyId: filterCompanyId || undefined,
+        },
         `cards-${new Date().toISOString().slice(0, 10)}.csv`
       );
     } catch {
@@ -237,6 +251,37 @@ export default function CardsPage() {
   }
 
   const availableTemplates = templates?.filter((t) => t.cardType === form.cardType) ?? [];
+
+  // Cards are server-paginated (potentially thousands per company), so
+  // there's no full dataset to group client-side — instead, when a
+  // SUPER_ADMIN is browsing across every company (no company filter
+  // picked), the server pre-sorts each page by company name (see
+  // listCards) so consecutive rows already cluster together; grouping the
+  // current page's rows just adds a header wherever that cluster changes.
+  // Picking one company from the filter above shows a normal flat list.
+  const cardGroups =
+    user?.role === "SUPER_ADMIN" && !filterCompanyId && data && data.data.length > 0 ? groupByCompany(data.data) : null;
+
+  function cardRow(card: Card) {
+    return (
+      <tr key={card.id} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50">
+        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+          <input type="checkbox" checked={selected.has(card.id)} onChange={() => toggleSelected(card.id)} />
+        </td>
+        <td className="px-4 py-3">
+          <Link to={`/cards/${card.id}`} className="font-mono font-medium text-brand-600 hover:underline dark:text-brand-400">
+            {card.uid}
+          </Link>
+        </td>
+        <td className="px-4 py-3">{card.label ?? "—"}</td>
+        <td className="px-4 py-3 text-slate-500">{formatEnum(card.cardType)}</td>
+        <td className="px-4 py-3 text-slate-500">{card.holder?.fullName ?? "—"}</td>
+        <td className="px-4 py-3">
+          <Badge tone={card.status}>{formatEnum(card.status)}</Badge>
+        </td>
+      </tr>
+    );
+  }
 
   return (
     <div>
@@ -301,6 +346,23 @@ export default function CardsPage() {
             </option>
           ))}
         </select>
+        {user?.role === "SUPER_ADMIN" && (
+          <select
+            className="input w-52"
+            value={filterCompanyId}
+            onChange={(e) => {
+              setFilterCompanyId(e.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="">All companies (grouped)</option>
+            {companies?.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        )}
         {isFetching && <Spinner className="h-4 w-4" />}
       </div>
 
@@ -343,33 +405,29 @@ export default function CardsPage() {
                 <th className="px-4 py-3">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {data?.data.map((card) => (
-                <tr key={card.id} className="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                    <input type="checkbox" checked={selected.has(card.id)} onChange={() => toggleSelected(card.id)} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <Link to={`/cards/${card.id}`} className="font-mono font-medium text-brand-600 hover:underline dark:text-brand-400">
-                      {card.uid}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3">{card.label ?? "—"}</td>
-                  <td className="px-4 py-3 text-slate-500">{formatEnum(card.cardType)}</td>
-                  <td className="px-4 py-3 text-slate-500">{card.holder?.fullName ?? "—"}</td>
-                  <td className="px-4 py-3">
-                    <Badge tone={card.status}>{formatEnum(card.status)}</Badge>
-                  </td>
-                </tr>
-              ))}
-              {data?.data.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
-                    No cards match these filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
+            {cardGroups ? (
+              cardGroups.map((g) => (
+                <tbody key={g.companyId ?? "none"} className="divide-y divide-slate-100 dark:divide-slate-800">
+                  <tr className="bg-slate-50 dark:bg-slate-900/50">
+                    <td colSpan={6} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      {g.companyName} <span className="font-normal normal-case text-slate-400">({g.items.length} on this page)</span>
+                    </td>
+                  </tr>
+                  {g.items.map(cardRow)}
+                </tbody>
+              ))
+            ) : (
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {data?.data.map(cardRow)}
+                {data?.data.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                      No cards match these filters.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            )}
           </table>
 
           {data && data.pagination.totalPages > 1 && (

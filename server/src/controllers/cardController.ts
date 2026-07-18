@@ -18,6 +18,7 @@ import { notifyCompanyAdmins } from "../services/notificationService.js";
 import { toCsv } from "../utils/csv.js";
 
 const CARD_INCLUDE = {
+  company: { select: { id: true, name: true } },
   holder: { select: { id: true, fullName: true, department: true, employeeId: true } },
   template: { select: { id: true, name: true } },
   registeredByEncoder: { select: { id: true, name: true } },
@@ -58,12 +59,20 @@ export const listCards = asyncHandler(async (req: Request, res: Response) => {
   const { page, pageSize } = req.query as unknown as { page: number; pageSize: number };
   const where = buildCardWhere(req);
 
+  // A SUPER_ADMIN browsing across every company (no ?companyId= filter)
+  // gets cards pre-clustered by company — sorting by company name first so
+  // consecutive rows in any given page already share a company, letting the
+  // client render a group header per company instead of a mixed list.
+  // Scoped to one company already, that first key is a no-op.
+  const orderBy: Prisma.CardOrderByWithRelationInput[] =
+    scopedCompanyId(req) === null ? [{ company: { name: "asc" } }, { createdAt: "desc" }] : [{ createdAt: "desc" }];
+
   const [total, cards] = await Promise.all([
     prisma.card.count({ where }),
     prisma.card.findMany({
       where,
       include: CARD_INCLUDE,
-      orderBy: { createdAt: "desc" },
+      orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
