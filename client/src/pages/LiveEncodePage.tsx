@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Radio, CreditCard, Send, ExternalLink, ChevronDown, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -145,14 +145,21 @@ export default function LiveEncodePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, encoderId]);
 
+  // Guards against out-of-order responses: if card B is tapped while card
+  // A's lookup is still in flight, A's response arriving after B's must not
+  // overwrite the page with A's (now stale) data. Each call gets a ticket;
+  // only the most recently issued ticket is allowed to apply its result.
+  const lookupTicket = useRef(0);
+
   async function lookupCard(uid: string) {
+    const ticket = ++lookupTicket.current;
     setMatchedCard(undefined);
     try {
       const { data } = await api.get<PaginatedResponse<Card>>("/cards", { params: { search: uid, pageSize: 1 } });
       const match = data.data.find((c) => c.uid.toLowerCase() === uid.toLowerCase());
-      setMatchedCard(match ?? null);
+      if (ticket === lookupTicket.current) setMatchedCard(match ?? null);
     } catch {
-      setMatchedCard(null);
+      if (ticket === lookupTicket.current) setMatchedCard(null);
     }
   }
 

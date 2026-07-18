@@ -28,23 +28,11 @@ export function CommandPalette() {
     enabled: isOpen && debounced.length > 0,
   });
 
-  const { data: holders } = useQuery({
-    queryKey: ["holders"],
-    queryFn: async () => (await api.get<CardHolder[]>("/holders")).data,
-    enabled: isOpen,
+  const { data: matchedHolders } = useQuery({
+    queryKey: ["search-holders", debounced],
+    queryFn: async () => (await api.get<CardHolder[]>("/holders", { params: { search: debounced, limit: 6 } })).data,
+    enabled: isOpen && debounced.length > 0,
   });
-
-  const matchedHolders =
-    debounced.length > 0
-      ? holders
-          ?.filter(
-            (h) =>
-              h.fullName.toLowerCase().includes(debounced.toLowerCase()) ||
-              h.employeeId?.toLowerCase().includes(debounced.toLowerCase()) ||
-              h.email?.toLowerCase().includes(debounced.toLowerCase())
-          )
-          .slice(0, 6)
-      : [];
 
   if (!isOpen) return null;
 

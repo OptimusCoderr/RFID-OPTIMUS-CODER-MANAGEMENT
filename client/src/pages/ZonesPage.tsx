@@ -203,7 +203,12 @@ export default function ZonesPage() {
                 <button className="text-slate-400 hover:text-blue-600" onClick={() => openEdit(zone)}>
                   <Pencil size={15} />
                 </button>
-                <button className="text-slate-400 hover:text-red-600" onClick={() => deleteZone.mutate(zone.id)}>
+                <button
+                  className="text-slate-400 hover:text-red-600"
+                  onClick={() => {
+                    if (confirm(`Permanently delete access zone "${zone.name}"? This cannot be undone.`)) deleteZone.mutate(zone.id);
+                  }}
+                >
                   <Trash2 size={15} />
                 </button>
               </div>

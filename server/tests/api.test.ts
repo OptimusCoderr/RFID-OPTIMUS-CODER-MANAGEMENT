@@ -176,6 +176,37 @@ describe("company + card lifecycle happy path", () => {
     expect(res.body.data.some((c: { id: string }) => c.id === cardId)).toBe(true);
   });
 
+  it("searches holders by name/employeeId/email server-side, and respects a limit", async () => {
+    await request(app)
+      .post("/api/holders")
+      .set("Authorization", `Bearer ${companyAdminToken}`)
+      .send({ fullName: "Zzyzx Search Target", employeeId: "EMP-SEARCH-1" });
+    await request(app)
+      .post("/api/holders")
+      .set("Authorization", `Bearer ${companyAdminToken}`)
+      .send({ fullName: "Someone Else" });
+
+    const res = await request(app)
+      .get("/api/holders")
+      .set("Authorization", `Bearer ${companyAdminToken}`)
+      .query({ search: "Zzyzx" });
+    expect(res.status).toBe(200);
+    expect(res.body.every((h: { fullName: string }) => h.fullName.includes("Zzyzx"))).toBe(true);
+    expect(res.body.length).toBeGreaterThan(0);
+
+    const byEmployeeId = await request(app)
+      .get("/api/holders")
+      .set("Authorization", `Bearer ${companyAdminToken}`)
+      .query({ search: "EMP-SEARCH-1" });
+    expect(byEmployeeId.body.some((h: { employeeId?: string }) => h.employeeId === "EMP-SEARCH-1")).toBe(true);
+
+    const limited = await request(app)
+      .get("/api/holders")
+      .set("Authorization", `Bearer ${companyAdminToken}`)
+      .query({ limit: 1 });
+    expect(limited.body.length).toBeLessThanOrEqual(1);
+  });
+
   it("lets the company admin edit a card's label and notes", async () => {
     const res = await request(app)
       .patch(`/api/cards/${cardId}`)

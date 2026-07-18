@@ -135,7 +135,7 @@ export default function EncodersPage() {
           {enc.lastSeenAt ? `Last seen ${formatDistanceToNow(new Date(enc.lastSeenAt), { addSuffix: true })}` : "Never connected"}
         </p>
         <div className="mt-4 flex gap-2">
-          <button className="btn-secondary flex-1" onClick={() => rotateKey.mutate(enc)}>
+          <button className="btn-secondary flex-1" onClick={() => rotateKey.mutate(enc)} disabled={rotateKey.isPending}>
             <KeyRound size={14} /> Rotate key
           </button>
           <button

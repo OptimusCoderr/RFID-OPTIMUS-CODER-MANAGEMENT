@@ -124,10 +124,18 @@ export default function CardDetailPage() {
     onError: (err) => toast.error(apiErrorMessage(err)),
   });
 
+  const ACTION_MESSAGES: Record<string, string> = {
+    unassign: "Card unassigned",
+    block: "Card blocked",
+    unblock: "Card unblocked",
+    lost: "Card marked lost",
+    retire: "Card retired",
+  };
+
   const action = useMutation({
     mutationFn: async (path: string) => api.post(`/cards/${id}/${path}`),
     onSuccess: (_res, path) => {
-      toast.success(`Card ${path.replace("un", "un-")}${path === "unassign" ? "ed" : "ed"}`);
+      toast.success(ACTION_MESSAGES[path] ?? "Card updated");
       invalidate();
     },
     onError: (err) => toast.error(apiErrorMessage(err)),
@@ -241,7 +249,7 @@ export default function CardDetailPage() {
                   <div className="text-xs text-slate-400">{card.holder.department ?? card.holder.employeeId}</div>
                 </div>
               </div>
-              <button className="btn-secondary" onClick={() => action.mutate("unassign")}>
+              <button className="btn-secondary" disabled={action.isPending} onClick={() => action.mutate("unassign")}>
                 <UserX size={15} /> Unassign
               </button>
             </div>
@@ -255,7 +263,11 @@ export default function CardDetailPage() {
                   </option>
                 ))}
               </select>
-              <button className="btn-primary whitespace-nowrap" disabled={!holderId} onClick={() => assign.mutate()}>
+              <button
+                className="btn-primary whitespace-nowrap"
+                disabled={!holderId || assign.isPending}
+                onClick={() => assign.mutate()}
+              >
                 Assign
               </button>
             </div>
@@ -264,19 +276,19 @@ export default function CardDetailPage() {
           <h3 className="pt-2 text-sm font-semibold text-slate-600 dark:text-slate-300">Lifecycle</h3>
           <div className="flex flex-wrap gap-2">
             {card.status !== "BLOCKED" && (
-              <button className="btn-secondary" onClick={() => action.mutate("block")}>
+              <button className="btn-secondary" disabled={action.isPending} onClick={() => action.mutate("block")}>
                 <ShieldOff size={15} /> Block
               </button>
             )}
             {card.status === "BLOCKED" && (
-              <button className="btn-secondary" onClick={() => action.mutate("unblock")}>
+              <button className="btn-secondary" disabled={action.isPending} onClick={() => action.mutate("unblock")}>
                 <ShieldCheck size={15} /> Unblock
               </button>
             )}
-            <button className="btn-secondary" onClick={() => action.mutate("lost")}>
+            <button className="btn-secondary" disabled={action.isPending} onClick={() => action.mutate("lost")}>
               <AlertTriangle size={15} /> Mark lost
             </button>
-            <button className="btn-danger" onClick={() => action.mutate("retire")}>
+            <button className="btn-danger" disabled={action.isPending} onClick={() => action.mutate("retire")}>
               <Archive size={15} /> Retire
             </button>
           </div>

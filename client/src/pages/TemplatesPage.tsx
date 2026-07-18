@@ -238,7 +238,12 @@ export default function TemplatesPage() {
                 <button className="text-slate-400 hover:text-blue-600" onClick={() => openEdit(t)}>
                   <Pencil size={15} />
                 </button>
-                <button className="text-slate-400 hover:text-red-600" onClick={() => deleteTemplate.mutate(t.id)}>
+                <button
+                  className="text-slate-400 hover:text-red-600"
+                  onClick={() => {
+                    if (confirm(`Permanently delete template "${t.name}"? This cannot be undone.`)) deleteTemplate.mutate(t.id);
+                  }}
+                >
                   <Trash2 size={15} />
                 </button>
               </div>

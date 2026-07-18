@@ -3,14 +3,14 @@ import * as holderController from "../controllers/holderController.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/rbac.js";
 import { validate } from "../middleware/validate.js";
-import { createHolderBody, updateHolderBody } from "../validators/holder.js";
+import { createHolderBody, updateHolderBody, holderListQuery } from "../validators/holder.js";
 import { idParams } from "../validators/common.js";
 
 const router = Router();
 
 router.use(authenticate);
 
-router.get("/", holderController.listHolders);
+router.get("/", validate({ query: holderListQuery }), holderController.listHolders);
 router.get("/:id", validate({ params: idParams }), holderController.getHolder);
 router.post(
   "/",
