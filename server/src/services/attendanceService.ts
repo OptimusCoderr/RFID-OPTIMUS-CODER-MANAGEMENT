@@ -2,6 +2,7 @@ import type { AttendanceMode } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../utils/ApiError.js";
 import { withSerializableRetry } from "../utils/serializableRetry.js";
+import { LIFECYCLE_LOCKED_STATUSES } from "../utils/cardStatus.js";
 import { computeEncoderOpenState, nextAttendanceType } from "./attendanceSessionService.js";
 
 const ATTENDANCE_INCLUDE = {
@@ -28,7 +29,7 @@ export async function recordAttendance(params: {
   if (!card || card.companyId !== params.companyId) {
     throw ApiError.badRequest("Card does not belong to this company");
   }
-  if (card.status === "BLOCKED" || card.status === "LOST" || card.status === "RETIRED" || card.status === "EXPIRED") {
+  if (LIFECYCLE_LOCKED_STATUSES.has(card.status)) {
     throw ApiError.badRequest(`This card is ${card.status.toLowerCase()} and cannot be used for attendance`);
   }
   // Checked directly rather than relying on the card's status having been

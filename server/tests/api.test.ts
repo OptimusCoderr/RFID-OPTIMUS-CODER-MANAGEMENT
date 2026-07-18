@@ -1581,6 +1581,117 @@ describe("company + card lifecycle happy path", () => {
     });
   });
 
+  describe("lifecycle-locked cards (BLOCKED/LOST/RETIRED/EXPIRED): reads still work, writes don't", () => {
+    let lifecycleEncoderId: string;
+    let lifecycleCardId: string;
+    let agentSocket: ClientSocket;
+    let managerToken: string;
+
+    async function connectDashboard(token: string): Promise<ClientSocket> {
+      const socket = ioClient(`http://127.0.0.1:${env.port}/dashboard`, { auth: { token }, forceNew: true });
+      await new Promise<void>((resolve, reject) => {
+        socket.on("connect", () => resolve());
+        socket.on("connect_error", reject);
+      });
+      return socket;
+    }
+
+    function sendCommand(socket: ClientSocket, body: Record<string, unknown>): Promise<{ ok: boolean; error?: string; commandId?: string }> {
+      return new Promise((resolve) => socket.emit("encoder:command", body, resolve));
+    }
+
+    beforeAll(async () => {
+      const encoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Lifecycle Lock Test Encoder", type: "ACR122U" });
+      lifecycleEncoderId = encoderRes.body.id;
+
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04AC000001", cardType: "NTAG213" });
+      lifecycleCardId = cardRes.body.id;
+
+      agentSocket = ioClient(`http://127.0.0.1:${env.port}/agent`, { auth: { agentKey: encoderRes.body.agentKey }, forceNew: true });
+      await new Promise<void>((resolve, reject) => {
+        agentSocket.on("connect", () => resolve());
+        agentSocket.on("connect_error", reject);
+      });
+
+      await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          email: "manager-lifecyclelock@integration-test-co.example",
+          password: "ManagerOnly123!",
+          fullName: "Lifecycle Lock Manager",
+          role: "MANAGER",
+          companyId,
+        });
+      managerToken = await loginAs("manager-lifecyclelock@integration-test-co.example", "ManagerOnly123!");
+    });
+
+    afterAll(() => {
+      agentSocket?.close();
+    });
+
+    it("a BLOCKED card can still be read but not written to over the websocket", async () => {
+      await request(app).post(`/api/cards/${lifecycleCardId}/block`).set("Authorization", `Bearer ${managerToken}`);
+
+      const socket = await connectDashboard(managerToken);
+      const readAck = await sendCommand(socket, { encoderId: lifecycleEncoderId, cardId: lifecycleCardId, command: "READ_UID" });
+      const writeAck = await sendCommand(socket, {
+        encoderId: lifecycleEncoderId,
+        cardId: lifecycleCardId,
+        command: "WRITE_BLOCK",
+        args: { block: 4, data: "00".repeat(16), key: "FFFFFFFFFFFF", keyType: "A" },
+      });
+      socket.close();
+
+      expect(readAck.ok).toBe(true);
+      expect(writeAck.ok).toBe(false);
+      expect(writeAck.error).toMatch(/blocked and cannot be written to/i);
+
+      await request(app).post(`/api/cards/${lifecycleCardId}/unblock`).set("Authorization", `Bearer ${managerToken}`);
+    });
+
+    it("a RETIRED card can still be read but not written to over the websocket", async () => {
+      await request(app).post(`/api/cards/${lifecycleCardId}/retire`).set("Authorization", `Bearer ${managerToken}`);
+
+      const socket = await connectDashboard(managerToken);
+      const readAck = await sendCommand(socket, { encoderId: lifecycleEncoderId, cardId: lifecycleCardId, command: "READ_UID" });
+      const writeAck = await sendCommand(socket, {
+        encoderId: lifecycleEncoderId,
+        cardId: lifecycleCardId,
+        command: "WRITE_BLOCK",
+        args: { block: 4, data: "00".repeat(16), key: "FFFFFFFFFFFF", keyType: "A" },
+      });
+      socket.close();
+
+      expect(readAck.ok).toBe(true);
+      expect(writeAck.ok).toBe(false);
+      expect(writeAck.error).toMatch(/retired and cannot be written to/i);
+    });
+
+    it("an ACTIVE card allows writes normally — the lock is opt-in per lifecycle status, not a default restriction", async () => {
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04AC000002", cardType: "NTAG213" });
+
+      const socket = await connectDashboard(managerToken);
+      const ack = await sendCommand(socket, {
+        encoderId: lifecycleEncoderId,
+        cardId: cardRes.body.id,
+        command: "WRITE_BLOCK",
+        args: { block: 4, data: "00".repeat(16), key: "FFFFFFFFFFFF", keyType: "A" },
+      });
+      socket.close();
+      expect(ack.ok).toBe(true);
+    });
+  });
+
   describe("hotel: time-limited encoder allocation", () => {
     let encoderAId: string;
     let encoderBId: string;

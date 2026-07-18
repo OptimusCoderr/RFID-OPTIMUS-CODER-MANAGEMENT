@@ -16,6 +16,7 @@ import {
 import { logOperation } from "../services/operationLogService.js";
 import { notifyCompanyAdmins } from "../services/notificationService.js";
 import { toCsv } from "../utils/csv.js";
+import { LIFECYCLE_LOCKED_STATUSES } from "../utils/cardStatus.js";
 
 const CARD_INCLUDE = {
   company: { select: { id: true, name: true } },
@@ -367,7 +368,8 @@ export const updateCard = asyncHandler(async (req: Request, res: Response) => {
 // OPERATOR could silently reactivate a blocked/lost/retired card just by
 // assigning or unassigning it, skipping the stricter role gate entirely and
 // leaving no BLOCK/UNBLOCK audit entry or admin notification behind.
-const LIFECYCLE_LOCKED_STATUSES = new Set(["BLOCKED", "LOST", "RETIRED", "EXPIRED"]);
+// (LIFECYCLE_LOCKED_STATUSES itself now lives in utils/cardStatus.ts, shared
+// with attendanceService.ts and the websocket encoder:command handler.)
 
 export const assignCard = asyncHandler(async (req: Request, res: Response) => {
   const existing = await prisma.card.findUnique({ where: { id: req.params.id } });
