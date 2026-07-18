@@ -68,6 +68,32 @@ export default function VisitorsPage() {
   });
   const onlineEncoders = encoders?.filter((e) => e.status === "ONLINE") ?? [];
 
+  // Catches "this UID already belongs to someone's card" before the user
+  // even submits, rather than only after a 409 comes back — most useful
+  // right after a scan, since a mis-tapped employee badge would otherwise
+  // silently look like it worked until the error toast appears. Server-side
+  // this is still enforced regardless of what this check finds (registering
+  // a duplicate UID is always rejected, and updateCard refuses to set an
+  // expiresAt on a card already assigned to a holder).
+  const [uidConflict, setUidConflict] = useState<Card | null>(null);
+  useEffect(() => {
+    const uid = form.uid.trim().toUpperCase();
+    if (uid.length < 8) {
+      setUidConflict(null);
+      return;
+    }
+    const timeout = setTimeout(async () => {
+      try {
+        const { data } = await api.get<PaginatedResponse<Card>>("/cards", { params: { search: uid, pageSize: 5 } });
+        setUidConflict(data.data.find((c) => c.uid.toUpperCase() === uid) ?? null);
+      } catch {
+        // A failed lookup shouldn't block the form — the server still
+        // enforces this for real on submit either way.
+      }
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [form.uid]);
+
   useEffect(() => {
     if (!socket || !scanning || !scanEncoderId) return;
 
@@ -217,12 +243,19 @@ export default function VisitorsPage() {
             <div>
               <label className="label">Card UID</label>
               <input
-                className="input font-mono"
+                className={`input font-mono ${uidConflict ? "border-red-400" : ""}`}
                 required
                 placeholder="04A1B2C3D4"
                 value={form.uid}
                 onChange={(e) => setForm((f) => ({ ...f, uid: e.target.value.toUpperCase() }))}
               />
+              {uidConflict && (
+                <p className="mt-1 text-xs text-red-600">
+                  {uidConflict.holder
+                    ? `This card is already assigned to ${uidConflict.holder.fullName} — it can't be issued as a visitor pass.`
+                    : "This card is already registered — it can't be issued as a new visitor pass. Use a different card."}
+                </p>
+              )}
             </div>
             <div>
               <label className="label">Card type</label>
@@ -293,7 +326,7 @@ export default function VisitorsPage() {
                 </select>
               </div>
             )}
-            <button type="submit" className="btn-primary w-full" disabled={issuePass.isPending}>
+            <button type="submit" className="btn-primary w-full" disabled={issuePass.isPending || Boolean(uidConflict)}>
               {issuePass.isPending ? <Spinner className="h-4 w-4 text-white" /> : <UserPlus size={16} />} Issue pass
             </button>
           </form>

@@ -590,6 +590,37 @@ describe("company + card lifecycle happy path", () => {
         .set("Authorization", `Bearer ${companyAdminToken}`)
         .send({ cardId: sessionCardId, encoderId: sessionEncoderId });
       expect(tapRes.status).toBe(201);
+      // The tap snapshots which schedule was open — lets attendance later be
+      // exported/filtered by class/shift, not just by encoder or time range.
+      expect(tapRes.body.sessionId).toBe(sessionId);
+      expect(tapRes.body.sessionLabel).toBe("CS101 Lecture");
+    });
+
+    it("filters attendance records by sessionId and by sessionLabel, and the export includes a Schedule column", async () => {
+      const bySessionId = await request(app)
+        .get("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ sessionId });
+      expect(bySessionId.status).toBe(200);
+      expect(bySessionId.body.data.length).toBeGreaterThan(0);
+      expect(bySessionId.body.data.every((r: { sessionId: string }) => r.sessionId === sessionId)).toBe(true);
+
+      const bySessionLabel = await request(app)
+        .get("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ sessionLabel: "CS101 Lecture" });
+      expect(bySessionLabel.status).toBe(200);
+      expect(bySessionLabel.body.data.length).toBeGreaterThan(0);
+      expect(bySessionLabel.body.data.every((r: { sessionLabel: string }) => r.sessionLabel === "CS101 Lecture")).toBe(true);
+
+      const exportRes = await request(app)
+        .get("/api/attendance/export")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ sessionId });
+      expect(exportRes.status).toBe(200);
+      const [header, ...rows] = exportRes.text.trim().split("\r\n");
+      expect(header).toContain("Schedule");
+      expect(rows.every((row) => row.includes("CS101 Lecture"))).toBe(true);
     });
 
     it("Stop now (FORCE_CLOSED) blocks attendance even during what would be an open window", async () => {
@@ -1200,6 +1231,56 @@ describe("company + card lifecycle happy path", () => {
         .set("Authorization", `Bearer ${companyAdminToken}`)
         .query({ hasExpiry: false, pageSize: 100 });
       expect(withoutExpiryRes.body.data.some((c: { id: string }) => c.id === res.body.id)).toBe(false);
+    });
+
+    it("refuses to issue a visitor pass for a UID that's already registered to an existing card", async () => {
+      const res = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        // 04915170A1 was already registered by the previous test.
+        .send({ uid: "04915170A1", cardType: "NTAG213", label: "Duplicate guest pass", expiresAt: new Date().toISOString() });
+      expect(res.status).toBe(409);
+    });
+
+    it("refuses to set an expiresAt on a card already assigned to a holder", async () => {
+      const holderRes = await request(app)
+        .post("/api/holders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ fullName: "Already Employed Person" });
+
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04915170F6", cardType: "NTAG213", label: "Real employee badge" });
+      const cardId = cardRes.body.id;
+
+      await request(app)
+        .post(`/api/cards/${cardId}/assign`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId: holderRes.body.id });
+
+      const res = await request(app)
+        .patch(`/api/cards/${cardId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString() });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/already assigned/i);
+    });
+
+    it("still allows extending an existing visitor pass's own duration (never assigned to a holder)", async () => {
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04915170C3", cardType: "NTAG213", label: "Extend-me guest pass", expiresAt: new Date(Date.now() + 60_000).toISOString() });
+      const cardId = cardRes.body.id;
+
+      const newExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      const res = await request(app)
+        .patch(`/api/cards/${cardId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ expiresAt: newExpiresAt });
+      expect(res.status).toBe(200);
+      expect(new Date(res.body.expiresAt).toISOString()).toBe(newExpiresAt);
     });
 
     it("rejects a live-encode command against a card whose own expiry has passed, without waiting for the daily cron job", async () => {

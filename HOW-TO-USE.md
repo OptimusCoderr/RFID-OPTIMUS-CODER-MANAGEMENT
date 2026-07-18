@@ -749,8 +749,13 @@ a [card holder](#62-card-holders).
    check-in and check-out for that holder automatically — no separate
    "start session" step, and a missed tap just leaves the next one correctly
    reversed. The live feed shows each tap as it happens; results are also
-   written to the **Records** table below with full filtering (zone,
-   check-in/out) and CSV export.
+   written to the **Records** table below with full filtering — by
+   **Schedule** (which saved schedule, e.g. "CS101 Lecture" vs "MATH201
+   Lecture", was open when the tap happened — snapshotted at tap time, so it
+   stays correct even if you later rename or delete that schedule), zone,
+   check-in/out type, and a **From/To** date range — plus CSV export that
+   respects every one of those filters, so you can pull just one class's or
+   one date range's attendance history instead of everything at once.
 3. A card that's blocked, lost, retired, or not yet assigned to a holder is
    rejected with a clear reason in the feed rather than silently recording
    junk — you'll want cards properly registered and assigned before using
@@ -818,7 +823,14 @@ expiry set in the same step:
 1. Enter the card's **UID** by hand, or **scan it from an online encoder** —
    pick the encoder from the dropdown, click **Scan**, and tap the card;
    the UID field fills in automatically (the same pattern used on the
-   [Cards](#63-registering-a-card) register form).
+   [Cards](#63-registering-a-card) register form). If that UID already
+   belongs to an existing card, an inline warning appears right away — and
+   if it's already assigned to a real card holder, the warning names them
+   — with **Issue pass** disabled until you change the UID. This is
+   enforced server-side too (not just this warning): registering a
+   duplicate UID always fails, and a card already assigned to a holder
+   can't have an expiry set on it, so an employee's real badge can never
+   get silently turned into a visitor pass.
 2. Pick a **card type**, and optionally a visitor name/purpose as the
    label.
 3. Pick how long the pass should last — **1 hour / 4 hours / 1 day / 1

@@ -43,11 +43,22 @@ export async function recordAttendance(params: {
   // hosting multiple courses through the week) — it accepts a tap if ANY of
   // them is currently open. Checked live via computeEncoderOpenState, not a
   // stored flag, so a manual Start/Stop click takes effect on the very next tap.
+  //
+  // Whichever schedule was the open one is snapshotted onto the record
+  // (sessionId + sessionLabel below) so attendance can later be exported or
+  // filtered by which class/shift it belongs to — e.g. "CS101" vs "MATH201"
+  // taps on the same shared encoder, which are otherwise indistinguishable.
+  let sessionId: string | null = null;
+  let sessionLabel: string | null = null;
   if (params.encoderId) {
     const sessions = await prisma.attendanceSession.findMany({ where: { encoderId: params.encoderId } });
     const state = computeEncoderOpenState(sessions);
     if (!state.isOpen) {
       throw ApiError.badRequest("Attendance is not currently open for this encoder");
+    }
+    if (state.openSessionId) {
+      sessionId = state.openSessionId;
+      sessionLabel = sessions.find((s) => s.id === state.openSessionId)?.label ?? null;
     }
   }
 
@@ -65,6 +76,8 @@ export async function recordAttendance(params: {
       holderId: card.holderId,
       zoneId: zoneId ?? undefined,
       encoderId: params.encoderId ?? undefined,
+      sessionId: sessionId ?? undefined,
+      sessionLabel: sessionLabel ?? undefined,
       type,
     },
     include: ATTENDANCE_INCLUDE,

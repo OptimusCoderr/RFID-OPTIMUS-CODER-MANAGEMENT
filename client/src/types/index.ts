@@ -278,6 +278,8 @@ export interface AttendanceRecord {
   zone?: { id: string; name: string } | null;
   encoderId?: string | null;
   encoder?: { id: string; name: string } | null;
+  sessionId?: string | null;
+  sessionLabel?: string | null;
   type: AttendanceType;
   recordedAt: string;
 }
