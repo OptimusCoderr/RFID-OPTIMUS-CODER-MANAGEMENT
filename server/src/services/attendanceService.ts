@@ -37,6 +37,25 @@ export async function recordAttendance(params: {
     throw ApiError.badRequest("This card isn't assigned to a card holder yet");
   }
 
+  // Without these, a caller could pass another company's zoneId/encoderId
+  // here — the card above is company-checked, but these weren't, so a
+  // foreign company's private schedule (name, open/closed state) could be
+  // read through it, and that foreign zone/encoder would then get stamped
+  // onto this company's own AttendanceRecord (and surfaced back to it via
+  // listAttendance/exportAttendance).
+  if (params.zoneId) {
+    const zone = await prisma.accessZone.findUnique({ where: { id: params.zoneId } });
+    if (!zone || zone.companyId !== params.companyId) {
+      throw ApiError.badRequest("Zone does not belong to this company");
+    }
+  }
+  if (params.encoderId) {
+    const encoder = await prisma.encoder.findUnique({ where: { id: params.encoderId } });
+    if (!encoder || encoder.companyId !== params.companyId) {
+      throw ApiError.badRequest("Encoder does not belong to this company");
+    }
+  }
+
   // An encoder with no saved schedules is unrestricted, same as every other
   // opt-in restriction in this app (CardEncoderAllocation, CompanyModule).
   // One encoder can have several independent schedules (a lecture hall

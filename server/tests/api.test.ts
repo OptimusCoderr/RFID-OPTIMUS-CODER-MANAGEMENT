@@ -50,14 +50,13 @@ beforeAll(async () => {
     server.listen(env.port, resolve);
   });
   initWebsocket(server);
+  // role is input: false on the better-auth user schema (see src/auth/index.ts)
+  // so it can't be passed through signUpEmail's body directly — this mirrors
+  // how the app itself bootstraps its first SUPER_ADMIN (prisma/seed.ts).
   await auth.api.signUpEmail({
-    body: {
-      name: "Test Super Admin",
-      email: SUPER_ADMIN_EMAIL,
-      password: SUPER_ADMIN_PASSWORD,
-      role: "SUPER_ADMIN",
-    },
+    body: { name: "Test Super Admin", email: SUPER_ADMIN_EMAIL, password: SUPER_ADMIN_PASSWORD },
   });
+  await prisma.user.update({ where: { email: SUPER_ADMIN_EMAIL }, data: { role: "SUPER_ADMIN" } });
 });
 
 afterAll(async () => {
@@ -75,6 +74,46 @@ describe("auth", () => {
   it("rejects an invalid login", async () => {
     const res = await request(app).post("/api/auth/sign-in/email").send({ email: SUPER_ADMIN_EMAIL, password: "wrong" });
     expect(res.status).toBe(401);
+  });
+
+  it("blocks the public sign-up endpoint entirely", async () => {
+    const res = await request(app)
+      .post("/api/auth/sign-up/email")
+      .send({ name: "Attacker", email: "attacker@evil.example", password: "Password123!" });
+    expect(res.status).toBe(404);
+
+    const found = await prisma.user.findUnique({ where: { email: "attacker@evil.example" } });
+    expect(found).toBeNull();
+  });
+
+  it("cannot self-grant SUPER_ADMIN via better-auth's own update-user endpoint", async () => {
+    const email = "escalation-target@integration-test.example";
+    const password = "TargetUser123!";
+    await auth.api.signUpEmail({ body: { name: "Escalation Target", email, password } });
+
+    const signIn = await request(app).post("/api/auth/sign-in/email").send({ email, password });
+    expect(signIn.status).toBe(200);
+    const sessionToken = signIn.body.token as string;
+
+    const before = await prisma.user.findUniqueOrThrow({ where: { email } });
+    expect(before.role).toBe("VIEWER");
+    expect(before.companyId).toBeNull();
+
+    const escalate = await request(app)
+      .post("/api/auth/update-user")
+      .set("Authorization", `Bearer ${sessionToken}`)
+      .send({ role: "SUPER_ADMIN" });
+    expect(escalate.status).toBe(400);
+
+    const after = await prisma.user.findUniqueOrThrow({ where: { email } });
+    expect(after.role).toBe("VIEWER");
+
+    // The endpoint's actual legitimate use (renaming yourself) still works.
+    const rename = await request(app)
+      .post("/api/auth/update-user")
+      .set("Authorization", `Bearer ${sessionToken}`)
+      .send({ name: "Renamed Target" });
+    expect(rename.status).toBe(200);
   });
 });
 
@@ -488,6 +527,45 @@ describe("company + card lifecycle happy path", () => {
       expect(res.status).toBe(400);
     });
 
+    it("rejects recording attendance against another company's zone or encoder", async () => {
+      const otherCompanyRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Attendance Test Other Co", slug: "attendance-test-other-co" });
+      await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({
+          email: "admin@attendance-test-other-co.example",
+          password: "OtherAdmin123!",
+          fullName: "Attendance Test Other Admin",
+          role: "COMPANY_ADMIN",
+          companyId: otherCompanyRes.body.id,
+        });
+      const otherAdminToken = await loginAs("admin@attendance-test-other-co.example", "OtherAdmin123!");
+
+      const otherZoneRes = await request(app)
+        .post("/api/zones")
+        .set("Authorization", `Bearer ${otherAdminToken}`)
+        .send({ name: "Other Co Private Zone" });
+      const otherEncoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${otherAdminToken}`)
+        .send({ name: "Other Co Private Encoder", type: "ACR122U" });
+
+      const zoneRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: attendeeCardId, zoneId: otherZoneRes.body.id });
+      expect(zoneRes.status).toBe(400);
+
+      const encoderRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: attendeeCardId, encoderId: otherEncoderRes.body.id });
+      expect(encoderRes.status).toBe(400);
+    });
+
     it("checks a holder in on first tap", async () => {
       const res = await request(app)
         .post("/api/attendance")
@@ -842,6 +920,7 @@ describe("company + card lifecycle happy path", () => {
     let agentSocket: ClientSocket;
     let managerToken: string;
     let operatorToken: string;
+    let viewerToken: string;
 
     async function connectDashboard(token: string): Promise<ClientSocket> {
       const socket = ioClient(`http://127.0.0.1:${env.port}/dashboard`, { auth: { token }, forceNew: true });
@@ -909,6 +988,18 @@ describe("company + card lifecycle happy path", () => {
           companyId,
         });
       operatorToken = await loginAs("operator-cleartest@integration-test-co.example", "OperatorOnly123!");
+
+      await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          email: "viewer-cleartest@integration-test-co.example",
+          password: "ViewerOnly123!",
+          fullName: "Integration Viewer",
+          role: "VIEWER",
+          companyId,
+        });
+      viewerToken = await loginAs("viewer-cleartest@integration-test-co.example", "ViewerOnly123!");
     });
 
     afterAll(() => {
@@ -938,6 +1029,58 @@ describe("company + card lifecycle happy path", () => {
       });
       socket.close();
       expect(ack.ok).toBe(true);
+    });
+
+    it("rejects an ordinary (non-clear) write from a VIEWER, unlike an OPERATOR", async () => {
+      const socket = await connectDashboard(viewerToken);
+      const ack = await sendCommand(socket, {
+        encoderId: clearEncoderId,
+        cardId: clearCardId,
+        command: "WRITE_BLOCK",
+        args: { block: 4, data: "41424344000000000000000000000000".slice(0, 32), key: "FFFFFFFFFFFF", keyType: "A" },
+      });
+      socket.close();
+      expect(ack.ok).toBe(false);
+      expect(ack.error).toMatch(/permission/i);
+    });
+
+    it("still allows a VIEWER to send a read-only command", async () => {
+      const socket = await connectDashboard(viewerToken);
+      const ack = await sendCommand(socket, { encoderId: clearEncoderId, command: "READ_UID" });
+      socket.close();
+      expect(ack.ok).toBe(true);
+    });
+
+    it("rejects an encoder:command referencing another company's card, even for the caller's own encoder", async () => {
+      const otherCompanyRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Websocket Test Other Co", slug: "websocket-test-other-co" });
+      await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({
+          email: "admin@websocket-test-other-co.example",
+          password: "OtherAdmin123!",
+          fullName: "Websocket Test Other Admin",
+          role: "COMPANY_ADMIN",
+          companyId: otherCompanyRes.body.id,
+        });
+      const otherAdminToken = await loginAs("admin@websocket-test-other-co.example", "OtherAdmin123!");
+      const otherCardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${otherAdminToken}`)
+        .send({ uid: "04B0AC3000", cardType: "NTAG213" });
+
+      const socket = await connectDashboard(managerToken);
+      const ack = await sendCommand(socket, {
+        encoderId: clearEncoderId,
+        cardId: otherCardRes.body.id,
+        command: "READ_UID",
+      });
+      socket.close();
+      expect(ack.ok).toBe(false);
+      expect(ack.error).toMatch(/forbidden/i);
     });
 
     it("rejects a WRITE_BLOCK targeting the manufacturer block, even for a MANAGER", async () => {
@@ -1714,6 +1857,67 @@ describe("company + card lifecycle happy path", () => {
         .set("Authorization", `Bearer ${companyAdminToken}`)
         .send({ isActive: true });
       expect(reactivateRes.body.isActive).toBe(true);
+    });
+
+    it("a deactivated user can sign in but can't mint a fresh JWT, so real API access is cut off", async () => {
+      const email = "deactivation-target@integration-test-co.example";
+      const password = "DeactivationTarget123!";
+      await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ email, password, fullName: "Deactivation Target", role: "OPERATOR", companyId });
+      const target = await prisma.user.findUniqueOrThrow({ where: { email } });
+
+      await request(app)
+        .patch(`/api/users/${target.id}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ isActive: false });
+
+      const signIn = await request(app).post("/api/auth/sign-in/email").send({ email, password });
+      expect(signIn.status).toBe(200); // better-auth's own sign-in doesn't know about isActive
+
+      const tokenRes = await request(app).get("/api/auth/token").set("Authorization", `Bearer ${signIn.body.token}`);
+      expect(tokenRes.status).toBe(403); // definePayload (auth/index.ts) rejects it here instead
+      expect(tokenRes.body.token).toBeUndefined();
+    });
+
+    it("lets a COMPANY_ADMIN disable a different user, but not themselves", async () => {
+      const res = await request(app)
+        .patch(`/api/users/${targetUserId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ isActive: false });
+      expect(res.status).toBe(200); // disabling someone else is fine
+      expect(res.body.isActive).toBe(false);
+      // Restore for later tests in this describe block.
+      await request(app).patch(`/api/users/${targetUserId}`).set("Authorization", `Bearer ${companyAdminToken}`).send({ isActive: true });
+
+      const me = await request(app).get("/api/auth/me").set("Authorization", `Bearer ${companyAdminToken}`);
+      const selfRes = await request(app)
+        .patch(`/api/users/${me.body.id}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ isActive: false });
+      expect(selfRes.status).toBe(403);
+    });
+
+    it("a COMPANY_ADMIN cannot un-suspend their own company", async () => {
+      await request(app)
+        .patch(`/api/companies/${companyId}`)
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ isActive: false });
+
+      const attempt = await request(app)
+        .patch(`/api/companies/${companyId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ isActive: true });
+      expect(attempt.status).toBe(200); // request succeeds, but isActive is silently stripped
+      expect(attempt.body.isActive).toBe(false);
+
+      // Restore so later tests in this file (and this describe block) still
+      // see an active company.
+      await request(app)
+        .patch(`/api/companies/${companyId}`)
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ isActive: true });
     });
 
     it("prevents a user from deleting their own account", async () => {

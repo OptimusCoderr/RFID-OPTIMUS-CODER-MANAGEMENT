@@ -13,15 +13,14 @@ async function ensureUser(input: { email: string; password: string; fullName: st
   const existing = await prisma.user.findUnique({ where: { email: input.email } });
   if (existing) return existing;
 
+  // role/companyId aren't passed here — better-auth's additionalFields
+  // config marks both input: false (see src/auth/index.ts), so they're set
+  // via a follow-up update instead. See userController.createUser for the
+  // same pattern.
   await auth.api.signUpEmail({
-    body: {
-      name: input.fullName,
-      email: input.email,
-      password: input.password,
-      role: input.role,
-      companyId: input.companyId,
-    },
+    body: { name: input.fullName, email: input.email, password: input.password },
   });
+  await prisma.user.update({ where: { email: input.email }, data: { role: input.role, companyId: input.companyId } });
   return prisma.user.findUniqueOrThrow({ where: { email: input.email } });
 }
 

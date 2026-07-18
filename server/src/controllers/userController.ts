@@ -63,15 +63,18 @@ export const createUser = asyncHandler(async (req: Request, res: Response) => {
   // self-service registration — this just skips the "create a company too"
   // step since the target company already exists. The session/token
   // signUpEmail returns belongs to the newly created user, not the calling
-  // admin, so it's discarded here.
+  // admin, so it's discarded here. role/companyId are deliberately NOT
+  // passed here — better-auth's additionalFields config marks both
+  // input: false (see auth/index.ts), so the new user is created with the
+  // safe VIEWER/no-company default and then immediately corrected below,
+  // now that the RBAC checks above have validated this caller may grant it.
   await auth.api.signUpEmail({
-    body: {
-      name: fullName,
-      email,
-      password,
-      role,
-      companyId: role === "SUPER_ADMIN" ? undefined : companyId ?? req.user!.companyId,
-    },
+    body: { name: fullName, email, password },
+  });
+
+  await prisma.user.update({
+    where: { email },
+    data: { role, companyId: role === "SUPER_ADMIN" ? null : companyId ?? req.user!.companyId },
   });
 
   const user = await prisma.user.findUniqueOrThrow({ where: { email }, select: SAFE_SELECT });
@@ -90,6 +93,13 @@ export const updateUser = asyncHandler(async (req: Request, res: Response) => {
   // them (or themselves) platform-wide access.
   if (data.role === "SUPER_ADMIN" && req.user!.role !== "SUPER_ADMIN") {
     throw ApiError.forbidden("Cannot grant super admin role");
+  }
+  // Without this, an admin who's just been deactivated (isActive:false) can
+  // self-reactivate with the same PATCH /users/:id they're still allowed to
+  // call, as long as their current JWT hasn't expired yet — deactivating
+  // someone else is fine, deactivating/reactivating yourself isn't.
+  if (data.isActive !== undefined && req.params.id === req.user!.id) {
+    throw ApiError.forbidden("Cannot change your own active status");
   }
   const user = await prisma.user.update({ where: { id: req.params.id }, data, select: SAFE_SELECT });
 
