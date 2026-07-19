@@ -363,6 +363,7 @@ export interface DashboardStats {
   recentActivity: OperationLog[];
   activeVisitorPasses: number;
   openMaintenanceTickets: number;
+  currentlyPresent: number;
 }
 
 export type NotificationType =

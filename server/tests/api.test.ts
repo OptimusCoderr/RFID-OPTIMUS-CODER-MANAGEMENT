@@ -2303,6 +2303,41 @@ describe("company + card lifecycle happy path", () => {
       expect(after.body.activeVisitorPasses).toBe(before.body.activeVisitorPasses + 1);
       expect(after.body.openMaintenanceTickets).toBe(before.body.openMaintenanceTickets + 1);
     });
+
+    it("counts currentlyPresent as holders whose latest general-scope tap was a check-in", async () => {
+      const holderRes = await request(app)
+        .post("/api/holders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ fullName: "Dashboard Presence Test Holder" });
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04915170E6", cardType: "NTAG213" });
+      await request(app)
+        .post(`/api/cards/${cardRes.body.id}/assign`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId: holderRes.body.id });
+
+      const before = await request(app).get("/api/dashboard/stats").set("Authorization", `Bearer ${companyAdminToken}`);
+
+      const checkInRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: cardRes.body.id });
+      expect(checkInRes.body.type).toBe("CHECK_IN");
+
+      const afterCheckIn = await request(app).get("/api/dashboard/stats").set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(afterCheckIn.body.currentlyPresent).toBe(before.body.currentlyPresent + 1);
+
+      const checkOutRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: cardRes.body.id });
+      expect(checkOutRes.body.type).toBe("CHECK_OUT");
+
+      const afterCheckOut = await request(app).get("/api/dashboard/stats").set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(afterCheckOut.body.currentlyPresent).toBe(before.body.currentlyPresent);
+    });
   });
 
   describe("user management: edit, delete, disable/reactivate", () => {

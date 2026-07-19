@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Plus, Search, Download, Upload, ShieldOff, ShieldCheck, X, Radio, Trash2 } from "lucide-react";
+import { Plus, Search, Download, Upload, ShieldOff, ShieldCheck, X, Radio, Trash2, Lock, Unlock } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage, downloadCsv } from "@/lib/api";
 import { parseCsv } from "@/lib/csv";
@@ -224,8 +224,15 @@ export default function CardsPage() {
     setSelected(allSelected ? new Set() : new Set(pageIds));
   }
 
+  const BULK_ACTION_LABELS: Record<string, string> = {
+    block: "blocked",
+    unblock: "unblocked",
+    "write-protect": "write-protected",
+    "write-unprotect": "had write protection removed",
+  };
+
   const bulkSetStatus = useMutation({
-    mutationFn: async (action: "block" | "unblock") => {
+    mutationFn: async (action: "block" | "unblock" | "write-protect" | "write-unprotect") => {
       const ids = Array.from(selected);
       const results = await Promise.allSettled(ids.map((id) => api.post(`/cards/${id}/${action}`)));
       const failed = results.filter((r) => r.status === "rejected").length;
@@ -233,7 +240,7 @@ export default function CardsPage() {
     },
     onSuccess: ({ total, failed }, action) => {
       const succeeded = total - failed;
-      if (succeeded > 0) toast.success(`${succeeded} card${succeeded === 1 ? "" : "s"} ${action}ed`);
+      if (succeeded > 0) toast.success(`${succeeded} card${succeeded === 1 ? "" : "s"} ${BULK_ACTION_LABELS[action]}`);
       if (failed > 0) toast.error(`${failed} card${failed === 1 ? "" : "s"} failed to update`);
       setSelected(new Set());
       queryClient.invalidateQueries({ queryKey: ["cards"] });
@@ -290,7 +297,10 @@ export default function CardsPage() {
         <td className="px-4 py-3 text-slate-500">{formatEnum(card.cardType)}</td>
         <td className="px-4 py-3 text-slate-500">{card.holder?.fullName ?? "—"}</td>
         <td className="px-4 py-3">
-          <Badge tone={card.status}>{formatEnum(card.status)}</Badge>
+          <div className="flex items-center gap-1.5">
+            <Badge tone={card.status}>{formatEnum(card.status)}</Badge>
+            {card.writeProtected && <Lock size={13} className="text-amber-500" aria-label="Write-protected" />}
+          </div>
         </td>
         {user && DELETE_ROLES.has(user.role) && (
           <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
@@ -401,6 +411,12 @@ export default function CardsPage() {
           <button className="btn-secondary" onClick={() => bulkSetStatus.mutate("unblock")} disabled={bulkSetStatus.isPending}>
             <ShieldCheck size={14} /> Unblock
           </button>
+          <button className="btn-secondary" onClick={() => bulkSetStatus.mutate("write-protect")} disabled={bulkSetStatus.isPending}>
+            <Lock size={14} /> Write-protect
+          </button>
+          <button className="btn-secondary" onClick={() => bulkSetStatus.mutate("write-unprotect")} disabled={bulkSetStatus.isPending}>
+            <Unlock size={14} /> Remove protection
+          </button>
           <button className="btn-secondary" onClick={handleExportSelected}>
             <Download size={14} /> Export selected
           </button>
@@ -415,7 +431,7 @@ export default function CardsPage() {
       ) : (
         <div className="card overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">
+            <thead className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase text-slate-500 dark:border-slate-800 dark:bg-ink-800/60">
               <tr>
                 <th className="w-10 px-4 py-3">
                   <input
@@ -435,7 +451,7 @@ export default function CardsPage() {
             {cardGroups ? (
               cardGroups.map((g) => (
                 <tbody key={g.companyId ?? "none"} className="divide-y divide-slate-100 dark:divide-slate-800">
-                  <tr className="bg-slate-50 dark:bg-slate-900/50">
+                  <tr className="bg-slate-50 dark:bg-ink-800/60">
                     <td colSpan={columnCount} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       {g.companyName} <span className="font-normal normal-case text-slate-400">({g.items.length} on this page)</span>
                     </td>
@@ -631,7 +647,7 @@ export default function CardsPage() {
               <p className="mb-2 text-sm text-slate-500">{importRows.length} row(s) ready to import.</p>
               <div className="max-h-48 overflow-y-auto rounded-lg border border-slate-100 text-xs dark:border-slate-800">
                 <table className="w-full">
-                  <thead className="bg-slate-50 text-left dark:bg-slate-900/50">
+                  <thead className="bg-slate-50 text-left dark:bg-ink-800/60">
                     <tr>
                       <th className="px-3 py-2">UID</th>
                       <th className="px-3 py-2">Card Type</th>
