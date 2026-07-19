@@ -267,6 +267,7 @@ The exact gating per action:
 | Block/unblock/retire a card, delete a card | `SUPER_ADMIN`, `COMPANY_ADMIN`, `MANAGER` |
 | Grant/revoke a card's encoder allocation | `SUPER_ADMIN`, `COMPANY_ADMIN`, `MANAGER` |
 | Write-protect/unprotect a card, manual attendance entry | `SUPER_ADMIN`, `COMPANY_ADMIN`, `MANAGER` |
+| Edit or bulk-clear attendance records | `SUPER_ADMIN`, `COMPANY_ADMIN`, `MANAGER` |
 | Manage access zones | `SUPER_ADMIN`, `COMPANY_ADMIN`, `MANAGER` |
 | View cards/holders/encoders/logs/dashboard | Everyone signed in (scoped to their own company) |
 | Decrypt/retrieve a card's stored sector keys | `SUPER_ADMIN`, `COMPANY_ADMIN`, `MANAGER` |
@@ -857,6 +858,36 @@ the audit log tracks system operations (registrations, blocks, encodes);
 attendance tracks physical presence over time and is the right place to
 pull a term's/shift's attendance history from.
 
+**Editing and clearing records (`MANAGER`+).** Every row in the Records table
+has a pencil icon to correct a mistaken tap — fix its **Type** (check-in vs
+check-out) or its **Recorded at** time directly, without deleting and
+re-adding it. This is a direct correction, not a re-run of the check-in/
+check-out alternation logic, so make sure the corrected type still makes
+sense next to that holder's other records in the same zone.
+
+To delete records outright, use **Clear filtered** next to Export CSV — it
+permanently deletes every record matching whatever's currently selected in
+the Schedule/Zone/Type/date filters above it (disabled until at least one
+filter is set, and confirms with the exact count first). This is the fix for
+"I started a new schedule and it says I'm already checked in": check-in/
+check-out state is tracked **per zone** (see step 1 above), not per
+schedule, so a brand-new schedule that reuses an existing zone — or two
+schedules that both use "General" — inherit whatever that zone's last
+recorded state was. Filter by that **zone** (not just the schedule) and
+click **Clear filtered** to wipe its history and let the next tap start
+clean at check-in. (Filtering by schedule alone clears that schedule's own
+rows, but won't reset the toggle if other records — a different schedule, or
+a general tap — still exist in the same zone.)
+
+**Exporting.** The **Export CSV** button next to Clear filtered respects
+every on-screen filter, so setting Schedule/Zone/date and exporting pulls
+just that slice. For a guaranteed one-file-per-schedule habit, though, use
+the standalone **download icon** on each row of the **Saved schedules**
+table below instead — it exports that one schedule's full history
+(regardless of the filters above) straight to its own CSV file named after
+the schedule, with a "Manual entry"/"Recorded by" column so a lost-card
+override in the export is never mistaken for a data gap.
+
 **Saved schedules (like a university course catalog).** An encoder can host
 any number of independent recurring schedules — the way one lecture hall's
 door reader serves CS101 on Mon/Wed/Fri mornings and MATH201 on Tue/Thu
@@ -886,9 +917,11 @@ the **Saved schedules** table below the tap panel:
    without touching any other schedule on the same encoder. The override
    holds until you click **Resume schedule**, which clears it and goes back
    to following that schedule's saved days/times.
-4. The pencil and trash icons **edit** or **delete** a schedule in place.
-   Editing is a partial update — you only need to touch the fields you're
-   changing, and it never affects any other schedule.
+4. The download, pencil, and trash icons **export**, **edit**, or **delete**
+   a schedule in place. Export downloads that one schedule's full attendance
+   history as its own CSV file (see "Exporting" above). Editing is a partial
+   update — you only need to touch the fields you're changing, and it never
+   affects any other schedule.
 5. An encoder with **no saved schedules at all is unrestricted** — attendance
    works at any time, exactly like before this feature existed. Schedules
    are entirely opt-in, per encoder, and there's no limit on how many one
@@ -1334,7 +1367,7 @@ they're `SUPER_ADMIN`.
 | Encoders | `GET/POST /encoders`, `GET/PATCH/DELETE /encoders/:id`, `GET /encoders/:id/key` (view current agent key), `POST /encoders/:id/rotate-key` |
 | Cards | `GET/POST /cards`, `GET/PATCH/DELETE /cards/:id`, `GET /cards/:id/keys`, `POST /cards/:id/keys/generate`, `POST /cards/:id/citizen-data/prepare-write`, `POST /cards/:id/citizen-data/decode-read`, `POST /cards/:id/assign`, `POST /cards/:id/unassign`, `POST /cards/:id/block`, `POST /cards/:id/unblock`, `POST /cards/:id/lost`, `POST /cards/:id/retire`, `POST /cards/:id/write-protect`, `POST /cards/:id/write-unprotect`, `POST /cards/:id/encoders/grant`, `POST /cards/:id/encoders/revoke`, `GET /cards/export`, `POST /cards/bulk-import` |
 | Access zones | `GET/POST /zones`, `PATCH/DELETE /zones/:id`, `POST /zones/:id/grant`, `POST /zones/:id/revoke` |
-| Attendance | `GET /attendance`, `GET /attendance/export`, `POST /attendance`, `POST /attendance/manual` (manual entry for a lost/unavailable card) |
+| Attendance | `GET /attendance`, `GET /attendance/export`, `POST /attendance`, `POST /attendance/manual` (manual entry for a lost/unavailable card), `PATCH /attendance/:id` (correct type/recordedAt), `DELETE /attendance` (bulk-clear whatever the query filters match; requires at least one filter) |
 | Maintenance | `GET /maintenance`, `POST /maintenance`, `PATCH /maintenance/:id` |
 | Notifications | `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all` |
 | Dashboard | `GET /dashboard/stats` |

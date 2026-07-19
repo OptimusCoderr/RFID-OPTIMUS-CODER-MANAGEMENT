@@ -31,3 +31,36 @@ export const attendanceListQuery = z.object({
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
 });
+
+export const updateAttendanceBody = z
+  .object({
+    type: z.enum(["CHECK_IN", "CHECK_OUT"]).optional(),
+    recordedAt: z.coerce.date().optional(),
+  })
+  .refine((body) => body.type !== undefined || body.recordedAt !== undefined, {
+    message: "At least one of type or recordedAt is required",
+  });
+
+// Same filter surface as attendanceListQuery, minus pagination — used to
+// scope a bulk clear to exactly what's currently on screen. At least one
+// filter is required so a bare DELETE can't wipe a company's entire history
+// by accident; note that fully resetting a zone's check-in/check-out state
+// (so a new schedule doesn't inherit "already checked in") requires clearing
+// by zoneId, not just sessionId, since the toggle itself is scoped by zone.
+export const clearAttendanceQuery = z
+  .object({
+    companyId: z.string().uuid().optional(),
+    holderId: z.string().uuid().optional(),
+    cardId: z.string().uuid().optional(),
+    zoneId: z.string().uuid().optional(),
+    encoderId: z.string().uuid().optional(),
+    sessionId: z.string().uuid().optional(),
+    sessionLabel: z.string().min(1).max(200).optional(),
+    type: z.enum(["CHECK_IN", "CHECK_OUT"]).optional(),
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+  })
+  .refine(
+    (q) => Boolean(q.holderId || q.cardId || q.zoneId || q.encoderId || q.sessionId || q.sessionLabel || q.type || q.from || q.to),
+    { message: "At least one filter is required to clear attendance records" }
+  );

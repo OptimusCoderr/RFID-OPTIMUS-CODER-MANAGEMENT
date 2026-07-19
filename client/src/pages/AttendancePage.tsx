@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { Download, Radio, Play, Square, RotateCcw, Plus, Pencil, Trash2, Save, UserCog } from "lucide-react";
+import { Download, Radio, Play, Square, RotateCcw, Plus, Pencil, Trash2, Save, UserCog, Eraser } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage, downloadCsv } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -241,13 +241,19 @@ export default function AttendancePage() {
   // --- Manual entry (lost/unavailable physical card) ---
   const [manualModalOpen, setManualModalOpen] = useState(false);
   const [manualHolderSearch, setManualHolderSearch] = useState("");
+  const [manualHolderSearchDebounced, setManualHolderSearchDebounced] = useState("");
   const [manualHolderId, setManualHolderId] = useState("");
   const [manualZoneId, setManualZoneId] = useState("");
 
+  useEffect(() => {
+    const timeout = setTimeout(() => setManualHolderSearchDebounced(manualHolderSearch), 250);
+    return () => clearTimeout(timeout);
+  }, [manualHolderSearch]);
+
   const { data: manualHolderResults } = useQuery({
-    queryKey: ["holders-search", manualHolderSearch],
+    queryKey: ["holders-search", manualHolderSearchDebounced],
     queryFn: async () =>
-      (await api.get<CardHolder[]>("/holders", { params: { search: manualHolderSearch || undefined, limit: 8 } })).data,
+      (await api.get<CardHolder[]>("/holders", { params: { search: manualHolderSearchDebounced || undefined, limit: 8 } })).data,
     enabled: manualModalOpen,
   });
 
@@ -339,6 +345,73 @@ export default function AttendancePage() {
       toast.error("Export failed");
     } finally {
       setExporting(false);
+    }
+  }
+
+  // Exports one saved schedule's history as its own file, filtered by
+  // sessionId — separate from the "Export CSV" button above, which exports
+  // whatever the on-screen filters currently select.
+  async function handleExportSchedule(s: AttendanceSession) {
+    const filename = `attendance-${s.label.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`;
+    try {
+      await downloadCsv("/attendance/export", { sessionId: s.id }, filename);
+    } catch {
+      toast.error("Export failed");
+    }
+  }
+
+  // --- Edit a single record ---
+  const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
+  const [editType, setEditType] = useState<"CHECK_IN" | "CHECK_OUT">("CHECK_IN");
+  const [editRecordedAt, setEditRecordedAt] = useState("");
+
+  function openRecordEditModal(r: AttendanceRecord) {
+    setEditingRecord(r);
+    setEditType(r.type);
+    // datetime-local wants "YYYY-MM-DDTHH:mm" in local time, not the ISO/UTC
+    // string the API returns.
+    const d = new Date(r.recordedAt);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    setEditRecordedAt(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+  }
+
+  const updateRecord = useMutation({
+    mutationFn: async () =>
+      (
+        await api.patch<AttendanceRecord>(`/attendance/${editingRecord!.id}`, {
+          type: editType,
+          recordedAt: editRecordedAt ? new Date(editRecordedAt).toISOString() : undefined,
+        })
+      ).data,
+    onSuccess: () => {
+      toast.success("Attendance record updated");
+      queryClient.invalidateQueries({ queryKey: ["attendance"] });
+      setEditingRecord(null);
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not update the record")),
+  });
+
+  // --- Clear whatever the current filters match ---
+  const hasActiveFilter = Boolean(filterSessionId || filterZoneId || filterType || filterFrom || filterTo);
+
+  const clearFiltered = useMutation({
+    mutationFn: async () => (await api.delete<{ deleted: number }>("/attendance", { params: attendanceFilterParams })).data,
+    onSuccess: ({ deleted }) => {
+      toast.success(`Cleared ${deleted} attendance record${deleted === 1 ? "" : "s"}`);
+      queryClient.invalidateQueries({ queryKey: ["attendance"] });
+      setPage(1);
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not clear attendance records")),
+  });
+
+  function handleClearFiltered() {
+    const count = data?.pagination.total ?? 0;
+    if (
+      confirm(
+        `Permanently delete ${count} attendance record${count === 1 ? "" : "s"} matching the current filters? This cannot be undone.`
+      )
+    ) {
+      clearFiltered.mutate();
     }
   }
 
@@ -495,6 +568,13 @@ export default function AttendancePage() {
                       )}
                       <button
                         className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                        title="Export this schedule's attendance as its own CSV"
+                        onClick={() => handleExportSchedule(s)}
+                      >
+                        <Download size={15} />
+                      </button>
+                      <button
+                        className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                         title="Edit schedule"
                         onClick={() => openEditModal(s)}
                       >
@@ -610,9 +690,19 @@ export default function AttendancePage() {
             </button>
           )}
         </div>
-        <button className="btn-secondary" onClick={handleExport} disabled={exporting}>
-          {exporting ? <Spinner className="h-4 w-4" /> : <Download size={16} />} Export CSV
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            className="btn-secondary text-red-600"
+            onClick={handleClearFiltered}
+            disabled={!hasActiveFilter || clearFiltered.isPending}
+            title={hasActiveFilter ? "Permanently delete every record matching the current filters" : "Select at least one filter to clear"}
+          >
+            {clearFiltered.isPending ? <Spinner className="h-4 w-4" /> : <Eraser size={16} />} Clear filtered
+          </button>
+          <button className="btn-secondary" onClick={handleExport} disabled={exporting}>
+            {exporting ? <Spinner className="h-4 w-4" /> : <Download size={16} />} Export CSV
+          </button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -629,6 +719,7 @@ export default function AttendancePage() {
                 <th className="px-4 py-3">Schedule</th>
                 <th className="px-4 py-3">Zone</th>
                 <th className="px-4 py-3">Card</th>
+                <th className="px-4 py-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -653,11 +744,20 @@ export default function AttendancePage() {
                       r.card?.label ?? r.card?.uid ?? "—"
                     )}
                   </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                      title="Edit this record"
+                      onClick={() => openRecordEditModal(r)}
+                    >
+                      <Pencil size={15} />
+                    </button>
+                  </td>
                 </tr>
               ))}
               {data?.data.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
                     No attendance records match these filters.
                   </td>
                 </tr>
@@ -854,6 +954,47 @@ export default function AttendancePage() {
             Record manual attendance
           </button>
         </form>
+      </Modal>
+
+      <Modal open={Boolean(editingRecord)} onClose={() => setEditingRecord(null)} title="Edit attendance record">
+        {editingRecord && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              updateRecord.mutate();
+            }}
+            className="space-y-3"
+          >
+            <p className="text-xs text-slate-400">
+              {editingRecord.holder?.fullName ?? "This holder"} —{" "}
+              {editingRecord.manualEntry ? "manually entered" : editingRecord.card?.label ?? editingRecord.card?.uid ?? "no card"}
+            </p>
+            <div>
+              <label className="label">Type</label>
+              <select className="input" value={editType} onChange={(e) => setEditType(e.target.value as "CHECK_IN" | "CHECK_OUT")}>
+                <option value="CHECK_IN">Check-in</option>
+                <option value="CHECK_OUT">Check-out</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Recorded at</label>
+              <input
+                type="datetime-local"
+                className="input"
+                value={editRecordedAt}
+                onChange={(e) => setEditRecordedAt(e.target.value)}
+              />
+            </div>
+            <button type="submit" className="btn-primary w-full" disabled={updateRecord.isPending}>
+              {updateRecord.isPending ? <Spinner className="h-4 w-4 text-white" /> : <Save size={16} />}
+              Save changes
+            </button>
+            <p className="text-xs text-slate-400">
+              This corrects the record directly — it doesn't re-run check-in/check-out alternation, so make sure the
+              new type still makes sense next to this holder's other records in this zone.
+            </p>
+          </form>
+        )}
       </Modal>
     </div>
   );

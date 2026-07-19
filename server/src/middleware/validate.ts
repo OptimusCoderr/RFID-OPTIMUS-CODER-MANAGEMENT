@@ -1,10 +1,13 @@
 import { NextFunction, Request, Response } from "express";
-import { AnyZodObject } from "zod";
+import { ZodTypeAny } from "zod";
 
 interface Schemas {
-  body?: AnyZodObject;
-  query?: AnyZodObject;
-  params?: AnyZodObject;
+  // ZodTypeAny (not AnyZodObject) so a top-level .refine()/.superRefine()
+  // schema — which wraps the object in a ZodEffects, not a ZodObject — can
+  // still be passed here (e.g. "require at least one of these fields").
+  body?: ZodTypeAny;
+  query?: ZodTypeAny;
+  params?: ZodTypeAny;
 }
 
 export function validate(schemas: Schemas) {

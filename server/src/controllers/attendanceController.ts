@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
-import { scopedCompanyId } from "../middleware/rbac.js";
+import { assertCompanyAccess, scopedCompanyId } from "../middleware/rbac.js";
 import { toCsv } from "../utils/csv.js";
 import * as attendanceService from "../services/attendanceService.js";
 
@@ -101,9 +101,41 @@ export const exportAttendance = asyncHandler(async (req: Request, res: Response)
     { key: "card", header: "Card", value: (r) => r.card?.label ?? r.card?.uid },
     { key: "encoder", header: "Encoder", value: (r) => r.encoder?.name },
     { key: "schedule", header: "Schedule", value: (r) => r.sessionLabel },
+    // Manual entries have no card at all (see recordManualAttendance) — the
+    // "Card" column above is blank for them either way, which looked
+    // identical to a data-integrity gap until these two were added.
+    { key: "manualEntry", header: "Manual entry", value: (r) => (r.manualEntry ? "Yes" : "No") },
+    { key: "recordedBy", header: "Recorded by", value: (r) => r.recordedByUser?.fullName },
   ]);
 
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="attendance-${new Date().toISOString().slice(0, 10)}.csv"`);
   res.send(csv);
+});
+
+export const updateAttendance = asyncHandler(async (req: Request, res: Response) => {
+  const existing = await prisma.attendanceRecord.findUnique({ where: { id: req.params.id } });
+  if (!existing) throw ApiError.notFound("Attendance record not found");
+  assertCompanyAccess(req, existing.companyId);
+
+  const record = await prisma.attendanceRecord.update({
+    where: { id: req.params.id },
+    data: {
+      ...(req.body.type ? { type: req.body.type } : {}),
+      ...(req.body.recordedAt ? { recordedAt: req.body.recordedAt } : {}),
+    },
+    include: attendanceService.ATTENDANCE_INCLUDE,
+  });
+  res.json(record);
+});
+
+// Bulk-deletes whatever the caller's current filters match — e.g. clearing a
+// zone's history so its check-in/check-out toggle (scoped by zone, not by
+// schedule — see recordAttendance) starts fresh for a brand-new schedule
+// that reuses that zone, instead of immediately reading as "already checked
+// in" from a previous schedule's leftover state.
+export const clearAttendance = asyncHandler(async (req: Request, res: Response) => {
+  const where = buildAttendanceWhere(req);
+  const { count } = await prisma.attendanceRecord.deleteMany({ where });
+  res.json({ deleted: count });
 });
