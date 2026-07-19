@@ -775,6 +775,19 @@ describe("company + card lifecycle happy path", () => {
       expect(res.body.recordedByUser).toBeTruthy();
     });
 
+    it("shows manual entries distinctly in the CSV export instead of a blank Card column indistinguishable from a data gap", async () => {
+      const exportRes = await request(app)
+        .get("/api/attendance/export")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ holderId: manualHolderId });
+      expect(exportRes.status).toBe(200);
+      const [header, ...rows] = exportRes.text.trim().split("\r\n");
+      expect(header).toContain("Manual entry");
+      expect(header).toContain("Recorded by");
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((row) => row.includes(",Yes,"))).toBe(true);
+    });
+
     it("alternates to check-out on the next manual entry for the same holder", async () => {
       const res = await request(app)
         .post("/api/attendance/manual")
@@ -852,6 +865,152 @@ describe("company + card lifecycle happy path", () => {
         .set("Authorization", `Bearer ${companyAdminToken}`)
         .send({ holderId: manualHolderId, zoneId: otherZoneRes.body.id });
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe("attendance record editing and bulk clear", () => {
+    let editCardId: string;
+    let editHolderId: string;
+    let editZoneId: string;
+    let editRecordId: string;
+
+    beforeAll(async () => {
+      const holderRes = await request(app)
+        .post("/api/holders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ fullName: "Edit/Clear Test Holder" });
+      editHolderId = holderRes.body.id;
+
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04EE22FF33", cardType: "NTAG213" });
+      editCardId = cardRes.body.id;
+      await request(app)
+        .post(`/api/cards/${editCardId}/assign`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId: editHolderId });
+
+      const zoneRes = await request(app)
+        .post("/api/zones")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Edit/Clear Test Zone" });
+      editZoneId = zoneRes.body.id;
+
+      const recordRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: editCardId, zoneId: editZoneId });
+      editRecordId = recordRes.body.id;
+    });
+
+    it("lets a manager correct a record's type and recordedAt", async () => {
+      const newRecordedAt = new Date("2026-01-15T09:00:00.000Z").toISOString();
+      const res = await request(app)
+        .patch(`/api/attendance/${editRecordId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ type: "CHECK_OUT", recordedAt: newRecordedAt });
+      expect(res.status).toBe(200);
+      expect(res.body.type).toBe("CHECK_OUT");
+      expect(new Date(res.body.recordedAt).toISOString()).toBe(newRecordedAt);
+    });
+
+    it("rejects an edit body with neither type nor recordedAt", async () => {
+      const res = await request(app)
+        .patch(`/api/attendance/${editRecordId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({});
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects an OPERATOR from editing a record", async () => {
+      const operatorToken = await loginAs("operator@integration-test-co.example", "Operator123!");
+      const res = await request(app)
+        .patch(`/api/attendance/${editRecordId}`)
+        .set("Authorization", `Bearer ${operatorToken}`)
+        .send({ type: "CHECK_IN" });
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects editing another company's attendance record", async () => {
+      const otherCompanyRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Edit Test Other Co", slug: "edit-test-other-co" });
+      const otherHolderRes = await request(app)
+        .post("/api/holders")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ fullName: "Other Co Holder", companyId: otherCompanyRes.body.id });
+      const otherManualRes = await request(app)
+        .post("/api/attendance/manual")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ holderId: otherHolderRes.body.id, companyId: otherCompanyRes.body.id });
+
+      const res = await request(app)
+        .patch(`/api/attendance/${otherManualRes.body.id}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ type: "CHECK_OUT" });
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects clearing attendance with no filter at all", async () => {
+      const res = await request(app)
+        .delete("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res.status).toBe(400);
+    });
+
+    it("clears only the records matching the given filter, scoped to the caller's company", async () => {
+      const beforeRes = await request(app)
+        .get("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ zoneId: editZoneId, pageSize: 1 });
+      const totalBefore = beforeRes.body.pagination.total;
+      expect(totalBefore).toBeGreaterThan(0);
+
+      const clearRes = await request(app)
+        .delete("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ zoneId: editZoneId });
+      expect(clearRes.status).toBe(200);
+      expect(clearRes.body.deleted).toBe(totalBefore);
+
+      const afterRes = await request(app)
+        .get("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ zoneId: editZoneId, pageSize: 1 });
+      expect(afterRes.body.pagination.total).toBe(0);
+    });
+
+    it("clearing a zone's records lets a new schedule start fresh instead of inheriting the old check-in/check-out state", async () => {
+      // Reproduces the reported bug: tap in this zone, then simulate opening
+      // a brand-new schedule that reuses the same zone — without a clear,
+      // the very next tap would read as CHECK_OUT ("already checked in").
+      const tapRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: editCardId, zoneId: editZoneId });
+      expect(tapRes.body.type).toBe("CHECK_IN");
+
+      await request(app)
+        .delete("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ zoneId: editZoneId });
+
+      const freshRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: editCardId, zoneId: editZoneId });
+      expect(freshRes.body.type).toBe("CHECK_IN");
+    });
+
+    it("rejects an OPERATOR from clearing attendance", async () => {
+      const operatorToken = await loginAs("operator@integration-test-co.example", "Operator123!");
+      const res = await request(app)
+        .delete("/api/attendance")
+        .set("Authorization", `Bearer ${operatorToken}`)
+        .query({ zoneId: editZoneId });
+      expect(res.status).toBe(403);
     });
   });
 

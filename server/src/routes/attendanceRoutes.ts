@@ -3,7 +3,14 @@ import * as attendanceController from "../controllers/attendanceController.js";
 import { authenticate } from "../middleware/auth.js";
 import { requireRole } from "../middleware/rbac.js";
 import { validate } from "../middleware/validate.js";
-import { recordAttendanceBody, recordManualAttendanceBody, attendanceListQuery } from "../validators/attendance.js";
+import {
+  recordAttendanceBody,
+  recordManualAttendanceBody,
+  attendanceListQuery,
+  updateAttendanceBody,
+  clearAttendanceQuery,
+} from "../validators/attendance.js";
+import { idParams } from "../validators/common.js";
 
 const router = Router();
 
@@ -24,5 +31,12 @@ router.post(
   validate({ body: recordManualAttendanceBody }),
   attendanceController.recordManualAttendance
 );
+router.patch(
+  "/:id",
+  requireRole(...MANAGER_UP),
+  validate({ params: idParams, body: updateAttendanceBody }),
+  attendanceController.updateAttendance
+);
+router.delete("/", requireRole(...MANAGER_UP), validate({ query: clearAttendanceQuery }), attendanceController.clearAttendance);
 
 export default router;
