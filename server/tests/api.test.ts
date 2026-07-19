@@ -1477,12 +1477,15 @@ describe("company + card lifecycle happy path", () => {
       expect(second.body.error).toMatch(/already checked in/i);
     });
 
-    it("DAILY_CHECK_IN: MCT101 meets Monday and Tuesday — yesterday's check-in doesn't block today's fresh one", async () => {
+    it("DAILY_CHECK_IN: MCT101 meets Monday and Tuesday — closing Monday's session lets Tuesday's tap check in fresh", async () => {
       // Reproduces the reported course-attendance scenario directly: a
       // schedule that meets on multiple days should record a fresh
-      // check-in each day it's open, not read a previous day's check-in as
+      // check-in each meeting, not read a previous meeting's check-in as
       // "already checked in" or (under FREE) flip the second tap into a
-      // check-out.
+      // check-out. Each meeting is a SessionOccurrence — Monday's tap opens
+      // one automatically; closing it (the "Close session" action an
+      // operator uses at the end of class) is what lets Tuesday's tap open
+      // a fresh occurrence instead of colliding with Monday's.
       const { sessionId, encoderId } = await newSchedule("DAILY_CHECK_IN");
       const cardId = await newHolderAndCard("04D1000008");
 
@@ -1493,12 +1496,11 @@ describe("company + card lifecycle happy path", () => {
       expect(mondayTap.status).toBe(201);
       expect(mondayTap.body.type).toBe("CHECK_IN");
 
-      // Backdate that record to simulate it happened on a previous
-      // occurrence (e.g. yesterday), rather than faking the system clock.
-      await prisma.attendanceRecord.update({
-        where: { id: mondayTap.body.id },
-        data: { recordedAt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-      });
+      const closeRes = await request(app)
+        .post(`/api/attendance-sessions/${sessionId}/occurrences/close`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(closeRes.status).toBe(200);
+      expect(closeRes.body.isOpen).toBe(false);
 
       const tuesdayTap = await request(app)
         .post("/api/attendance")
@@ -1561,6 +1563,167 @@ describe("company + card lifecycle happy path", () => {
       expect(bTap.status).toBe(201); // not blocked by A's state, despite sharing the zone
       expect(bTap.body.type).toBe("CHECK_IN");
       expect(bTap.body.sessionId).toBe(scheduleB.body.id);
+    });
+  });
+
+  describe("session occurrences: close / reopen / create-new (per-schedule session lifecycle)", () => {
+    async function newHolderAndCard(uid: string): Promise<string> {
+      const holderRes = await request(app)
+        .post("/api/holders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ fullName: `Occurrence Test Holder ${uid}` });
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid, cardType: "NTAG213" });
+      await request(app)
+        .post(`/api/cards/${cardRes.body.id}/assign`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId: holderRes.body.id });
+      return cardRes.body.id;
+    }
+
+    async function newSchedule(mode: string): Promise<{ sessionId: string; encoderId: string }> {
+      const encoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: `Occurrence Test Encoder ${mode} ${Math.random().toString(36).slice(2, 8)}`, type: "ACR122U" });
+      const encoderId = encoderRes.body.id;
+
+      const res = await request(app)
+        .post("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ encoderId, label: `Occurrence Test ${mode}`, daysOfWeek: [], mode });
+      expect(res.status).toBe(201);
+      return { sessionId: res.body.id, encoderId };
+    }
+
+    it("closing has nothing to close on a schedule with no taps yet", async () => {
+      const { sessionId } = await newSchedule("DAILY_CHECK_IN");
+      const res = await request(app)
+        .post(`/api/attendance-sessions/${sessionId}/occurrences/close`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/no open session/i);
+    });
+
+    it("lists occurrences newest-first with a record count and open flag", async () => {
+      const { sessionId, encoderId } = await newSchedule("DAILY_CHECK_IN");
+      const cardId = await newHolderAndCard("04D2000001");
+
+      const tap = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(tap.status).toBe(201);
+
+      const listRes = await request(app)
+        .get(`/api/attendance-sessions/${sessionId}/occurrences`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(listRes.status).toBe(200);
+      expect(listRes.body).toHaveLength(1);
+      expect(listRes.body[0]).toMatchObject({ isOpen: true, recordCount: 1 });
+    });
+
+    it("create-new-session closes whatever was open and starts an independent fresh one", async () => {
+      const { sessionId, encoderId } = await newSchedule("DAILY_CHECK_IN");
+      const cardId = await newHolderAndCard("04D2000002");
+
+      const firstTap = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(firstTap.status).toBe(201);
+
+      const createRes = await request(app)
+        .post(`/api/attendance-sessions/${sessionId}/occurrences`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(createRes.status).toBe(201);
+      expect(createRes.body.isOpen).toBe(true);
+      expect(createRes.body.id).not.toBe(firstTap.body.occurrenceId);
+
+      // Same card can check in again — it's a fresh occurrence, no stale state.
+      const secondTap = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(secondTap.status).toBe(201);
+      expect(secondTap.body.type).toBe("CHECK_IN");
+
+      const listRes = await request(app)
+        .get(`/api/attendance-sessions/${sessionId}/occurrences`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(listRes.body).toHaveLength(2);
+      const openOnes = listRes.body.filter((o: { isOpen: boolean }) => o.isOpen);
+      expect(openOnes).toHaveLength(1); // at most one open occurrence at a time
+    });
+
+    it("reopening a past occurrence closes the current one and lets new taps attach to the reopened one", async () => {
+      const { sessionId, encoderId } = await newSchedule("DAILY_CHECK_IN");
+      const cardA = await newHolderAndCard("04D2000003");
+      const cardB = await newHolderAndCard("04D2000004");
+
+      const firstTap = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: cardA, encoderId });
+      expect(firstTap.status).toBe(201);
+      const firstOccurrenceId = firstTap.body.occurrenceId;
+
+      await request(app)
+        .post(`/api/attendance-sessions/${sessionId}/occurrences/close`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+
+      // A late tap opens a new second occurrence.
+      const secondTap = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: cardB, encoderId });
+      expect(secondTap.status).toBe(201);
+      expect(secondTap.body.occurrenceId).not.toBe(firstOccurrenceId);
+
+      // Reopen the first occurrence — e.g. a forgotten card holder shows up
+      // late and should be recorded against the original meeting, not a new one.
+      const reopenRes = await request(app)
+        .post(`/api/attendance-sessions/${sessionId}/occurrences/${firstOccurrenceId}/reopen`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(reopenRes.status).toBe(200);
+      expect(reopenRes.body.isOpen).toBe(true);
+
+      const listRes = await request(app)
+        .get(`/api/attendance-sessions/${sessionId}/occurrences`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      const openOnes = listRes.body.filter((o: { isOpen: boolean }) => o.isOpen);
+      expect(openOnes).toHaveLength(1);
+      expect(openOnes[0].id).toBe(firstOccurrenceId); // reopening auto-closed the second one
+
+      // cardA (already checked in on the first occurrence) is rejected again,
+      // proving the new tap really did land back on the reopened occurrence.
+      const rejectedTap = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: cardA, encoderId });
+      expect(rejectedTap.status).toBe(400);
+    });
+
+    it("rejects a VIEWER from closing a session", async () => {
+      const { sessionId } = await newSchedule("DAILY_CHECK_IN");
+      await request(app)
+        .post("/api/users")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          email: "viewer-occurrencetest@integration-test-co.example",
+          password: "ViewerOnly123!",
+          fullName: "Occurrence Test Viewer",
+          role: "VIEWER",
+          companyId,
+        });
+      const viewerToken = await loginAs("viewer-occurrencetest@integration-test-co.example", "ViewerOnly123!");
+
+      const closeRes = await request(app)
+        .post(`/api/attendance-sessions/${sessionId}/occurrences/close`)
+        .set("Authorization", `Bearer ${viewerToken}`);
+      expect(closeRes.status).toBe(403);
     });
   });
 
@@ -1945,6 +2108,48 @@ describe("company + card lifecycle happy path", () => {
       expect(res.status).toBe(200);
       expect(res.body.label).toBe("still works");
       expect(res.body.writeProtected).toBe(false); // unrecognized field silently stripped by the Zod schema
+    });
+  });
+
+  describe("random key generation: blocked while write-protected (would strand the card otherwise)", () => {
+    let keyGenCardId: string;
+
+    beforeAll(async () => {
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04AACC0002", cardType: "MIFARE_CLASSIC_1K" });
+      keyGenCardId = cardRes.body.id;
+    });
+
+    it("generates keys normally on an unprotected card", async () => {
+      const res = await request(app)
+        .post(`/api/cards/${keyGenCardId}/keys/generate`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.keys).toBeTruthy();
+
+      const cardRes = await request(app).get(`/api/cards/${keyGenCardId}`).set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(cardRes.body.hasStoredKeys).toBe(true);
+    });
+
+    it("rejects generating a new key while the card is write-protected", async () => {
+      await request(app).post(`/api/cards/${keyGenCardId}/write-protect`).set("Authorization", `Bearer ${companyAdminToken}`);
+
+      const res = await request(app)
+        .post(`/api/cards/${keyGenCardId}/keys/generate`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/write-protect/i);
+    });
+
+    it("allows key generation again once write protection is removed", async () => {
+      await request(app).post(`/api/cards/${keyGenCardId}/write-unprotect`).set("Authorization", `Bearer ${companyAdminToken}`);
+
+      const res = await request(app)
+        .post(`/api/cards/${keyGenCardId}/keys/generate`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res.status).toBe(200);
     });
   });
 

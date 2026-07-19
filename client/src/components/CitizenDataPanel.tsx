@@ -186,15 +186,26 @@ export function CitizenDataPanel({
 
       {!card.hasStoredKeys && (
         <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
-          <span>This card has no encryption key yet — generate one before writing citizen data.</span>
+          <span>
+            {card.writeProtected
+              ? "This card has no encryption key yet, and is write-protected — remove write protection before generating one."
+              : "This card has no encryption key yet — generate one before writing citizen data."}
+          </span>
           <button
             type="button"
             className="btn-secondary whitespace-nowrap"
-            disabled={generateKeys.isPending}
+            disabled={generateKeys.isPending || card.writeProtected}
+            title={card.writeProtected ? "Remove write protection first" : undefined}
             onClick={() => generateKeys.mutate()}
           >
             <KeyRound size={13} /> {generateKeys.isPending ? "Generating..." : "Generate keys"}
           </button>
+        </div>
+      )}
+      {card.hasStoredKeys && card.writeProtected && (
+        <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          This card is write-protected — writes are blocked until write protection is removed from the card's detail
+          page, even though its encryption key is already set up.
         </div>
       )}
 

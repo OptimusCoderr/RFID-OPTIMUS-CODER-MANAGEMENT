@@ -118,6 +118,18 @@ export const generateCardKeys = asyncHandler(async (req: Request, res: Response)
   if (!MIFARE_CLASSIC_TYPES.has(card.cardType)) {
     throw ApiError.badRequest("Random key generation only applies to MIFARE Classic cards");
   }
+  // This only replaces the *stored* keys — it never touches the physical
+  // card, so the old key material stays authoritative on the card itself
+  // until it's re-written with the new one. A write-protected card can't
+  // take that follow-up write at all, which would strand it: the app would
+  // authenticate with the new key while the card still expects the old one,
+  // permanently locking this app out of its own sectors/citizen data until
+  // someone thinks to remove write-protect and regenerate again.
+  if (card.writeProtected) {
+    throw ApiError.badRequest(
+      "This card is write-protected. Remove write protection before generating a new key, or the new key won't match what's actually on the card."
+    );
+  }
 
   const sectors = ((card.template?.layout as any)?.sectors as { sector: number }[] | undefined)?.map((s) => s.sector) ?? [0];
 
