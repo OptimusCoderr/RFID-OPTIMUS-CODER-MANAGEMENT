@@ -126,6 +126,13 @@ enum AttendanceMode {
   CHECK_OUT_ONLY
   // One check-in then one check-out, in that order; a third tap is rejected.
   ONCE
+  // For recurring class/course attendance rather than continuous physical
+  // presence: exactly one CHECK_IN per calendar day (or occurrence window)
+  // this schedule is open, no check-out ever expected — e.g. a course that
+  // meets Mon/Tue records a fresh check-in each of those days instead of
+  // alternating into a check-out on the second tap. A repeat tap on the same
+  // day/occurrence is rejected.
+  DAILY_CHECK_IN
 }
 
 enum MaintenanceStatus {

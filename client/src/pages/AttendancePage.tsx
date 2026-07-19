@@ -38,6 +38,7 @@ const MODE_LABELS: Record<AttendanceMode, string> = {
   CHECK_IN_ONLY: "Check-in only, once",
   CHECK_OUT_ONLY: "Check-out only, once",
   ONCE: "Check in & out, once each",
+  DAILY_CHECK_IN: "Daily check-in (class/course attendance)",
 };
 
 const MODE_HELP: Record<AttendanceMode, string> = {
@@ -45,6 +46,8 @@ const MODE_HELP: Record<AttendanceMode, string> = {
   CHECK_IN_ONLY: "Each card can only ever record a single check-in here. A repeat tap is rejected.",
   CHECK_OUT_ONLY: "Each card can only ever record a single check-out here. A repeat tap is rejected.",
   ONCE: "Each card gets exactly one check-in then one check-out. A third tap is rejected.",
+  DAILY_CHECK_IN:
+    "One check-in per day this schedule meets — no check-out needed. E.g. a course meeting Mon & Tue records a fresh check-in each of those days instead of turning the second tap into a check-out.",
 };
 
 interface ScheduleFormState {
@@ -348,13 +351,16 @@ export default function AttendancePage() {
     }
   }
 
-  // Exports one saved schedule's history as its own file, filtered by
-  // sessionId — separate from the "Export CSV" button above, which exports
-  // whatever the on-screen filters currently select.
+  // Exports one course/schedule's full history as its own file — filtered
+  // by Label, not this specific row's id, since the same course (e.g.
+  // "MCT101") is often split across several schedule rows for its different
+  // meeting days/times; this pulls all of them into one combined file
+  // instead of one file per row. Separate from the "Export CSV" button
+  // above, which exports whatever the on-screen filters currently select.
   async function handleExportSchedule(s: AttendanceSession) {
     const filename = `attendance-${s.label.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`;
     try {
-      await downloadCsv("/attendance/export", { sessionId: s.id }, filename);
+      await downloadCsv("/attendance/export", { sessionLabel: s.label }, filename);
     } catch {
       toast.error("Export failed");
     }
@@ -568,7 +574,7 @@ export default function AttendancePage() {
                       )}
                       <button
                         className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                        title="Export this schedule's attendance as its own CSV"
+                        title={`Export "${s.label}"'s attendance as its own CSV — combines every schedule row sharing this label`}
                         onClick={() => handleExportSchedule(s)}
                       >
                         <Download size={15} />

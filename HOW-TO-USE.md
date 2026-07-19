@@ -868,25 +868,28 @@ sense next to that holder's other records in the same zone.
 To delete records outright, use **Clear filtered** next to Export CSV — it
 permanently deletes every record matching whatever's currently selected in
 the Schedule/Zone/Type/date filters above it (disabled until at least one
-filter is set, and confirms with the exact count first). This is the fix for
-"I started a new schedule and it says I'm already checked in": check-in/
-check-out state is tracked **per zone** (see step 1 above), not per
-schedule, so a brand-new schedule that reuses an existing zone — or two
-schedules that both use "General" — inherit whatever that zone's last
-recorded state was. Filter by that **zone** (not just the schedule) and
-click **Clear filtered** to wipe its history and let the next tap start
-clean at check-in. (Filtering by schedule alone clears that schedule's own
-rows, but won't reset the toggle if other records — a different schedule, or
-a general tap — still exist in the same zone.)
+filter is set, and confirms with the exact count first). Any schedule using
+a mode other than **Free** (see the Mode list below) already tracks its own
+check-in state independently, so a brand-new course schedule won't inherit
+"already checked in" from an unrelated one even if they share a zone — you
+shouldn't need Clear for that anymore. It's still useful for **Free**-mode
+schedules and general (no-schedule) taps, which intentionally *do* share
+one continuous per-zone state (that's what makes "currently present" and
+the hotel-style zone access log work) — filter by that **zone** and click
+**Clear filtered** if you need to force that shared state back to a clean
+slate, or just to correct test/mistaken data.
 
 **Exporting.** The **Export CSV** button next to Clear filtered respects
 every on-screen filter, so setting Schedule/Zone/date and exporting pulls
-just that slice. For a guaranteed one-file-per-schedule habit, though, use
-the standalone **download icon** on each row of the **Saved schedules**
-table below instead — it exports that one schedule's full history
-(regardless of the filters above) straight to its own CSV file named after
-the schedule, with a "Manual entry"/"Recorded by" column so a lost-card
-override in the export is never mistaken for a data gap.
+just that slice. For a guaranteed one-file-per-course habit, though, use the
+standalone **download icon** on each row of the **Saved schedules** table
+below instead — it exports every record under that row's **Label**
+(regardless of the filters above), combined into one file. That matters
+because one course is often split across several schedule rows for its
+different meeting days/times (see "Daily check-in" below) — clicking Export
+on any one of "MCT101"'s rows pulls the whole course's history, not just
+that one day's. Includes a "Manual entry"/"Recorded by" column so a
+lost-card override in the export is never mistaken for a data gap.
 
 **Saved schedules (like a university course catalog).** An encoder can host
 any number of independent recurring schedules — the way one lecture hall's
@@ -929,20 +932,42 @@ the **Saved schedules** table below the tap panel:
 6. Each schedule's **Mode** controls what a repeat tap from the same card is
    allowed to do, on top of the open/closed check above:
    - **Free (check in/out at will)** — the default, and the original
-     behavior: taps alternate check-in/check-out with no limit.
+     behavior: taps alternate check-in/check-out with no limit. Continuous
+     physical presence tracked **per zone** (see step 1) — every Free
+     schedule and general tap sharing a zone contributes to the same
+     ongoing in/out state, which is what "currently present" and hotel-style
+     access logs rely on.
    - **Check-in only, once** — a card can only ever record a single
-     check-in here; a repeat tap is rejected with "This card has already
-     checked in." Useful for a one-way entry gate or a single-scan event.
+     check-in **under this schedule**; a repeat tap is rejected with "This
+     card has already checked in." Useful for a one-way entry gate or a
+     single-scan event.
    - **Check-out only, once** — the mirror of the above, for a single-scan
      exit point.
    - **Check in & out, once each** — a card gets exactly one check-in then
-     one check-out; a third tap is rejected with "This card has already
-     checked in and out." Useful when you want to guarantee one clean
-     round-trip per card (e.g. a borrow/return desk) without allowing
-     unlimited back-and-forth.
+     one check-out **under this schedule**; a third tap is rejected with
+     "This card has already checked in and out." Useful when you want to
+     guarantee one clean round-trip per card (e.g. a borrow/return desk)
+     without allowing unlimited back-and-forth.
+   - **Daily check-in** — for class/course attendance rather than physical
+     presence: one check-in per day this schedule meets, no check-out
+     expected at all. E.g. a schedule for "MCT101" with **Days** set to
+     Monday and Tuesday records a fresh check-in each of those days — the
+     second day's tap doesn't get read as "already checked in" or flipped
+     into a check-out the way Free mode would, and a repeat tap on the
+     *same* day is rejected ("already checked in for today's session"). If
+     a course meets on different days at different times, you can also
+     model it as **several schedule rows sharing one Label** (e.g. a
+     Monday 09:00–10:00 row and a separate Tuesday 14:00–15:00 row, both
+     labeled "MCT101") instead of days-of-week on a single row — either
+     way, the per-schedule Export (below) combines them into one file.
 
-   The mode only applies while that schedule is the one open on the
-   encoder — a general tap with no schedule open always behaves as Free.
+   Every mode except Free is scoped to **that specific schedule**, not the
+   zone it happens to share with other schedules — so a brand-new schedule
+   never inherits a stale "already checked in" from an unrelated one just
+   because they use the same zone (or both use "General"). Free is the one
+   exception, by design: it's meant to be a continuous, zone-wide presence
+   signal, not something scoped to a single schedule. A general tap with no
+   schedule open always behaves as Free.
 
 Whether an encoder is currently open is always computed live — the OR of
 every one of its schedules' own live states at the moment of the tap (or

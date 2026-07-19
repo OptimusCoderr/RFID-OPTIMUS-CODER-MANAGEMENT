@@ -1457,6 +1457,111 @@ describe("company + card lifecycle happy path", () => {
       expect(patchRes.status).toBe(200);
       expect(patchRes.body.mode).toBe("CHECK_IN_ONLY");
     });
+
+    it("DAILY_CHECK_IN records a check-in, then rejects a repeat tap the same day — no check-out concept", async () => {
+      const { encoderId } = await newSchedule("DAILY_CHECK_IN");
+      const cardId = await newHolderAndCard("04D1000007");
+
+      const first = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(first.status).toBe(201);
+      expect(first.body.type).toBe("CHECK_IN");
+
+      const second = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(second.status).toBe(400);
+      expect(second.body.error).toMatch(/already checked in/i);
+    });
+
+    it("DAILY_CHECK_IN: MCT101 meets Monday and Tuesday — yesterday's check-in doesn't block today's fresh one", async () => {
+      // Reproduces the reported course-attendance scenario directly: a
+      // schedule that meets on multiple days should record a fresh
+      // check-in each day it's open, not read a previous day's check-in as
+      // "already checked in" or (under FREE) flip the second tap into a
+      // check-out.
+      const { sessionId, encoderId } = await newSchedule("DAILY_CHECK_IN");
+      const cardId = await newHolderAndCard("04D1000008");
+
+      const mondayTap = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(mondayTap.status).toBe(201);
+      expect(mondayTap.body.type).toBe("CHECK_IN");
+
+      // Backdate that record to simulate it happened on a previous
+      // occurrence (e.g. yesterday), rather than faking the system clock.
+      await prisma.attendanceRecord.update({
+        where: { id: mondayTap.body.id },
+        data: { recordedAt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      });
+
+      const tuesdayTap = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(tuesdayTap.status).toBe(201);
+      expect(tuesdayTap.body.type).toBe("CHECK_IN"); // fresh occurrence, not rejected and not a check-out
+      expect(tuesdayTap.body.sessionId).toBe(sessionId);
+    });
+
+    it("a schedule's non-FREE mode is scoped to that schedule, not the zone it shares with another schedule", async () => {
+      // The root-cause fix for "I open a new schedule and it says I'm
+      // already checked in": CHECK_IN_ONLY/CHECK_OUT_ONLY/ONCE/DAILY_CHECK_IN
+      // are scoped per-schedule (sessionId), not per-zone, specifically so
+      // two different schedules sharing a zone (or both "General") don't
+      // inherit each other's state.
+      const zoneRes = await request(app)
+        .post("/api/zones")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Shared Mode Test Zone" });
+      const zoneId = zoneRes.body.id;
+
+      const encoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Shared Mode Test Encoder", type: "ACR122U" });
+      const encoderId = encoderRes.body.id;
+
+      const scheduleA = await request(app)
+        .post("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ encoderId, zoneId, label: "Schedule A", daysOfWeek: [], mode: "CHECK_IN_ONLY" });
+      expect(scheduleA.status).toBe(201);
+
+      const cardId = await newHolderAndCard("04D1000009");
+
+      // Use up A's CHECK_IN_ONLY limit (daysOfWeek: [] means always open).
+      const aTap = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId, zoneId });
+      expect(aTap.status).toBe(201);
+      await request(app)
+        .patch(`/api/attendance-sessions/${scheduleA.body.id}/override`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ manualOverride: "FORCE_CLOSED" });
+
+      // A brand-new schedule B, same zone, same encoder, also CHECK_IN_ONLY —
+      // its own tap must succeed fresh, unaffected by A's already-used limit.
+      const scheduleB = await request(app)
+        .post("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ encoderId, zoneId, label: "Schedule B", daysOfWeek: [], mode: "CHECK_IN_ONLY" });
+      expect(scheduleB.status).toBe(201);
+
+      const bTap = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId, zoneId });
+      expect(bTap.status).toBe(201); // not blocked by A's state, despite sharing the zone
+      expect(bTap.body.type).toBe("CHECK_IN");
+      expect(bTap.body.sessionId).toBe(scheduleB.body.id);
+    });
   });
 
   describe("card data deletion: clear-write role gate + audit logging", () => {

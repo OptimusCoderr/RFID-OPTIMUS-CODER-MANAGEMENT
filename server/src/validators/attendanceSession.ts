@@ -13,7 +13,7 @@ const labelSchema = z.string().trim().min(1, "A label is required").max(200);
 // FREE = unlimited alternating check-in/check-out (the original behavior).
 // See AttendanceMode in schema.prisma and nextAttendanceType in
 // attendanceSessionService.ts for what the other modes reject.
-const modeSchema = z.enum(["FREE", "CHECK_IN_ONLY", "CHECK_OUT_ONLY", "ONCE"]);
+const modeSchema = z.enum(["FREE", "CHECK_IN_ONLY", "CHECK_OUT_ONLY", "ONCE", "DAILY_CHECK_IN"]);
 
 export const createAttendanceSessionBody = z.object({
   companyId: z.string().uuid().optional(),

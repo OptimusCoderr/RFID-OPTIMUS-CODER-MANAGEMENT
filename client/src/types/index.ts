@@ -311,7 +311,7 @@ export interface AttendanceRecord {
 
 export type ManualOverride = "NONE" | "FORCE_OPEN" | "FORCE_CLOSED";
 
-export type AttendanceMode = "FREE" | "CHECK_IN_ONLY" | "CHECK_OUT_ONLY" | "ONCE";
+export type AttendanceMode = "FREE" | "CHECK_IN_ONLY" | "CHECK_OUT_ONLY" | "ONCE" | "DAILY_CHECK_IN";
 
 export interface SessionState {
   isOpen: boolean;

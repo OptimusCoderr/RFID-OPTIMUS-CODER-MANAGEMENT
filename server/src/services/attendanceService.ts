@@ -80,6 +80,7 @@ export async function recordAttendance(params: {
   // applies for any general (no-encoder) tap, and for an encoder whose open
   // schedule doesn't set a stricter mode.
   let mode: AttendanceMode = "FREE";
+  let occurrenceStartedAt: Date | null = null;
   if (params.encoderId) {
     const sessions = await prisma.attendanceSession.findMany({ where: { encoderId: params.encoderId } });
     const state = computeEncoderOpenState(sessions);
@@ -91,6 +92,7 @@ export async function recordAttendance(params: {
       sessionId = state.openSessionId;
       sessionLabel = openSession?.label ?? null;
       mode = openSession?.mode ?? "FREE";
+      occurrenceStartedAt = state.occurrenceStartedAt;
     }
   }
 
@@ -98,8 +100,20 @@ export async function recordAttendance(params: {
   const cardId = card.id;
   const holderId = card.holderId;
 
+  // FREE stays zone-scoped — a continuous physical-presence toggle shared by
+  // every general/FREE-schedule tap in that zone (or "General" if none),
+  // which is what the hotel-style access log and "currently present"
+  // dashboard stat rely on. Every other mode is inherently schedule-bounded
+  // (a single scan, one in/out cycle, one check-in per day) rather than a
+  // continuous presence signal, so it's scoped to *this* schedule
+  // (sessionId) instead — otherwise two unrelated schedules that happen to
+  // share a zone (or both leave it as "General") would corrupt each other's
+  // count, and a brand-new schedule would inherit a stale "already checked
+  // in" state left over from a completely different schedule.
+  const toggleScope = mode === "FREE" ? { zoneId } : { sessionId };
+
   // The read-then-decide-then-write toggle below is a classic check-then-act
-  // race: two near-simultaneous taps for the same holder+zone (plausible
+  // race: two near-simultaneous taps for the same holder+scope (plausible
   // when several encoders share one general, zoneId:null scope) could both
   // read the same "last" record and both insert CHECK_IN, breaking the
   // alternation. Serializable isolation + retry (see serializableRetry.ts)
@@ -108,10 +122,10 @@ export async function recordAttendance(params: {
     prisma.$transaction(
       async (tx) => {
         const last = await tx.attendanceRecord.findFirst({
-          where: { companyId: params.companyId, holderId, zoneId },
+          where: { companyId: params.companyId, holderId, ...toggleScope },
           orderBy: { recordedAt: "desc" },
         });
-        const decision = nextAttendanceType(mode, last ? { type: last.type } : null);
+        const decision = nextAttendanceType(mode, last ? { type: last.type, recordedAt: last.recordedAt } : null, occurrenceStartedAt);
         if ("rejected" in decision) {
           throw ApiError.badRequest(decision.reason);
         }
@@ -170,7 +184,7 @@ export async function recordManualAttendance(params: {
           where: { companyId: params.companyId, holderId, zoneId },
           orderBy: { recordedAt: "desc" },
         });
-        const decision = nextAttendanceType("FREE", last ? { type: last.type } : null);
+        const decision = nextAttendanceType("FREE", last ? { type: last.type, recordedAt: last.recordedAt } : null);
         if ("rejected" in decision) {
           throw ApiError.badRequest(decision.reason);
         }
