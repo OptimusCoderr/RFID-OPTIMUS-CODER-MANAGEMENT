@@ -33,13 +33,13 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 dark:bg-slate-950">
+    <div className="auth-shell">
       <div className="card w-full max-w-sm p-8">
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600 text-white">
+          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600 text-white shadow-[0_0_20px_-2px_rgba(34,197,94,0.7)]">
             <CreditCard size={22} />
           </div>
-          <h1 className="text-xl font-semibold">Choose a new password</h1>
+          <h1 className="font-mono text-xl font-semibold uppercase tracking-wide">Choose a new password</h1>
         </div>
 
         {!token ? (

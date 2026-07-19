@@ -24,13 +24,13 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 dark:bg-slate-950">
+    <div className="auth-shell">
       <div className="card w-full max-w-sm p-8">
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600 text-white">
+          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600 text-white shadow-[0_0_20px_-2px_rgba(34,197,94,0.7)]">
             <CreditCard size={22} />
           </div>
-          <h1 className="text-xl font-semibold">Reset your password</h1>
+          <h1 className="font-mono text-xl font-semibold uppercase tracking-wide">Reset your password</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             {sent ? "Check your email for a reset link." : "Enter your account email and we'll send you a reset link."}
           </p>

@@ -57,13 +57,13 @@ export default function RegisterCompanyPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10 dark:bg-slate-950">
+    <div className="auth-shell py-10">
       <div className="card w-full max-w-md p-8">
         <div className="mb-6 flex flex-col items-center text-center">
-          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600 text-white">
+          <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-brand-600 text-white shadow-[0_0_20px_-2px_rgba(34,197,94,0.7)]">
             <CreditCard size={22} />
           </div>
-          <h1 className="text-xl font-semibold">Register your business</h1>
+          <h1 className="font-mono text-xl font-semibold uppercase tracking-wide">Register your business</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             For hotels, offices, universities, or any business issuing its own RFID/NFC cards.
             You'll get your own login and card inventory, fully separate from every other company.
