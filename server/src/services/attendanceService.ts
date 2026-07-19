@@ -2,6 +2,7 @@ import type { AttendanceMode } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../utils/ApiError.js";
 import { withSerializableRetry } from "../utils/serializableRetry.js";
+import { LIFECYCLE_LOCKED_STATUSES } from "../utils/cardStatus.js";
 import { computeEncoderOpenState, nextAttendanceType } from "./attendanceSessionService.js";
 
 const ATTENDANCE_INCLUDE = {
@@ -9,6 +10,7 @@ const ATTENDANCE_INCLUDE = {
   holder: { select: { id: true, fullName: true, department: true, employeeId: true } },
   zone: { select: { id: true, name: true } },
   encoder: { select: { id: true, name: true } },
+  recordedByUser: { select: { id: true, fullName: true, email: true } },
 } as const;
 
 // By default (AttendanceMode FREE) a tap alternates CHECK_IN/CHECK_OUT for a
@@ -28,7 +30,7 @@ export async function recordAttendance(params: {
   if (!card || card.companyId !== params.companyId) {
     throw ApiError.badRequest("Card does not belong to this company");
   }
-  if (card.status === "BLOCKED" || card.status === "LOST" || card.status === "RETIRED" || card.status === "EXPIRED") {
+  if (LIFECYCLE_LOCKED_STATUSES.has(card.status)) {
     throw ApiError.badRequest(`This card is ${card.status.toLowerCase()} and cannot be used for attendance`);
   }
   // Checked directly rather than relying on the card's status having been
@@ -123,6 +125,63 @@ export async function recordAttendance(params: {
             encoderId: params.encoderId ?? undefined,
             sessionId: sessionId ?? undefined,
             sessionLabel: sessionLabel ?? undefined,
+            type: decision.type,
+          },
+          include: ATTENDANCE_INCLUDE,
+        });
+      },
+      { isolationLevel: "Serializable" }
+    )
+  );
+}
+
+// A staff override for when a holder's physical card is lost/unavailable —
+// no card is tapped (or required) at all; the holder is picked directly.
+// Shares the same companyId+holderId+zoneId toggle scope as recordAttendance
+// above, so it interleaves correctly with real taps (e.g. checked in with
+// the card yesterday, checking out manually today because the card's now
+// lost). Always FREE-mode alternation: without a card there's no encoder
+// schedule to read a stricter mode from, and a manual entry is already a
+// deliberate human override, not something to further restrict.
+export async function recordManualAttendance(params: {
+  companyId: string;
+  holderId: string;
+  zoneId?: string | null;
+  recordedByUserId: string;
+}) {
+  const holder = await prisma.cardHolder.findUnique({ where: { id: params.holderId } });
+  if (!holder || holder.companyId !== params.companyId) {
+    throw ApiError.badRequest("Card holder does not belong to this company");
+  }
+  if (params.zoneId) {
+    const zone = await prisma.accessZone.findUnique({ where: { id: params.zoneId } });
+    if (!zone || zone.companyId !== params.companyId) {
+      throw ApiError.badRequest("Zone does not belong to this company");
+    }
+  }
+
+  const zoneId = params.zoneId ?? null;
+  const holderId = params.holderId;
+
+  return withSerializableRetry(() =>
+    prisma.$transaction(
+      async (tx) => {
+        const last = await tx.attendanceRecord.findFirst({
+          where: { companyId: params.companyId, holderId, zoneId },
+          orderBy: { recordedAt: "desc" },
+        });
+        const decision = nextAttendanceType("FREE", last ? { type: last.type } : null);
+        if ("rejected" in decision) {
+          throw ApiError.badRequest(decision.reason);
+        }
+
+        return tx.attendanceRecord.create({
+          data: {
+            companyId: params.companyId,
+            holderId,
+            zoneId: zoneId ?? undefined,
+            manualEntry: true,
+            recordedByUserId: params.recordedByUserId,
             type: decision.type,
           },
           include: ATTENDANCE_INCLUDE,

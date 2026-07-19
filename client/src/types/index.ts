@@ -250,6 +250,7 @@ export interface Card {
   uid: string;
   cardType: CardType;
   status: CardStatus;
+  writeProtected: boolean;
   label?: string | null;
   notes?: string | null;
   templateId?: string | null;
@@ -289,7 +290,9 @@ export type AttendanceType = "CHECK_IN" | "CHECK_OUT";
 export interface AttendanceRecord {
   id: string;
   companyId: string;
-  cardId: string;
+  // Null only for a manual entry (see manualEntry below) — every tap-based
+  // record still has a real card.
+  cardId?: string | null;
   card?: { id: string; uid: string; label?: string | null } | null;
   holderId?: string | null;
   holder?: { id: string; fullName: string; department?: string | null; employeeId?: string | null } | null;
@@ -301,6 +304,9 @@ export interface AttendanceRecord {
   sessionLabel?: string | null;
   type: AttendanceType;
   recordedAt: string;
+  manualEntry: boolean;
+  recordedByUserId?: string | null;
+  recordedByUser?: { id: string; fullName: string; email: string } | null;
 }
 
 export type ManualOverride = "NONE" | "FORCE_OPEN" | "FORCE_CLOSED";
@@ -362,6 +368,7 @@ export interface DashboardStats {
   recentActivity: OperationLog[];
   activeVisitorPasses: number;
   openMaintenanceTickets: number;
+  currentlyPresent: number;
 }
 
 export type NotificationType =

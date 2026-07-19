@@ -7,6 +7,12 @@ export const recordAttendanceBody = z.object({
   encoderId: z.string().uuid().optional(),
 });
 
+export const recordManualAttendanceBody = z.object({
+  companyId: z.string().uuid().optional(),
+  holderId: z.string().uuid(),
+  zoneId: z.string().uuid().optional(),
+});
+
 export const attendanceListQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),

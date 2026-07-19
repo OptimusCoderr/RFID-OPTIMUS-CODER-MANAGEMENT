@@ -48,6 +48,20 @@ export const recordAttendance = asyncHandler(async (req: Request, res: Response)
   res.status(201).json(record);
 });
 
+export const recordManualAttendance = asyncHandler(async (req: Request, res: Response) => {
+  const companyId = req.user!.role === "SUPER_ADMIN" ? req.body.companyId : req.user!.companyId;
+  if (!companyId) throw ApiError.badRequest("companyId is required");
+
+  const record = await attendanceService.recordManualAttendance({
+    companyId,
+    holderId: req.body.holderId,
+    zoneId: req.body.zoneId,
+    recordedByUserId: req.user!.id,
+  });
+
+  res.status(201).json(record);
+});
+
 export const listAttendance = asyncHandler(async (req: Request, res: Response) => {
   const { page, pageSize } = req.query as unknown as { page: number; pageSize: number };
   const where = buildAttendanceWhere(req);

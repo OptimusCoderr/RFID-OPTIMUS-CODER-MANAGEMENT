@@ -223,7 +223,7 @@ export default function ZonesPage() {
                 <ShieldCheck size={18} />
               </div>
               <div className="flex items-center gap-2">
-                <button className="text-slate-400 hover:text-blue-600" onClick={() => openEdit(zone)}>
+                <button className="text-slate-400 hover:text-brand-600" onClick={() => openEdit(zone)}>
                   <Pencil size={15} />
                 </button>
                 <button

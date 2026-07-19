@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { Request, Response } from "express";
 import { prisma } from "../lib/prisma.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -8,6 +9,10 @@ export const getStats = asyncHandler(async (req: Request, res: Response) => {
   const companyId = scopedCompanyId(req);
   const cardWhere = companyId ? { companyId } : {};
   const encoderWhere = companyId ? { companyId } : {};
+  // Scoped to general (zoneId: null) attendance only — per-zone presence is
+  // a different question (see Attendance's own zone-independent tracking),
+  // and this tile is meant to answer "who's currently checked in at all."
+  const companyFilter = companyId ? Prisma.sql`AND "companyId" = ${companyId}` : Prisma.empty;
 
   const [
     totalCards,
@@ -20,6 +25,7 @@ export const getStats = asyncHandler(async (req: Request, res: Response) => {
     recentLogs,
     activeVisitorPasses,
     openMaintenanceTickets,
+    currentlyPresentRows,
   ] = await Promise.all([
     prisma.card.count({ where: cardWhere }),
     prisma.card.groupBy({ by: ["status"], where: cardWhere, _count: true }),
@@ -45,6 +51,19 @@ export const getStats = asyncHandler(async (req: Request, res: Response) => {
       where: { ...cardWhere, expiresAt: { gt: new Date() }, status: { in: NON_TERMINAL_CARD_STATUSES } },
     }),
     prisma.maintenanceRecord.count({ where: { ...cardWhere, status: { in: ["OPEN", "IN_PROGRESS"] } } }),
+    // "Currently present" = each holder's most recent general-scope tap was
+    // a CHECK_IN and hasn't been followed by a CHECK_OUT yet. DISTINCT ON
+    // picks that one latest row per holder cheaply (Postgres-specific, but
+    // this whole app already assumes Postgres elsewhere).
+    prisma.$queryRaw<{ count: number }[]>(Prisma.sql`
+      SELECT COUNT(*)::int AS count FROM (
+        SELECT DISTINCT ON ("holderId") "type"
+        FROM "attendance_records"
+        WHERE "zoneId" IS NULL AND "holderId" IS NOT NULL ${companyFilter}
+        ORDER BY "holderId", "recordedAt" DESC
+      ) latest
+      WHERE "type" = 'CHECK_IN'
+    `),
   ]);
 
   res.json({
@@ -58,5 +77,6 @@ export const getStats = asyncHandler(async (req: Request, res: Response) => {
     recentActivity: recentLogs,
     activeVisitorPasses,
     openMaintenanceTickets,
+    currentlyPresent: currentlyPresentRows[0]?.count ?? 0,
   });
 });

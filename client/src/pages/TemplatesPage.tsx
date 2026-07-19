@@ -235,7 +235,7 @@ export default function TemplatesPage() {
                 <p className="text-xs text-slate-400">{formatEnum(t.cardType)}</p>
               </div>
               <div className="flex items-center gap-2">
-                <button className="text-slate-400 hover:text-blue-600" onClick={() => openEdit(t)}>
+                <button className="text-slate-400 hover:text-brand-600" onClick={() => openEdit(t)}>
                   <Pencil size={15} />
                 </button>
                 <button

@@ -175,7 +175,7 @@ export default function UsersPage() {
 
       <div className="card overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">
+          <thead className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase text-slate-500 dark:border-slate-800 dark:bg-ink-800/60">
             <tr>
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Email</th>
@@ -187,7 +187,7 @@ export default function UsersPage() {
           {groups ? (
             groups.map((g) => (
               <tbody key={g.companyId ?? "none"} className="divide-y divide-slate-100 dark:divide-slate-800">
-                <tr className="bg-slate-50 dark:bg-slate-900/50">
+                <tr className="bg-slate-50 dark:bg-ink-800/60">
                   <td colSpan={5} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     {g.companyName} <span className="font-normal normal-case text-slate-400">({g.items.length})</span>
                   </td>

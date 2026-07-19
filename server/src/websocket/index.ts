@@ -7,6 +7,7 @@ import { env } from "../config/env.js";
 import { logOperation } from "../services/operationLogService.js";
 import { notifyCompanyAdmins } from "../services/notificationService.js";
 import { isProtectedMifareBlock } from "../utils/mifare.js";
+import { LIFECYCLE_LOCKED_STATUSES } from "../utils/cardStatus.js";
 import { OperationType } from "@prisma/client";
 
 interface DashboardSocketData {
@@ -182,6 +183,26 @@ export function initWebsocket(httpServer: HttpServer): Server {
             if (card && data.role !== "SUPER_ADMIN" && card.companyId !== data.companyId) {
               throw new Error("Forbidden");
             }
+
+            // A blocked/lost/retired/expired card can still be read (e.g. to
+            // identify a found blocked card, or inspect what a retired one
+            // held) but not written to — this was previously not checked at
+            // all here, so a BLOCKED card could still be freely encoded via
+            // Live Encode despite every other lifecycle action (assign,
+            // unassign, attendance) already refusing it.
+            if (card && LIFECYCLE_LOCKED_STATUSES.has(card.status) && COMMAND_TO_OPERATION[payload.command] !== "READ") {
+              throw new Error(`This card is ${card.status.toLowerCase()} and cannot be written to`);
+            }
+
+            // Independent of card.status (see Card.writeProtected in
+            // schema.prisma) — reads, attendance, and zone access all still
+            // work on a write-protected card; only the write-shaped commands
+            // below are blocked. Unrecognized commands default-deny here too,
+            // same as the role check above, rather than assuming READ.
+            if (card?.writeProtected && COMMAND_TO_OPERATION[payload.command] !== "READ") {
+              throw new Error("This card is write-protected — remove write protection before writing to it");
+            }
+
             const now = new Date();
 
             // The card's own overall expiry (e.g. a Visitors quick-issue

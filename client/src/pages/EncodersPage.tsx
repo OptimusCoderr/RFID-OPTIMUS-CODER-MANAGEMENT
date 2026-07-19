@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, KeyRound, Trash2, Copy, Wifi, Download } from "lucide-react";
+import { Plus, KeyRound, Eye, Trash2, Copy, Wifi, Download } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage, downloadPost } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -37,7 +37,7 @@ export default function EncodersPage() {
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState<EncoderFormState>(EMPTY_FORM);
-  const [revealedKey, setRevealedKey] = useState<{ name: string; agentKey: string } | null>(null);
+  const [revealedKey, setRevealedKey] = useState<{ name: string; agentKey: string; reason: "register" | "rotate" | "view" } | null>(null);
   const [agentServerUrl, setAgentServerUrl] = useState(window.location.origin);
   const [downloadingAgent, setDownloadingAgent] = useState(false);
 
@@ -68,7 +68,7 @@ export default function EncodersPage() {
       queryClient.invalidateQueries({ queryKey: ["encoders"] });
       setModalOpen(false);
       setForm(EMPTY_FORM);
-      setRevealedKey({ name: encoder.name, agentKey: encoder.agentKey! });
+      setRevealedKey({ name: encoder.name, agentKey: encoder.agentKey!, reason: "register" });
       setAgentServerUrl(window.location.origin);
     },
     onError: (err) => toast.error(apiErrorMessage(err, "Could not register encoder")),
@@ -78,10 +78,22 @@ export default function EncodersPage() {
     mutationFn: async (encoder: Encoder) => (await api.post<Encoder>(`/encoders/${encoder.id}/rotate-key`)).data,
     onSuccess: (encoder) => {
       queryClient.invalidateQueries({ queryKey: ["encoders"] });
-      setRevealedKey({ name: encoder.name, agentKey: encoder.agentKey! });
+      setRevealedKey({ name: encoder.name, agentKey: encoder.agentKey!, reason: "rotate" });
       setAgentServerUrl(window.location.origin);
     },
     onError: (err) => toast.error(apiErrorMessage(err)),
+  });
+
+  const viewKey = useMutation({
+    mutationFn: async (encoder: Encoder) => ({
+      name: encoder.name,
+      agentKey: (await api.get<{ agentKey: string }>(`/encoders/${encoder.id}/key`)).data.agentKey,
+    }),
+    onSuccess: ({ name, agentKey }) => {
+      setRevealedKey({ name, agentKey, reason: "view" });
+      setAgentServerUrl(window.location.origin);
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not fetch the agent key")),
   });
 
   const deleteEncoder = useMutation({
@@ -135,7 +147,17 @@ export default function EncodersPage() {
           {enc.lastSeenAt ? `Last seen ${formatDistanceToNow(new Date(enc.lastSeenAt), { addSuffix: true })}` : "Never connected"}
         </p>
         <div className="mt-4 flex gap-2">
-          <button className="btn-secondary flex-1" onClick={() => rotateKey.mutate(enc)} disabled={rotateKey.isPending}>
+          <button className="btn-secondary flex-1" onClick={() => viewKey.mutate(enc)} disabled={viewKey.isPending}>
+            <Eye size={14} /> View key
+          </button>
+          <button
+            className="btn-secondary flex-1"
+            onClick={() => {
+              if (confirm(`Rotate the agent key for "${enc.name}"? Every agent currently using the old key will stop connecting.`))
+                rotateKey.mutate(enc);
+            }}
+            disabled={rotateKey.isPending}
+          >
             <KeyRound size={14} /> Rotate key
           </button>
           <button
@@ -248,13 +270,33 @@ export default function EncodersPage() {
         </form>
       </Modal>
 
-      <Modal open={Boolean(revealedKey)} onClose={() => setRevealedKey(null)} title="Set up the local agent">
+      <Modal
+        open={Boolean(revealedKey)}
+        onClose={() => setRevealedKey(null)}
+        title={revealedKey?.reason === "register" ? "Set up the local agent" : revealedKey?.reason === "rotate" ? "New agent key generated" : "Agent key"}
+      >
         {revealedKey && (
           <div className="space-y-4">
             <p className="text-sm text-slate-500">
-              <strong>{revealedKey.name}</strong> is registered. Set up its local agent on the machine with the
-              physical reader plugged in — download a ready-to-run package below, no need for this platform's
-              source code or a development setup.
+              {revealedKey.reason === "register" && (
+                <>
+                  <strong>{revealedKey.name}</strong> is registered. Set up its local agent on the machine with the
+                  physical reader plugged in — download a ready-to-run package below, no need for this platform's
+                  source code or a development setup.
+                </>
+              )}
+              {revealedKey.reason === "rotate" && (
+                <>
+                  Download a fresh, ready-to-run agent package for <strong>{revealedKey.name}</strong> with this new
+                  key already filled in — no need for this platform's source code.
+                </>
+              )}
+              {revealedKey.reason === "view" && (
+                <>
+                  Download a ready-to-run agent package for <strong>{revealedKey.name}</strong> with its current key
+                  already filled in — no need for this platform's source code.
+                </>
+              )}
             </p>
 
             <div>
@@ -283,7 +325,8 @@ export default function EncodersPage() {
               <summary className="cursor-pointer font-medium">Advanced: run it from source instead</summary>
               <div className="mt-2 space-y-2">
                 <p className="text-slate-400">
-                  Copy this key now — it won't be shown again outside this package download.
+                  You can come back to this key anytime with "View key" on the encoder card — no need to copy it
+                  now unless you're setting up the agent manually.
                 </p>
                 <div className="flex items-center gap-2">
                   <input readOnly className="input font-mono text-xs" value={revealedKey.agentKey} />
