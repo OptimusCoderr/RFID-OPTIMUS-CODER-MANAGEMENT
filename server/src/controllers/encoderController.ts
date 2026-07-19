@@ -4,6 +4,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { assertCompanyAccess, scopedCompanyId } from "../middleware/rbac.js";
 import { generateAgentKey } from "../utils/crypto.js";
+import { logOperation } from "../services/operationLogService.js";
 
 const SAFE_SELECT = {
   id: true,
@@ -60,6 +61,28 @@ export const updateEncoder = asyncHandler(async (req: Request, res: Response) =>
   const { companyId: _ignored, ...data } = req.body;
   const encoder = await prisma.encoder.update({ where: { id: req.params.id }, data, select: SAFE_SELECT });
   res.json(encoder);
+});
+
+// Lets a SUPER_ADMIN/COMPANY_ADMIN re-read the encoder's *current* agentKey
+// on demand (e.g. re-configuring a local agent whose config file was lost)
+// without having to rotate it, which would invalidate the key every other
+// agent instance for this encoder is already using. Audit-logged since it's
+// a plaintext-secret read, same reasoning as getCardKeys for card MIFARE keys.
+export const revealEncoderKey = asyncHandler(async (req: Request, res: Response) => {
+  const encoder = await prisma.encoder.findUnique({ where: { id: req.params.id } });
+  if (!encoder) throw ApiError.notFound("Encoder not found");
+  assertCompanyAccess(req, encoder.companyId);
+
+  await logOperation({
+    companyId: encoder.companyId,
+    encoderId: encoder.id,
+    userId: req.user!.id,
+    operationType: "READ",
+    status: "SUCCESS",
+    details: { action: "view_encoder_key" },
+  });
+
+  res.json({ agentKey: encoder.agentKey });
 });
 
 export const rotateEncoderKey = asyncHandler(async (req: Request, res: Response) => {

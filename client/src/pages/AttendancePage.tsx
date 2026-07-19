@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { Download, Radio, Play, Square, RotateCcw, Plus, Pencil, Trash2, Save } from "lucide-react";
+import { Download, Radio, Play, Square, RotateCcw, Plus, Pencil, Trash2, Save, UserCog } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage, downloadCsv } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -11,7 +11,17 @@ import { FullPageSpinner, Spinner } from "@/components/ui/Spinner";
 import { useSocket } from "@/context/SocketContext";
 import { useNow } from "@/hooks/useNow";
 import { formatCountdown } from "@/lib/countdown";
-import type { AccessZone, AttendanceMode, AttendanceRecord, AttendanceSession, Card, Encoder, ManualOverride, PaginatedResponse } from "@/types";
+import type {
+  AccessZone,
+  AttendanceMode,
+  AttendanceRecord,
+  AttendanceSession,
+  Card,
+  CardHolder,
+  Encoder,
+  ManualOverride,
+  PaginatedResponse,
+} from "@/types";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -228,6 +238,47 @@ export default function AttendancePage() {
     onError: (err) => pushFeed(apiErrorMessage(err, "Could not record attendance"), "FAILED"),
   });
 
+  // --- Manual entry (lost/unavailable physical card) ---
+  const [manualModalOpen, setManualModalOpen] = useState(false);
+  const [manualHolderSearch, setManualHolderSearch] = useState("");
+  const [manualHolderId, setManualHolderId] = useState("");
+  const [manualZoneId, setManualZoneId] = useState("");
+
+  const { data: manualHolderResults } = useQuery({
+    queryKey: ["holders-search", manualHolderSearch],
+    queryFn: async () =>
+      (await api.get<CardHolder[]>("/holders", { params: { search: manualHolderSearch || undefined, limit: 8 } })).data,
+    enabled: manualModalOpen,
+  });
+
+  function openManualModal() {
+    setManualHolderSearch("");
+    setManualHolderId("");
+    setManualZoneId("");
+    setManualModalOpen(true);
+  }
+
+  const recordManual = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post<AttendanceRecord>("/attendance/manual", {
+          holderId: manualHolderId,
+          zoneId: manualZoneId || undefined,
+        })
+      ).data,
+    onSuccess: (rec) => {
+      toast.success(`${rec.holder?.fullName ?? "Holder"} manually ${rec.type === "CHECK_IN" ? "checked in" : "checked out"}`);
+      queryClient.invalidateQueries({ queryKey: ["attendance"] });
+      setManualModalOpen(false);
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not record manual attendance")),
+  });
+
+  function handleManualSubmit(e: FormEvent) {
+    e.preventDefault();
+    recordManual.mutate();
+  }
+
   useEffect(() => {
     if (!socket) return;
 
@@ -336,6 +387,9 @@ export default function AttendancePage() {
             By default each tap alternates check-in/check-out for that holder, tracked independently per zone — set a
             stricter mode on a schedule below to limit repeat taps.
           </p>
+          <button type="button" className="btn-secondary mt-4 w-full" onClick={openManualModal}>
+            <UserCog size={16} /> Manual entry (lost card)
+          </button>
         </div>
 
         <div className="card p-5">
@@ -588,7 +642,17 @@ export default function AttendancePage() {
                   </td>
                   <td className="px-4 py-3 text-slate-500">{r.sessionLabel ?? "—"}</td>
                   <td className="px-4 py-3 text-slate-500">{r.zone?.name ?? "General"}</td>
-                  <td className="px-4 py-3 text-slate-500">{r.card?.label ?? r.card?.uid ?? "—"}</td>
+                  <td className="px-4 py-3 text-slate-500">
+                    {r.manualEntry ? (
+                      <span
+                        title={r.recordedByUser ? `Manually entered by ${r.recordedByUser.fullName} — card was lost/unavailable` : "Manually entered"}
+                      >
+                        <Badge tone="PENDING">Manual</Badge>
+                      </span>
+                    ) : (
+                      r.card?.label ?? r.card?.uid ?? "—"
+                    )}
+                  </td>
                 </tr>
               ))}
               {data?.data.length === 0 && (
@@ -732,6 +796,63 @@ export default function AttendancePage() {
           <p className="text-xs text-slate-400">
             Leave days and times blank for a schedule that's always open until you stop it manually.
           </p>
+        </form>
+      </Modal>
+
+      <Modal open={manualModalOpen} onClose={() => setManualModalOpen(false)} title="Manual attendance entry">
+        <form onSubmit={handleManualSubmit} className="space-y-3">
+          <p className="text-xs text-slate-400">
+            For when a holder's physical card is lost or unavailable — records a check-in/check-out directly against
+            them, no card needed, until a replacement card is issued.
+          </p>
+          <div>
+            <label className="label">Card holder</label>
+            <input
+              className="input"
+              placeholder="Search by name, ID number, or email…"
+              value={manualHolderSearch}
+              onChange={(e) => {
+                setManualHolderSearch(e.target.value);
+                setManualHolderId("");
+              }}
+            />
+            {manualHolderSearch && !manualHolderId && (
+              <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                {manualHolderResults?.map((h) => (
+                  <button
+                    key={h.id}
+                    type="button"
+                    className="block w-full px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-ink-800"
+                    onClick={() => {
+                      setManualHolderId(h.id);
+                      setManualHolderSearch(h.fullName);
+                    }}
+                  >
+                    <span className="font-medium">{h.fullName}</span>
+                    {h.employeeId && <span className="ml-2 text-xs text-slate-400">{h.employeeId}</span>}
+                  </button>
+                ))}
+                {manualHolderResults?.length === 0 && (
+                  <p className="px-3 py-2 text-sm text-slate-400">No matching card holders.</p>
+                )}
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="label">Zone / session (optional)</label>
+            <select className="input" value={manualZoneId} onChange={(e) => setManualZoneId(e.target.value)}>
+              <option value="">General (no zone)</option>
+              {zones?.map((z) => (
+                <option key={z.id} value={z.id}>
+                  {z.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button type="submit" className="btn-primary w-full" disabled={recordManual.isPending || !manualHolderId}>
+            {recordManual.isPending ? <Spinner className="h-4 w-4 text-white" /> : <UserCog size={16} />}
+            Record manual attendance
+          </button>
         </form>
       </Modal>
     </div>

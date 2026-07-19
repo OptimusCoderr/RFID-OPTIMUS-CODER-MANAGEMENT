@@ -752,6 +752,109 @@ describe("company + card lifecycle happy path", () => {
     });
   });
 
+  describe("manual attendance entry (holder's physical card lost/unavailable)", () => {
+    let manualHolderId: string;
+
+    beforeAll(async () => {
+      const holderRes = await request(app)
+        .post("/api/holders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ fullName: "Manual Entry Test Holder" });
+      manualHolderId = holderRes.body.id;
+    });
+
+    it("lets a manager record a manual check-in for a holder with no card tapped", async () => {
+      const res = await request(app)
+        .post("/api/attendance/manual")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId: manualHolderId });
+      expect(res.status).toBe(201);
+      expect(res.body.type).toBe("CHECK_IN");
+      expect(res.body.manualEntry).toBe(true);
+      expect(res.body.cardId).toBeFalsy();
+      expect(res.body.recordedByUser).toBeTruthy();
+    });
+
+    it("alternates to check-out on the next manual entry for the same holder", async () => {
+      const res = await request(app)
+        .post("/api/attendance/manual")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId: manualHolderId });
+      expect(res.status).toBe(201);
+      expect(res.body.type).toBe("CHECK_OUT");
+    });
+
+    it("interleaves correctly with a real card tap for the same holder+zone scope", async () => {
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04DD11EE22", cardType: "NTAG213" });
+      await request(app)
+        .post(`/api/cards/${cardRes.body.id}/assign`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId: manualHolderId });
+
+      // Last manual entry above left this holder CHECK_OUT'd — a real tap
+      // now (e.g. the replacement card arrives) should pick up from there.
+      const tapRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: cardRes.body.id });
+      expect(tapRes.status).toBe(201);
+      expect(tapRes.body.type).toBe("CHECK_IN");
+
+      const manualRes = await request(app)
+        .post("/api/attendance/manual")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId: manualHolderId });
+      expect(manualRes.status).toBe(201);
+      expect(manualRes.body.type).toBe("CHECK_OUT");
+    });
+
+    it("rejects an OPERATOR (below MANAGER) from recording a manual entry", async () => {
+      const operatorToken = await loginAs("operator@integration-test-co.example", "Operator123!");
+      const res = await request(app)
+        .post("/api/attendance/manual")
+        .set("Authorization", `Bearer ${operatorToken}`)
+        .send({ holderId: manualHolderId });
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects a manual entry for another company's holder", async () => {
+      const otherCompanyRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Manual Entry Test Other Co", slug: "manual-entry-test-other-co" });
+      const otherHolderRes = await request(app)
+        .post("/api/holders")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ fullName: "Other Co Holder", companyId: otherCompanyRes.body.id });
+
+      const res = await request(app)
+        .post("/api/attendance/manual")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId: otherHolderRes.body.id });
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects a manual entry against another company's zone", async () => {
+      const otherCompanyRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Manual Entry Test Zone Co", slug: "manual-entry-test-zone-co" });
+      const otherZoneRes = await request(app)
+        .post("/api/zones")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Other Co Zone", companyId: otherCompanyRes.body.id });
+
+      const res = await request(app)
+        .post("/api/attendance/manual")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId: manualHolderId, zoneId: otherZoneRes.body.id });
+      expect(res.status).toBe(400);
+    });
+  });
+
   describe("attendance sessions: multiple schedules per encoder, like a university course catalog", () => {
     let sessionEncoderId: string;
     let sessionCardId: string;
@@ -2596,6 +2699,80 @@ describe("company + card lifecycle happy path", () => {
       expect(res.status).toBe(200);
       expect(res.body.data.length).toBeGreaterThan(0);
       expect(res.body.data.every((c: { companyId: string }) => c.companyId === companyId)).toBe(true);
+    });
+  });
+
+  describe("encoder agent key: view without rotating", () => {
+    let keyEncoderId: string;
+    let originalAgentKey: string;
+
+    beforeAll(async () => {
+      const encoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "View Key Test Encoder", type: "ACR122U" });
+      keyEncoderId = encoderRes.body.id;
+      originalAgentKey = encoderRes.body.agentKey;
+    });
+
+    it("never includes the agentKey on list/get responses", async () => {
+      const listRes = await request(app).get("/api/encoders").set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(listRes.body.find((e: { id: string }) => e.id === keyEncoderId).agentKey).toBeUndefined();
+
+      const getRes = await request(app).get(`/api/encoders/${keyEncoderId}`).set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(getRes.body.agentKey).toBeUndefined();
+    });
+
+    it("lets a company admin view the current agent key without changing it", async () => {
+      const res = await request(app)
+        .get(`/api/encoders/${keyEncoderId}/key`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.agentKey).toBe(originalAgentKey);
+
+      // Viewing again returns the exact same key — it's a read, not a rotation.
+      const res2 = await request(app)
+        .get(`/api/encoders/${keyEncoderId}/key`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res2.body.agentKey).toBe(originalAgentKey);
+    });
+
+    it("rotating the key changes it, and the old key is no longer viewable as current", async () => {
+      const rotateRes = await request(app)
+        .post(`/api/encoders/${keyEncoderId}/rotate-key`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(rotateRes.status).toBe(200);
+      expect(rotateRes.body.agentKey).not.toBe(originalAgentKey);
+
+      const viewRes = await request(app)
+        .get(`/api/encoders/${keyEncoderId}/key`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(viewRes.body.agentKey).toBe(rotateRes.body.agentKey);
+      expect(viewRes.body.agentKey).not.toBe(originalAgentKey);
+    });
+
+    it("rejects an OPERATOR (below COMPANY_ADMIN) from viewing the agent key", async () => {
+      const operatorToken = await loginAs("operator@integration-test-co.example", "Operator123!");
+      const res = await request(app)
+        .get(`/api/encoders/${keyEncoderId}/key`)
+        .set("Authorization", `Bearer ${operatorToken}`);
+      expect(res.status).toBe(403);
+    });
+
+    it("rejects viewing another company's encoder key", async () => {
+      const otherCompanyRes = await request(app)
+        .post("/api/companies")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "View Key Test Other Co", slug: "view-key-test-other-co" });
+      const otherEncoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${superAdminToken}`)
+        .send({ name: "Other Co Encoder", type: "ACR122U", companyId: otherCompanyRes.body.id });
+
+      const res = await request(app)
+        .get(`/api/encoders/${otherEncoderRes.body.id}/key`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(res.status).toBe(403);
     });
   });
 });

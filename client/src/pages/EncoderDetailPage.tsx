@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, KeyRound, Trash2, Copy, Download } from "lucide-react";
+import { ArrowLeft, KeyRound, Eye, Trash2, Copy, Download } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage, downloadPost } from "@/lib/api";
@@ -19,6 +19,7 @@ export default function EncoderDetailPage() {
   const { socket } = useSocket();
   const [liveStatus, setLiveStatus] = useState<EncoderStatus | null>(null);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  const [keyJustRotated, setKeyJustRotated] = useState(false);
   const [agentServerUrl, setAgentServerUrl] = useState(window.location.origin);
   const [downloadingAgent, setDownloadingAgent] = useState(false);
 
@@ -50,10 +51,21 @@ export default function EncoderDetailPage() {
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["encoder", id] });
       queryClient.invalidateQueries({ queryKey: ["encoders"] });
+      setKeyJustRotated(true);
       setRevealedKey(updated.agentKey!);
       setAgentServerUrl(window.location.origin);
     },
     onError: (err) => toast.error(apiErrorMessage(err)),
+  });
+
+  const viewKey = useMutation({
+    mutationFn: async () => (await api.get<{ agentKey: string }>(`/encoders/${id}/key`)).data.agentKey,
+    onSuccess: (agentKey) => {
+      setKeyJustRotated(false);
+      setRevealedKey(agentKey);
+      setAgentServerUrl(window.location.origin);
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not fetch the agent key")),
   });
 
   async function handleDownloadAgent() {
@@ -112,8 +124,18 @@ export default function EncoderDetailPage() {
           <Row label="Registered" value={format(new Date(encoder.createdAt), "MMM d, yyyy")} />
 
           <div className="flex gap-2 pt-3">
-            <button className="btn-secondary flex-1" onClick={() => rotateKey.mutate()} disabled={rotateKey.isPending}>
-              <KeyRound size={14} /> Rotate agent key
+            <button className="btn-secondary flex-1" onClick={() => viewKey.mutate()} disabled={viewKey.isPending}>
+              <Eye size={14} /> View key
+            </button>
+            <button
+              className="btn-secondary flex-1"
+              onClick={() => {
+                if (confirm(`Rotate the agent key for "${encoder.name}"? Every agent currently using the old key will stop connecting.`))
+                  rotateKey.mutate();
+              }}
+              disabled={rotateKey.isPending}
+            >
+              <KeyRound size={14} /> Rotate key
             </button>
             <button
               className="btn-danger"
@@ -146,12 +168,14 @@ export default function EncoderDetailPage() {
         </div>
       </div>
 
-      <Modal open={Boolean(revealedKey)} onClose={() => setRevealedKey(null)} title="New agent key generated">
+      <Modal open={Boolean(revealedKey)} onClose={() => setRevealedKey(null)} title={keyJustRotated ? "New agent key generated" : "Agent key"}>
         {revealedKey && (
           <div className="space-y-4">
             <p className="text-sm text-slate-500">
-              Download a fresh, ready-to-run agent package for <strong>{encoder.name}</strong> with this new key
-              already filled in — no need for this platform's source code.
+              {keyJustRotated
+                ? "Download a fresh, ready-to-run agent package with this new key already filled in — no need for this platform's source code."
+                : "Download a ready-to-run agent package with this key already filled in — no need for this platform's source code."}{" "}
+              For <strong>{encoder.name}</strong>.
             </p>
 
             <div>
@@ -175,7 +199,7 @@ export default function EncoderDetailPage() {
             <details className="text-xs text-slate-500">
               <summary className="cursor-pointer font-medium">Advanced: run it from source instead</summary>
               <div className="mt-2 space-y-2">
-                <p className="text-slate-400">Copy this key now — it won't be shown again outside this package download.</p>
+                <p className="text-slate-400">You can come back to this key anytime with "View key" above.</p>
                 <div className="flex items-center gap-2">
                   <input readOnly className="input font-mono text-xs" value={revealedKey} />
                   <button

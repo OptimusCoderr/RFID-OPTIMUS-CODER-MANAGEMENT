@@ -24,6 +24,12 @@ router.patch(
   validate({ params: idParams, body: updateEncoderBody }),
   encoderController.updateEncoder
 );
+router.get(
+  "/:id/key",
+  requireRole("SUPER_ADMIN", "COMPANY_ADMIN"),
+  validate({ params: idParams }),
+  encoderController.revealEncoderKey
+);
 router.post(
   "/:id/rotate-key",
   requireRole("SUPER_ADMIN", "COMPANY_ADMIN"),

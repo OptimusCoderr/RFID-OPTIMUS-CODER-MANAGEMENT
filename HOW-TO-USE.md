@@ -259,13 +259,14 @@ The exact gating per action:
 | Create/delete a company | `SUPER_ADMIN` |
 | Update company settings | `SUPER_ADMIN`, `COMPANY_ADMIN` |
 | Create/update/delete users | `SUPER_ADMIN`, `COMPANY_ADMIN` |
-| Create/update/rotate-key/delete encoders | `SUPER_ADMIN`, `COMPANY_ADMIN` |
+| Create/update/view-key/rotate-key/delete encoders | `SUPER_ADMIN`, `COMPANY_ADMIN` |
 | Create/update/delete card templates | `SUPER_ADMIN`, `COMPANY_ADMIN`, `MANAGER` |
 | Create/update card holders | `SUPER_ADMIN`, `COMPANY_ADMIN`, `MANAGER`, `OPERATOR` |
 | Delete card holders | `SUPER_ADMIN`, `COMPANY_ADMIN`, `MANAGER` |
 | Register/assign/unassign/mark-lost a card | `SUPER_ADMIN`, `COMPANY_ADMIN`, `MANAGER`, `OPERATOR` |
 | Block/unblock/retire a card, delete a card | `SUPER_ADMIN`, `COMPANY_ADMIN`, `MANAGER` |
 | Grant/revoke a card's encoder allocation | `SUPER_ADMIN`, `COMPANY_ADMIN`, `MANAGER` |
+| Write-protect/unprotect a card, manual attendance entry | `SUPER_ADMIN`, `COMPANY_ADMIN`, `MANAGER` |
 | Manage access zones | `SUPER_ADMIN`, `COMPANY_ADMIN`, `MANAGER` |
 | View cards/holders/encoders/logs/dashboard | Everyone signed in (scoped to their own company) |
 | Decrypt/retrieve a card's stored sector keys | `SUPER_ADMIN`, `COMPANY_ADMIN`, `MANAGER` |
@@ -836,6 +837,21 @@ a [card holder](#62-card-holders).
    gate staff); anyone authenticated in the company can view and export the
    records.
 
+**Manual entry, for a lost or unavailable card.** Click **Manual entry (lost
+card)** on the "Take attendance" panel to record a check-in/check-out
+directly against a card holder, with no card tap at all — the stopgap for
+"this student/employee's card is lost, but they still need to check in/out
+today, before a replacement card is issued and assigned." Search for the
+holder by name, ID number, or email, optionally pick a zone/session, and
+submit — it alternates check-in/check-out exactly like a real tap, sharing
+the same per-holder, per-zone state, so it interleaves correctly whether the
+holder checked in with their (now-lost) card yesterday and is manually
+checking out today, or vice versa. Manual entries show a **Manual** badge in
+the Records table in place of the (nonexistent) card, and are restricted to
+`MANAGER`+ roles, since — unlike a real tap — they bypass the normal
+"card must exist and be assigned" requirement entirely and are recorded
+against whichever staff member entered them.
+
 Attendance records are separate from the [audit log](#611-dashboard-and-audit-logs) —
 the audit log tracks system operations (registrations, blocks, encodes);
 attendance tracks physical presence over time and is the right place to
@@ -1161,10 +1177,8 @@ a database, or a development setup to do it.
    URL** (pre-filled with this page's address — only change it if the
    reader's machine reaches your server through a different URL), then click
    **Download agent for &lt;name&gt;**. You get a small `.zip` with the
-   server URL and a one-time **agent key** already filled in — no manual
-   copy/paste, and it's never shown again after you close this panel (you
-   can always download a fresh one later via **Rotate key**, which
-   invalidates the old one).
+   server URL and the **agent key** already filled in — no manual
+   copy/paste needed.
 3. Copy that `.zip` to the machine physically connected to the reader,
    unzip it, and run:
    ```bash
@@ -1180,9 +1194,15 @@ a database, or a development setup to do it.
 4. Once connected, the encoder's status flips to **Online** across every
    connected dashboard in real time, and it becomes selectable on
    **Live Encode**.
-5. If the agent key leaks, is lost, or you're setting up a replacement PC,
-   use **Rotate key** to invalidate the old one and download a fresh
-   package. Deleting the encoder retires it entirely.
+5. Lost your agent's config, or just setting up an additional PC that shares
+   this encoder's key? Click **View key** (on the encoder card, or on its
+   detail page) to see the current agent key again anytime, no rotation
+   needed — it's a plain read, not a one-time reveal. If the key actually
+   *leaks* (e.g. it ended up somewhere it shouldn't have), use **Rotate
+   key** instead: that generates a brand new key and immediately
+   invalidates the old one, so every agent still using it stops connecting
+   until you redeploy the fresh package to them. Deleting the encoder
+   retires it entirely. Both actions require `COMPANY_ADMIN`+.
 
 Prefer running from source instead of downloading a package (e.g. you're
 actively developing against this platform)? Every "Set up the local agent"
@@ -1311,10 +1331,10 @@ they're `SUPER_ADMIN`.
 | Users | `GET/POST /users`, `GET/PATCH/DELETE /users/:id` |
 | Card holders | `GET/POST /holders`, `GET/PATCH/DELETE /holders/:id` |
 | Card templates | `GET/POST /templates`, `GET/PATCH/DELETE /templates/:id` |
-| Encoders | `GET/POST /encoders`, `GET/PATCH/DELETE /encoders/:id`, `POST /encoders/:id/rotate-key` |
-| Cards | `GET/POST /cards`, `GET/PATCH/DELETE /cards/:id`, `GET /cards/:id/keys`, `POST /cards/:id/keys/generate`, `POST /cards/:id/citizen-data/prepare-write`, `POST /cards/:id/citizen-data/decode-read`, `POST /cards/:id/assign`, `POST /cards/:id/unassign`, `POST /cards/:id/block`, `POST /cards/:id/unblock`, `POST /cards/:id/lost`, `POST /cards/:id/retire`, `POST /cards/:id/encoders/grant`, `POST /cards/:id/encoders/revoke`, `GET /cards/export`, `POST /cards/bulk-import` |
+| Encoders | `GET/POST /encoders`, `GET/PATCH/DELETE /encoders/:id`, `GET /encoders/:id/key` (view current agent key), `POST /encoders/:id/rotate-key` |
+| Cards | `GET/POST /cards`, `GET/PATCH/DELETE /cards/:id`, `GET /cards/:id/keys`, `POST /cards/:id/keys/generate`, `POST /cards/:id/citizen-data/prepare-write`, `POST /cards/:id/citizen-data/decode-read`, `POST /cards/:id/assign`, `POST /cards/:id/unassign`, `POST /cards/:id/block`, `POST /cards/:id/unblock`, `POST /cards/:id/lost`, `POST /cards/:id/retire`, `POST /cards/:id/write-protect`, `POST /cards/:id/write-unprotect`, `POST /cards/:id/encoders/grant`, `POST /cards/:id/encoders/revoke`, `GET /cards/export`, `POST /cards/bulk-import` |
 | Access zones | `GET/POST /zones`, `PATCH/DELETE /zones/:id`, `POST /zones/:id/grant`, `POST /zones/:id/revoke` |
-| Attendance | `GET /attendance`, `GET /attendance/export`, `POST /attendance` |
+| Attendance | `GET /attendance`, `GET /attendance/export`, `POST /attendance`, `POST /attendance/manual` (manual entry for a lost/unavailable card) |
 | Maintenance | `GET /maintenance`, `POST /maintenance`, `PATCH /maintenance/:id` |
 | Notifications | `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all` |
 | Dashboard | `GET /dashboard/stats` |

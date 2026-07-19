@@ -245,10 +245,11 @@ model User {
   companyId String?
   company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  operationLogs OperationLog[]
-  notifications Notification[]
-  sessions      Session[]
-  accounts      Account[]
+  operationLogs           OperationLog[]
+  notifications           Notification[]
+  sessions                Session[]
+  accounts                Account[]
+  manualAttendanceRecords AttendanceRecord[]
 
   @@index([companyId])
   @@map("users")
@@ -555,8 +556,12 @@ model AttendanceRecord {
   companyId String
   company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  cardId String
-  card   Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  // Null only for a manual entry (see manualEntry below) — every tap-based
+  // record still requires a real card. onDelete SetNull (not the Cascade a
+  // required relation would otherwise imply) so deleting a card doesn't
+  // erase its holder's attendance history.
+  cardId String?
+  card   Card?   @relation(fields: [cardId], references: [id], onDelete: SetNull)
 
   // Denormalized from the card at record time — kept even if the card is
   // later reassigned to a different holder, so history stays accurate.
@@ -587,6 +592,14 @@ model AttendanceRecord {
   type       AttendanceType
   recordedAt DateTime       @default(now())
 
+  // A staff-entered record made without a physical tap — e.g. a holder
+  // whose card is lost, logged manually until a replacement is issued (see
+  // recordManualAttendance in attendanceService.ts). recordedByUserId is
+  // who made the call; both are left at their defaults for ordinary taps.
+  manualEntry      Boolean @default(false)
+  recordedByUserId String?
+  recordedByUser   User?   @relation(fields: [recordedByUserId], references: [id], onDelete: SetNull)
+
   @@index([companyId])
   @@index([holderId])
   @@index([cardId])
@@ -594,6 +607,7 @@ model AttendanceRecord {
   @@index([encoderId])
   @@index([sessionId])
   @@index([recordedAt])
+  @@index([recordedByUserId])
   @@map("attendance_records")
 }
 
