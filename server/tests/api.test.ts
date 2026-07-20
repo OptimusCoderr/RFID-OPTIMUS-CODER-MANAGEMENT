@@ -1395,6 +1395,34 @@ describe("company + card lifecycle happy path", () => {
       expect(clearRes.body.endDate).toBeNull();
       expect(clearRes.body.state.reason).toBe("no_schedule"); // unrestricted again
     });
+
+    it("rejects a PATCH that would leave startDate after endDate, even when only one side is in the request body", async () => {
+      // The request-body-only .refine() can't see this on its own — a PATCH
+      // touching just one side must be checked against the OTHER side's
+      // already-stored value, or two separate innocent-looking requests
+      // could together leave the schedule permanently misconfigured.
+      const createRes = await request(app)
+        .post("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ encoderId: dateRangeEncoderId, label: "Cross-Patch Course", daysOfWeek: [], endDate: "2026-01-01" });
+      const id = createRes.body.id;
+
+      const res = await request(app)
+        .patch(`/api/attendance-sessions/${id}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ startDate: "2026-06-01" }); // endDate not mentioned, but already stored as 2026-01-01
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/endDate must be on or after startDate/i);
+
+      // The schedule itself must be unaffected by the rejected PATCH.
+      const unchanged = await request(app)
+        .get("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ encoderId: dateRangeEncoderId });
+      const entry = unchanged.body.find((s: { id: string }) => s.id === id);
+      expect(entry.startDate).toBeNull();
+      expect(entry.endDate).toBe("2026-01-01");
+    });
   });
 
   describe("attendance modes: check-in only / check-out only / once / free", () => {
@@ -1605,6 +1633,67 @@ describe("company + card lifecycle happy path", () => {
       expect(tuesdayTap.status).toBe(201);
       expect(tuesdayTap.body.type).toBe("CHECK_IN"); // fresh occurrence, not rejected and not a check-out
       expect(tuesdayTap.body.sessionId).toBe(sessionId);
+    });
+
+    it("DAILY_CHECK_IN auto-rolls to a fresh occurrence on a new calendar day even if nobody clicked Close", async () => {
+      // The bug this test guards against: an earlier version of the
+      // occurrence logic only ever reused-or-created based on closedAt,
+      // with no day-boundary awareness at all — a schedule meeting on
+      // multiple days would silently reject every day after the first
+      // unless an operator remembered to visit the Sessions panel and
+      // click Close. Day-to-day reset must work with zero manual action;
+      // Close/Reopen/Create-new remain available as explicit overrides on
+      // top of that, not as a requirement for the common case.
+      const { sessionId, encoderId } = await newSchedule("DAILY_CHECK_IN");
+      const cardId = await newHolderAndCard("04D100000B");
+
+      const dayOneTap = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(dayOneTap.status).toBe(201);
+      const dayOneOccurrenceId = dayOneTap.body.occurrenceId;
+
+      // Simulate "yesterday" by backdating the occurrence itself (not the
+      // record) — nobody closed it, exactly the scenario the fix covers.
+      await prisma.sessionOccurrence.update({
+        where: { id: dayOneOccurrenceId },
+        data: { openedAt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      });
+
+      const dayTwoTap = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(dayTwoTap.status).toBe(201); // not rejected as "already checked in", with no manual Close call
+      expect(dayTwoTap.body.type).toBe("CHECK_IN");
+      expect(dayTwoTap.body.occurrenceId).not.toBe(dayOneOccurrenceId);
+
+      const occurrences = await request(app)
+        .get(`/api/attendance-sessions/${sessionId}/occurrences`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      const dayOne = occurrences.body.find((o: { id: string }) => o.id === dayOneOccurrenceId);
+      expect(dayOne.isOpen).toBe(false); // auto-closed by the rollover, not left dangling open
+      const openOnes = occurrences.body.filter((o: { isOpen: boolean }) => o.isOpen);
+      expect(openOnes).toHaveLength(1);
+      expect(openOnes[0].id).toBe(dayTwoTap.body.occurrenceId);
+    });
+
+    it("FREE mode never creates a SessionOccurrence — occurrence bookkeeping is DAILY_CHECK_IN-only", async () => {
+      const { sessionId, encoderId } = await newSchedule("FREE");
+      const cardId = await newHolderAndCard("04D100000C");
+
+      const tap = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId, encoderId });
+      expect(tap.status).toBe(201);
+      expect(tap.body.occurrenceId).toBeFalsy();
+
+      const occurrences = await request(app)
+        .get(`/api/attendance-sessions/${sessionId}/occurrences`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(occurrences.body).toEqual([]);
     });
 
     it("a schedule's non-FREE mode is scoped to that schedule, not the zone it shares with another schedule", async () => {
@@ -2246,6 +2335,61 @@ describe("company + card lifecycle happy path", () => {
         .post(`/api/cards/${keyGenCardId}/keys/generate`)
         .set("Authorization", `Bearer ${companyAdminToken}`);
       expect(res.status).toBe(200);
+    });
+  });
+
+  describe("hasStoredKeys is reported consistently everywhere a card is returned, not just GET /cards/:id", () => {
+    // Regression coverage: GET /api/cards (list/search — what Live Encode's
+    // tap-detection lookup actually calls, never GET /cards/:id) used to
+    // strip keysEncrypted without ever adding hasStoredKeys back, so every
+    // card looked up that way silently reported "no key" even when one was
+    // stored — breaking the write-protect key-generation guard and the
+    // "no key yet" banners for the one flow (a real card tap) they exist for.
+    let hskCardId: string;
+
+    beforeAll(async () => {
+      const cardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04AACC0003", cardType: "MIFARE_CLASSIC_1K" });
+      hskCardId = cardRes.body.id;
+      await request(app).post(`/api/cards/${hskCardId}/keys/generate`).set("Authorization", `Bearer ${companyAdminToken}`);
+    });
+
+    it("GET /api/cards (list/search) reports hasStoredKeys: true for a card with keys", async () => {
+      const res = await request(app)
+        .get("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .query({ search: "04AACC0003", pageSize: 5 });
+      expect(res.status).toBe(200);
+      const found = res.body.data.find((c: { id: string }) => c.id === hskCardId);
+      expect(found).toBeTruthy();
+      expect(found.hasStoredKeys).toBe(true);
+      expect(found.keysEncrypted).toBeUndefined(); // never leaks the raw blob
+    });
+
+    it("every mutation endpoint that returns the updated card keeps reporting hasStoredKeys: true", async () => {
+      const holderRes = await request(app)
+        .post("/api/holders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ fullName: "HasStoredKeys Test Holder" });
+
+      const assignRes = await request(app)
+        .post(`/api/cards/${hskCardId}/assign`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ holderId: holderRes.body.id });
+      expect(assignRes.body.hasStoredKeys).toBe(true);
+
+      const updateRes = await request(app)
+        .patch(`/api/cards/${hskCardId}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ label: "HSK Test" });
+      expect(updateRes.body.hasStoredKeys).toBe(true);
+
+      const blockRes = await request(app)
+        .post(`/api/cards/${hskCardId}/block`)
+        .set("Authorization", `Bearer ${companyAdminToken}`);
+      expect(blockRes.body.hasStoredKeys).toBe(true);
     });
   });
 

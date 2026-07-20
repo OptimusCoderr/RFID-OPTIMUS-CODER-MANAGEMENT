@@ -43,3 +43,14 @@ export function nextFreeMifareBlock(sector: number, existing: { block: number }[
   }
   return sector * 4;
 }
+
+// The stored-keys map (GET/POST /cards/:id/keys*) mixes per-sector MIFARE
+// keys (e.g. "0A", "12B" — sector number + "A"/"B") with one non-sector
+// entry, "dataKey" (the citizen-record AES key — see
+// server/src/controllers/cardController.ts). Naively slicing every name as
+// "sector digits + trailing key letter" mislabels "dataKey" as "Sector
+// dataKe, Key y"; special-case it instead.
+export function formatKeyLabel(name: string): string {
+  if (name === "dataKey") return "Citizen data key";
+  return `Sector ${name.slice(0, -1)}, Key ${name.slice(-1)}`;
+}

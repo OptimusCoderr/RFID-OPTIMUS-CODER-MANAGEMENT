@@ -160,7 +160,8 @@ export function CitizenDataPanel({
           <button
             type="button"
             className="btn-primary"
-            disabled={disabled || Boolean(busy) || overCapacity || !card.hasStoredKeys}
+            disabled={disabled || Boolean(busy) || overCapacity || !card.hasStoredKeys || card.writeProtected}
+            title={card.writeProtected ? "This card is write-protected — remove write protection first" : undefined}
             onClick={() => writeToCard()}
           >
             <Upload size={14} /> {busy === "write" ? "Encrypting..." : "Encrypt & write"}
@@ -169,8 +170,12 @@ export function CitizenDataPanel({
             <button
               type="button"
               className="btn-danger"
-              title="Overwrite the encrypted record with blank field values"
-              disabled={disabled || Boolean(busy) || !card.hasStoredKeys}
+              title={
+                card.writeProtected
+                  ? "This card is write-protected — remove write protection first"
+                  : "Overwrite the encrypted record with blank field values"
+              }
+              disabled={disabled || Boolean(busy) || !card.hasStoredKeys || card.writeProtected}
               onClick={deleteData}
             >
               <Trash2 size={14} /> {busy === "delete" ? "Deleting..." : "Delete citizen data"}

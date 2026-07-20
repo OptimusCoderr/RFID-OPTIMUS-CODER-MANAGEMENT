@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/context/AuthContext";
 import { formatEnum } from "@/lib/constants";
+import { formatKeyLabel } from "@/lib/mifare";
 import type { Card, CardHolder, CardTemplate, Encoder, OperationLog, PaginatedResponse } from "@/types";
 
 const MIFARE_CLASSIC_TYPES = new Set(["MIFARE_CLASSIC_1K", "MIFARE_CLASSIC_4K", "MIFARE_CLASSIC_MINI"]);
@@ -449,7 +450,7 @@ export default function CardDetailPage() {
                   ) : (
                     Object.entries(revealedKeys).map(([name, value]) => (
                       <div key={name} className="flex justify-between gap-4 py-0.5">
-                        <span className="text-slate-400">Sector {name.slice(0, -1)}, Key {name.slice(-1)}</span>
+                        <span className="text-slate-400">{formatKeyLabel(name)}</span>
                         <span>{value}</span>
                       </div>
                     ))

@@ -42,6 +42,14 @@ function parseDateOnly(dateStr: string): Date {
   return new Date(y, m - 1, d);
 }
 
+// Same calendar day in server-local time — used to decide whether a
+// DAILY_CHECK_IN schedule's still-open SessionOccurrence is today's meeting
+// (reuse it) or a stale one from a previous meeting (roll to a fresh one
+// automatically, without requiring an operator to click Close first).
+export function isSameLocalDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
 function endOfDate(date: Date): Date {
   const d = new Date(date);
   d.setHours(23, 59, 59, 999);

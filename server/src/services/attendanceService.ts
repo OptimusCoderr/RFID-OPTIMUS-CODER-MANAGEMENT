@@ -3,7 +3,7 @@ import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../utils/ApiError.js";
 import { withSerializableRetry } from "../utils/serializableRetry.js";
 import { LIFECYCLE_LOCKED_STATUSES } from "../utils/cardStatus.js";
-import { computeEncoderOpenState, nextAttendanceType } from "./attendanceSessionService.js";
+import { computeEncoderOpenState, isSameLocalDay, nextAttendanceType } from "./attendanceSessionService.js";
 
 const ATTENDANCE_INCLUDE = {
   card: { select: { id: true, uid: true, label: true } },
@@ -108,22 +108,33 @@ export async function recordAttendance(params: {
     prisma.$transaction(
       async (tx) => {
         // Which specific meeting of the schedule this tap belongs to — only
-        // meaningful once a schedule is actually governing the tap. Reuses
-        // whichever occurrence is still open (closedAt: null); if none is
-        // (first tap since ever, or since the last Close/reopen-elsewhere),
-        // one is opened automatically so a schedule that never bothers with
-        // explicit session management still just works. Done inside this
-        // same serializable transaction so two near-simultaneous first taps
-        // can't each open their own occurrence.
+        // tracked for DAILY_CHECK_IN, the only mode whose toggle scope reads
+        // occurrenceId below; other modes would just accumulate occurrence
+        // rows nothing ever closes. Reuses whichever occurrence is still
+        // open (closedAt: null) AND from today — a still-open occurrence
+        // left over from a previous meeting (nobody clicked Close) is
+        // auto-closed and replaced with a fresh one, so day-to-day reset
+        // doesn't depend on an operator remembering to close the old one
+        // first; the manual Close/Reopen/Start-new-session actions remain
+        // available for early-close, late-arrival, and multiple-meetings-
+        // in-one-day cases. Done inside this same serializable transaction
+        // so two near-simultaneous first taps can't each open their own
+        // occurrence for the same meeting.
         let occurrenceId: string | null = null;
-        if (sessionId) {
+        if (sessionId && mode === "DAILY_CHECK_IN") {
+          const now = new Date();
           const openOccurrence = await tx.sessionOccurrence.findFirst({
             where: { attendanceSessionId: sessionId, closedAt: null },
             orderBy: { openedAt: "desc" },
           });
-          occurrenceId = openOccurrence
-            ? openOccurrence.id
-            : (await tx.sessionOccurrence.create({ data: { companyId: params.companyId, attendanceSessionId: sessionId } })).id;
+          if (openOccurrence && isSameLocalDay(openOccurrence.openedAt, now)) {
+            occurrenceId = openOccurrence.id;
+          } else {
+            if (openOccurrence) {
+              await tx.sessionOccurrence.update({ where: { id: openOccurrence.id }, data: { closedAt: now } });
+            }
+            occurrenceId = (await tx.sessionOccurrence.create({ data: { companyId: params.companyId, attendanceSessionId: sessionId } })).id;
+          }
         }
 
         // FREE stays zone-scoped — a continuous physical-presence toggle

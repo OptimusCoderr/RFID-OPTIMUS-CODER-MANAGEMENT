@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { KeyRound, Eye, EyeOff } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
+import { formatKeyLabel } from "@/lib/mifare";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/context/AuthContext";
 import type { Card } from "@/types";
@@ -101,7 +102,7 @@ export function CardKeysPanel({ card, onCardUpdated }: { card: Card; onCardUpdat
           ) : (
             Object.entries(revealedKeys).map(([name, value]) => (
               <div key={name} className="flex justify-between gap-4 py-0.5">
-                <span className="text-slate-400">Sector {name.slice(0, -1)}, Key {name.slice(-1)}</span>
+                <span className="text-slate-400">{formatKeyLabel(name)}</span>
                 <span>{value}</span>
               </div>
             ))

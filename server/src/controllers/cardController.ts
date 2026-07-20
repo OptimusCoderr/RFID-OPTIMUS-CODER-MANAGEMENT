@@ -27,6 +27,17 @@ const CARD_INCLUDE = {
   encoderAllocations: { include: { encoder: { select: { id: true, name: true, location: true } } } },
 } satisfies Prisma.CardInclude;
 
+// The card's raw keysEncrypted blob must never reach the client — every
+// response returning a card strips it and reports only whether one exists
+// instead, via this one shared serializer, so hasStoredKeys can't silently
+// drift out of sync (as it did in listCards, whose ad-hoc destructuring left
+// it off entirely — see the code review that added this comment) across the
+// many mutation endpoints below that each return the updated card.
+function serializeCard<T extends { keysEncrypted: string | null }>(card: T): Omit<T, "keysEncrypted"> & { hasStoredKeys: boolean } {
+  const { keysEncrypted, ...safe } = card;
+  return { ...safe, hasStoredKeys: Boolean(keysEncrypted) };
+}
+
 function buildCardWhere(req: Request): Prisma.CardWhereInput {
   const companyId = scopedCompanyId(req);
   const { status, cardType, holderId, search, hasExpiry } = req.query as unknown as {
@@ -80,7 +91,7 @@ export const listCards = asyncHandler(async (req: Request, res: Response) => {
   ]);
 
   res.json({
-    data: cards.map(({ keysEncrypted, ...rest }) => rest),
+    data: cards.map(serializeCard),
     pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
   });
 });
@@ -89,8 +100,7 @@ export const getCard = asyncHandler(async (req: Request, res: Response) => {
   const card = await prisma.card.findUnique({ where: { id: req.params.id }, include: CARD_INCLUDE });
   if (!card) throw ApiError.notFound("Card not found");
   assertCompanyAccess(req, card.companyId);
-  const { keysEncrypted, ...safe } = card;
-  res.json({ ...safe, hasStoredKeys: Boolean(keysEncrypted) });
+  res.json(serializeCard(card));
 });
 
 // Elevated endpoint — decrypts and returns the sector/page keys for use during an encode operation.
@@ -314,8 +324,7 @@ export const registerCard = asyncHandler(async (req: Request, res: Response) => 
     details: { uid, cardType },
   });
 
-  const { keysEncrypted, ...safe } = card;
-  res.status(201).json(safe);
+  res.status(201).json(serializeCard(card));
 });
 
 export const updateCard = asyncHandler(async (req: Request, res: Response) => {
@@ -371,8 +380,7 @@ export const updateCard = asyncHandler(async (req: Request, res: Response) => {
     }).catch(() => undefined);
   }
 
-  const { keysEncrypted, ...safe } = card;
-  res.json(safe);
+  res.json(serializeCard(card));
 });
 
 // Assign/unassign are OPERATOR_UP (cardRoutes.ts) while block/unblock/lost/
@@ -411,8 +419,7 @@ export const assignCard = asyncHandler(async (req: Request, res: Response) => {
     details: { holderId: holder.id },
   });
 
-  const { keysEncrypted, ...safe } = card;
-  res.json(safe);
+  res.json(serializeCard(card));
 });
 
 export const unassignCard = asyncHandler(async (req: Request, res: Response) => {
@@ -437,8 +444,7 @@ export const unassignCard = asyncHandler(async (req: Request, res: Response) => 
     status: "SUCCESS",
   });
 
-  const { keysEncrypted, ...safe } = card;
-  res.json(safe);
+  res.json(serializeCard(card));
 });
 
 async function setStatus(req: Request, res: Response, status: "BLOCKED" | "ACTIVE" | "LOST" | "RETIRED", opType: "BLOCK" | "UNBLOCK") {
@@ -468,8 +474,7 @@ async function setStatus(req: Request, res: Response, status: "BLOCKED" | "ACTIV
     }).catch(() => undefined);
   }
 
-  const { keysEncrypted, ...safe } = card;
-  res.json(safe);
+  res.json(serializeCard(card));
 }
 
 export const blockCard = asyncHandler((req, res) => setStatus(req, res, "BLOCKED", "BLOCK"));
@@ -498,8 +503,7 @@ async function setWriteProtected(req: Request, res: Response, writeProtected: bo
     details: { action: writeProtected ? "write_protect" : "write_unprotect" },
   });
 
-  const { keysEncrypted, ...safe } = card;
-  res.json(safe);
+  res.json(serializeCard(card));
 }
 
 export const writeProtectCard = asyncHandler((req, res) => setWriteProtected(req, res, true));
