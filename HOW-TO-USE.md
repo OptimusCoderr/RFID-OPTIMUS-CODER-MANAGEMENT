@@ -838,7 +838,11 @@ a [card holder](#62-card-holders).
    correctly reversed. A schedule's **Mode** (see below) can instead cap this
    at one check-in, one check-out, or one full in/out cycle per card. The
    live feed shows each tap as it happens; results are also written to the
-   **Records** table below — including each holder's **ID number** (their
+   **Records** table below — each row's **When** column shows the full date
+   (including year) alongside the time, not just the day and month, so
+   attendance kept up over a long-running or year-spanning schedule (see
+   Starts on/Ends on below) never looks ambiguous about which year it's
+   from — including each holder's **ID number** (their
    [card holder](#62-card-holders) employee/student ID, if one's on file) —
    with full filtering by **Schedule** (which saved schedule, e.g. "CS101
    Lecture" vs "MATH201 Lecture", was open when the tap happened —
@@ -923,7 +927,26 @@ the **Saved schedules** table below the tap panel:
    **Zone**, a **Mode** (see below), then the **days of the week** and a
    **start/end time** (e.g. Mon/Wed/Fri, 09:00–10:00), and click **Create
    schedule**.
-2. Once saved, that encoder only accepts attendance taps while **at least
+2. **Starts on** / **Ends on** (both optional) bound the days/time above to
+   only part of the year — like a recurring calendar event's "repeat weekly
+   until…" Leave both blank for a schedule that recurs indefinitely (the
+   default, and the only option before this existed). Set just an **Ends
+   on** date to close out a semester/term on a specific day without having
+   to remember to stop it manually; set a future **Starts on** to queue up
+   next term's schedule ahead of time — it stays closed until that date
+   arrives, then opens right on schedule with no further action needed. The
+   **Dates** column in the table below shows whatever range is set (or "—"
+   for an unbounded schedule) so it's obvious at a glance which rows are
+   time-limited.
+
+   To give one label different meeting times across a whole year — e.g.
+   "MCT101" at 9:00 Mon/Wed for the fall term, then 14:00 Tue/Thu for the
+   spring term — create **two schedule rows sharing that label**, each with
+   its own days/time and its own Starts on/Ends on range covering just its
+   term. The per-label CSV export (below) still combines every row sharing
+   a label into one file, regardless of how many date-bounded rows it took
+   to cover the year.
+3. Once saved, that encoder only accepts attendance taps while **at least
    one** of its schedules says it's open — a course meeting right now keeps
    the door working even if a different course sharing the same reader is
    between sessions. Each row shows its own **Open**/**Closed** badge with a
@@ -931,22 +954,22 @@ the **Saved schedules** table below the tap panel:
    until the next open while closed). A tap while every schedule on that
    encoder is closed is rejected with a clear reason, same as a
    blocked/expired card.
-3. Each row has its own **Start now** / **Stop now**, which override just
+4. Each row has its own **Start now** / **Stop now**, which override just
    that schedule immediately regardless of what time it is — useful for an
    unscheduled makeup session or to cut one course's attendance off early
    without touching any other schedule on the same encoder. The override
    holds until you click **Resume schedule**, which clears it and goes back
    to following that schedule's saved days/times.
-4. The history, download, pencil, and trash icons **manage sessions**,
+5. The history, download, pencil, and trash icons **manage sessions**,
    **export**, **edit**, or **delete** a schedule in place. Export downloads
    that one schedule's full attendance history as its own CSV file (see
    "Exporting" above). Editing is a partial update — you only need to touch
    the fields you're changing, and it never affects any other schedule.
-5. An encoder with **no saved schedules at all is unrestricted** — attendance
+6. An encoder with **no saved schedules at all is unrestricted** — attendance
    works at any time, exactly like before this feature existed. Schedules
    are entirely opt-in, per encoder, and there's no limit on how many one
    encoder can have.
-6. Each schedule's **Mode** controls what a repeat tap from the same card is
+7. Each schedule's **Mode** controls what a repeat tap from the same card is
    allowed to do, on top of the open/closed check above:
    - **Free (check in/out at will)** — the default, and the original
      behavior: taps alternate check-in/check-out with no limit. Continuous

@@ -12,6 +12,8 @@ function schedule(overrides: Partial<SessionScheduleInput> = {}): SessionSchedul
     startTime: null,
     endTime: null,
     manualOverride: "NONE",
+    startDate: null,
+    endDate: null,
     ...overrides,
   };
 }
@@ -77,6 +79,59 @@ describe("computeSessionState", () => {
     );
     // Wednesday's window already passed today, so the next one is tomorrow (Thursday).
     expect(state.nextBoundaryAt).toEqual(new Date(2026, 0, 8, 7, 0, 0));
+  });
+
+  describe("startDate/endDate — Google-Calendar-style \"repeat weekly until <date>\"", () => {
+    it("is closed before startDate, counting down to the first qualifying day on/after it", () => {
+      // 2026-02-01 is a Sunday, so the first Wednesday on/after it is 2026-02-04.
+      const state = computeSessionState(
+        schedule({ daysOfWeek: [WEDNESDAY], startTime: "09:00", endTime: "10:00", startDate: "2026-02-01" }),
+        WEDNESDAY_10AM
+      );
+      expect(state.isOpen).toBe(false);
+      expect(state.nextBoundaryAt).toEqual(new Date(2026, 1, 4, 9, 0, 0));
+    });
+
+    it("is closed for good after endDate, with no countdown — the recurrence is over", () => {
+      const state = computeSessionState(
+        schedule({ daysOfWeek: [WEDNESDAY], startTime: "09:00", endTime: "10:00", endDate: "2026-01-01" }),
+        WEDNESDAY_10AM
+      );
+      expect(state).toEqual({ isOpen: false, reason: "scheduled_closed", nextBoundaryAt: null });
+    });
+
+    it("is open today when now falls within both the date range and today's window", () => {
+      const state = computeSessionState(
+        schedule({ daysOfWeek: [WEDNESDAY], startTime: "09:00", endTime: "11:00", startDate: "2026-01-01", endDate: "2026-12-31" }),
+        WEDNESDAY_10AM
+      );
+      expect(state.isOpen).toBe(true);
+      expect(state.reason).toBe("scheduled_open");
+    });
+
+    it("reports no countdown when the only remaining occurrence would fall after endDate", () => {
+      const friday = (WEDNESDAY + 2) % 7;
+      const state = computeSessionState(
+        schedule({ daysOfWeek: [friday], startTime: "09:00", endTime: "10:00", endDate: "2026-01-08" }), // Thursday, the day before the next Friday
+        WEDNESDAY_10AM
+      );
+      expect(state).toEqual({ isOpen: false, reason: "scheduled_closed", nextBoundaryAt: null });
+    });
+
+    it("a schedule with no days/time (always open) still respects startDate/endDate", () => {
+      const notYetStarted = computeSessionState(schedule({ startDate: "2026-02-01" }), WEDNESDAY_10AM);
+      expect(notYetStarted).toEqual({ isOpen: false, reason: "scheduled_closed", nextBoundaryAt: new Date(2026, 1, 1) });
+
+      const stillRunning = computeSessionState(schedule({ endDate: "2026-03-01" }), WEDNESDAY_10AM);
+      expect(stillRunning.isOpen).toBe(true);
+      expect(stillRunning.reason).toBe("no_schedule");
+      expect(stillRunning.nextBoundaryAt).toEqual(new Date(2026, 2, 1, 23, 59, 59, 999));
+    });
+
+    it("manual overrides still win regardless of the date range", () => {
+      const forcedOpen = computeSessionState(schedule({ manualOverride: "FORCE_OPEN", endDate: "2025-01-01" }), WEDNESDAY_10AM);
+      expect(forcedOpen).toEqual({ isOpen: true, reason: "manual_open", nextBoundaryAt: null });
+    });
   });
 });
 

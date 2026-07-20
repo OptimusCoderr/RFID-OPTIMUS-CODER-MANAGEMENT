@@ -7,6 +7,10 @@ export interface SessionScheduleInput {
   startTime: string | null;
   endTime: string | null;
   manualOverride: ManualOverride;
+  // "YYYY-MM-DD", inclusive bounds on the days/time above — null means no
+  // bound on that side (see the schema.prisma comment on AttendanceSession).
+  startDate: string | null;
+  endDate: string | null;
 }
 
 export interface SessionState {
@@ -30,6 +34,20 @@ function atMinutesOnDate(date: Date, minutes: number): Date {
   return d;
 }
 
+// Local-time parse of a "YYYY-MM-DD" string — deliberately not `new
+// Date(dateStr)`, which parses a bare date as UTC midnight and can land on
+// the wrong calendar day once converted to server-local time for comparison.
+function parseDateOnly(dateStr: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function endOfDate(date: Date): Date {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
 // Pure function: given a session's schedule/override fields and the current
 // time, is attendance currently accepted? Computed live on every call rather
 // than by a background job flipping a stored flag, so a manual Start/Stop
@@ -44,9 +62,23 @@ export function computeSessionState(session: SessionScheduleInput, now: Date = n
     return { isOpen: false, reason: "manual_closed", nextBoundaryAt: null };
   }
 
+  // Google-Calendar-style "repeat weekly until <date>" bound on top of the
+  // days/time recurrence below — e.g. a semester's worth of a course,
+  // instead of recurring forever. Once past endDate there is no future
+  // occurrence ever again, so (like the misconfigured-window case below)
+  // nextBoundaryAt is null rather than a countdown to something that will
+  // never actually open.
+  const startDate = session.startDate ? parseDateOnly(session.startDate) : null;
+  const endDate = session.endDate ? endOfDate(parseDateOnly(session.endDate)) : null;
+  if (endDate && now > endDate) {
+    return { isOpen: false, reason: "scheduled_closed", nextBoundaryAt: null };
+  }
+  const beforeStart = startDate !== null && now < startDate;
+
   const hasSchedule = session.daysOfWeek.length > 0 && !!session.startTime && !!session.endTime;
   if (!hasSchedule) {
-    return { isOpen: true, reason: "no_schedule", nextBoundaryAt: null };
+    if (beforeStart) return { isOpen: false, reason: "scheduled_closed", nextBoundaryAt: startDate };
+    return { isOpen: true, reason: "no_schedule", nextBoundaryAt: endDate };
   }
 
   const startMinutes = parseTimeToMinutes(session.startTime!);
@@ -63,7 +95,7 @@ export function computeSessionState(session: SessionScheduleInput, now: Date = n
     return { isOpen: false, reason: "scheduled_closed", nextBoundaryAt: null };
   }
 
-  if (days.has(now.getDay())) {
+  if (!beforeStart && days.has(now.getDay())) {
     const todayStart = atMinutesOnDate(now, startMinutes);
     const todayEnd = atMinutesOnDate(now, endMinutes);
     if (now >= todayStart && now < todayEnd) {
@@ -73,13 +105,17 @@ export function computeSessionState(session: SessionScheduleInput, now: Date = n
 
   // Closed right now — scan forward up to a week (inclusive of today, in
   // case today's window hasn't started yet, and revisiting today's weekday
-  // next week as the fallback) for the next scheduled start.
+  // next week as the fallback) for the next scheduled start. Scanning from
+  // startDate instead of now when the range hasn't started yet finds the
+  // first qualifying day on/after it, rather than one relative to today.
+  const scanFrom = beforeStart ? startDate! : now;
   for (let offset = 0; offset <= 7; offset++) {
-    const candidateDate = new Date(now);
+    const candidateDate = new Date(scanFrom);
     candidateDate.setDate(candidateDate.getDate() + offset);
     if (!days.has(candidateDate.getDay())) continue;
     const candidateStart = atMinutesOnDate(candidateDate, startMinutes);
     if (candidateStart > now) {
+      if (endDate && candidateStart > endDate) break;
       return { isOpen: false, reason: "scheduled_closed", nextBoundaryAt: candidateStart };
     }
   }
