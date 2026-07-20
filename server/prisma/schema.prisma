@@ -668,6 +668,19 @@ model AttendanceSession {
   startTime  String?
   endTime    String?
 
+  // "YYYY-MM-DD", inclusive bounds on the recurring days/time above — lets a
+  // schedule run for only part of the year (a semester, a term) instead of
+  // forever, and — combined with several schedule rows sharing one label —
+  // lets a course's meeting time change partway through the year without
+  // touching the schedule that already ran, Google-Calendar-style ("repeat
+  // weekly on Mondays until <date>"). Both optional: null startDate means no
+  // lower bound (already running), null endDate means it never ends. Plain
+  // strings rather than a native date column for the same reason as
+  // startTime/endTime above — no per-company timezone setting to anchor a
+  // real date/timestamp type to.
+  startDate String?
+  endDate   String?
+
   manualOverride ManualOverride @default(NONE)
 
   // See AttendanceMode — governs what recordAttendance accepts while this

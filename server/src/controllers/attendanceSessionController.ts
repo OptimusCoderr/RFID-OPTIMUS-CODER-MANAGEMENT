@@ -10,9 +10,16 @@ const SESSION_INCLUDE = {
   zone: { select: { id: true, name: true } },
 } as const;
 
-function withState<T extends { daysOfWeek: number[]; startTime: string | null; endTime: string | null; manualOverride: "NONE" | "FORCE_OPEN" | "FORCE_CLOSED" }>(
-  session: T
-) {
+function withState<
+  T extends {
+    daysOfWeek: number[];
+    startTime: string | null;
+    endTime: string | null;
+    startDate: string | null;
+    endDate: string | null;
+    manualOverride: "NONE" | "FORCE_OPEN" | "FORCE_CLOSED";
+  }
+>(session: T) {
   return { ...session, state: computeSessionState(session) };
 }
 
@@ -50,7 +57,7 @@ export const listAttendanceSessions = asyncHandler(async (req: Request, res: Res
 });
 
 export const createAttendanceSession = asyncHandler(async (req: Request, res: Response) => {
-  const { encoderId, zoneId, label, description, daysOfWeek, startTime, endTime, mode } = req.body;
+  const { encoderId, zoneId, label, description, daysOfWeek, startTime, endTime, startDate, endDate, mode } = req.body;
   const encoder = await loadEncoder(req, encoderId);
   await assertZoneBelongsToCompany(zoneId, encoder.companyId);
 
@@ -64,6 +71,8 @@ export const createAttendanceSession = asyncHandler(async (req: Request, res: Re
       daysOfWeek,
       startTime: startTime ?? undefined,
       endTime: endTime ?? undefined,
+      startDate: startDate ?? undefined,
+      endDate: endDate ?? undefined,
       mode,
     },
     include: SESSION_INCLUDE,
@@ -74,7 +83,7 @@ export const createAttendanceSession = asyncHandler(async (req: Request, res: Re
 
 export const updateAttendanceSession = asyncHandler(async (req: Request, res: Response) => {
   const existing = await loadSession(req, req.params.id);
-  const { encoderId, zoneId, label, description, daysOfWeek, startTime, endTime, mode } = req.body;
+  const { encoderId, zoneId, label, description, daysOfWeek, startTime, endTime, startDate, endDate, mode } = req.body;
 
   // Moving a schedule to a different encoder ("this course changed rooms")
   // — optional, and re-validated against the same company either way.
@@ -91,6 +100,8 @@ export const updateAttendanceSession = asyncHandler(async (req: Request, res: Re
       daysOfWeek: daysOfWeek ?? undefined,
       startTime: startTime === undefined ? undefined : startTime,
       endTime: endTime === undefined ? undefined : endTime,
+      startDate: startDate === undefined ? undefined : startDate,
+      endDate: endDate === undefined ? undefined : endDate,
       mode: mode ?? undefined,
     },
     include: SESSION_INCLUDE,

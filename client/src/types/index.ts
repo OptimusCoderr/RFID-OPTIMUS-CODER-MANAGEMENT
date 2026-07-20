@@ -332,6 +332,11 @@ export interface AttendanceSession {
   daysOfWeek: number[];
   startTime?: string | null;
   endTime?: string | null;
+  // "YYYY-MM-DD", inclusive bounds on the days/time above — see
+  // schema.prisma's AttendanceSession comment (Google-Calendar-style
+  // "repeat weekly until <date>"). Null on either side means unbounded.
+  startDate?: string | null;
+  endDate?: string | null;
   manualOverride: ManualOverride;
   mode: AttendanceMode;
   createdAt: string;

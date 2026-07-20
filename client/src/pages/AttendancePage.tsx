@@ -40,6 +40,21 @@ import type {
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+// "YYYY-MM-DD" -> "Jan 5, 2026" — built from the string's own y/m/d rather
+// than `new Date(dateStr)`, which treats a bare date as UTC midnight and can
+// display the wrong calendar day once converted to the browser's timezone.
+function formatDateOnly(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return format(new Date(y, m - 1, d), "MMM d, yyyy");
+}
+
+function formatDateRange(s: Pick<AttendanceSession, "startDate" | "endDate">): string {
+  if (!s.startDate && !s.endDate) return "—";
+  if (s.startDate && s.endDate) return `${formatDateOnly(s.startDate)} – ${formatDateOnly(s.endDate)}`;
+  if (s.startDate) return `From ${formatDateOnly(s.startDate)}`;
+  return `Until ${formatDateOnly(s.endDate!)}`;
+}
+
 const STATE_LABELS: Record<AttendanceSession["state"]["reason"], string> = {
   manual_open: "Started manually",
   manual_closed: "Stopped manually",
@@ -73,6 +88,8 @@ interface ScheduleFormState {
   daysOfWeek: number[];
   startTime: string;
   endTime: string;
+  startDate: string;
+  endDate: string;
   mode: AttendanceMode;
 }
 
@@ -84,6 +101,8 @@ const EMPTY_SCHEDULE: ScheduleFormState = {
   daysOfWeek: [],
   startTime: "",
   endTime: "",
+  startDate: "",
+  endDate: "",
   mode: "FREE",
 };
 
@@ -171,6 +190,8 @@ export default function AttendancePage() {
       daysOfWeek: s.daysOfWeek,
       startTime: s.startTime ?? "",
       endTime: s.endTime ?? "",
+      startDate: s.startDate ?? "",
+      endDate: s.endDate ?? "",
       mode: s.mode,
     });
     setModalOpen(true);
@@ -186,6 +207,8 @@ export default function AttendancePage() {
         daysOfWeek: scheduleForm.daysOfWeek,
         startTime: scheduleForm.startTime || null,
         endTime: scheduleForm.endTime || null,
+        startDate: scheduleForm.startDate || null,
+        endDate: scheduleForm.endDate || null,
         mode: scheduleForm.mode,
       };
       return editingId
@@ -567,6 +590,7 @@ export default function AttendancePage() {
               <th className="px-4 py-3">Encoder</th>
               <th className="px-4 py-3">Days</th>
               <th className="px-4 py-3">Time</th>
+              <th className="px-4 py-3">Dates</th>
               <th className="px-4 py-3">Mode</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3"></th>
@@ -588,6 +612,7 @@ export default function AttendancePage() {
                   <td className="px-4 py-3 text-slate-500">
                     {s.startTime && s.endTime ? `${s.startTime}–${s.endTime}` : "—"}
                   </td>
+                  <td className="px-4 py-3 text-slate-500">{formatDateRange(s)}</td>
                   <td className="px-4 py-3 text-slate-500" title={MODE_HELP[s.mode]}>
                     {MODE_LABELS[s.mode]}
                   </td>
@@ -670,7 +695,7 @@ export default function AttendancePage() {
             })}
             {allSessions?.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
+                <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
                   No schedules saved yet — click "New schedule" to add one.
                 </td>
               </tr>
@@ -799,7 +824,7 @@ export default function AttendancePage() {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {data?.data.map((r) => (
                 <tr key={r.id}>
-                  <td className="px-4 py-3 text-slate-500">{format(new Date(r.recordedAt), "MMM d, HH:mm:ss")}</td>
+                  <td className="px-4 py-3 text-slate-500">{format(new Date(r.recordedAt), "MMM d, yyyy, HH:mm:ss")}</td>
                   <td className="px-4 py-3 font-medium">{r.holder?.fullName ?? "—"}</td>
                   <td className="px-4 py-3 font-mono text-slate-500">{r.holder?.employeeId ?? "—"}</td>
                   <td className="px-4 py-3">
@@ -959,10 +984,42 @@ export default function AttendancePage() {
               />
             </div>
           </div>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="label">Starts on (optional)</label>
+              <input
+                type="date"
+                className="input"
+                value={scheduleForm.startDate}
+                onChange={(e) => setScheduleForm((f) => ({ ...f, startDate: e.target.value }))}
+              />
+            </div>
+            <div className="flex-1">
+              <label className="label">Ends on (optional)</label>
+              <input
+                type="date"
+                className="input"
+                min={scheduleForm.startDate || undefined}
+                value={scheduleForm.endDate}
+                onChange={(e) => setScheduleForm((f) => ({ ...f, endDate: e.target.value }))}
+              />
+            </div>
+          </div>
+          <p className="text-xs text-slate-400">
+            Like a recurring event's "repeat weekly until…" — leave both blank to recur indefinitely, or bound the
+            days/times above to just part of the year (a semester, a term). To change a course's time partway
+            through the year, end this schedule's range and create a new schedule (sharing the same label) starting
+            right after it.
+          </p>
           <button
             type="submit"
             className="btn-primary w-full"
-            disabled={saveSchedule.isPending || !scheduleForm.encoderId || !scheduleForm.label.trim()}
+            disabled={
+              saveSchedule.isPending ||
+              !scheduleForm.encoderId ||
+              !scheduleForm.label.trim() ||
+              (scheduleForm.startDate !== "" && scheduleForm.endDate !== "" && scheduleForm.endDate < scheduleForm.startDate)
+            }
           >
             {saveSchedule.isPending ? <Spinner className="h-4 w-4 text-white" /> : <Save size={16} />}
             {editingId ? "Save changes" : "Create schedule"}

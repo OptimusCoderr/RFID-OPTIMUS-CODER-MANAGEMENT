@@ -1301,6 +1301,102 @@ describe("company + card lifecycle happy path", () => {
     });
   });
 
+  describe("attendance sessions: startDate/endDate — Google-Calendar-style \"repeat weekly until <date>\"", () => {
+    let dateRangeEncoderId: string;
+
+    beforeAll(async () => {
+      const encoderRes = await request(app)
+        .post("/api/encoders")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ name: "Date Range Test Encoder", type: "ACR122U" });
+      dateRangeEncoderId = encoderRes.body.id;
+    });
+
+    it("rejects creating a schedule whose endDate is before its startDate", async () => {
+      const res = await request(app)
+        .post("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          encoderId: dateRangeEncoderId,
+          label: "Bad Range",
+          daysOfWeek: [],
+          startDate: "2026-06-01",
+          endDate: "2026-01-01",
+        });
+      expect(res.status).toBe(400);
+    });
+
+    it("a schedule with a future startDate reports scheduled_closed even with no days/time restriction", async () => {
+      const farFuture = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const res = await request(app)
+        .post("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          encoderId: dateRangeEncoderId,
+          label: "Next Year's Course",
+          daysOfWeek: [],
+          startDate: farFuture,
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.startDate).toBe(farFuture);
+      expect(res.body.state.isOpen).toBe(false);
+      expect(res.body.state.reason).toBe("scheduled_closed");
+      expect(res.body.state.nextBoundaryAt).not.toBeNull();
+
+      const tapCardRes = await request(app)
+        .post("/api/cards")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ uid: "04D3000001", cardType: "NTAG213" });
+      const tapRes = await request(app)
+        .post("/api/attendance")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ cardId: tapCardRes.body.id, encoderId: dateRangeEncoderId });
+      expect(tapRes.status).toBe(400); // no other schedule is open on this fresh encoder
+    });
+
+    it("a schedule whose endDate has already passed reports scheduled_closed with no countdown", async () => {
+      const res = await request(app)
+        .post("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({
+          encoderId: dateRangeEncoderId,
+          label: "Last Year's Course",
+          daysOfWeek: [],
+          endDate: "2020-01-01",
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.state).toEqual({ isOpen: false, reason: "scheduled_closed", nextBoundaryAt: null });
+    });
+
+    it("PATCH can set, and later clear, a schedule's date range", async () => {
+      const createRes = await request(app)
+        .post("/api/attendance-sessions")
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ encoderId: dateRangeEncoderId, label: "Semester Course", daysOfWeek: [] });
+      const id = createRes.body.id;
+      expect(createRes.body.startDate).toBeNull();
+      expect(createRes.body.endDate).toBeNull();
+
+      const setRes = await request(app)
+        .patch(`/api/attendance-sessions/${id}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ startDate: "2020-01-01", endDate: "2020-06-01" });
+      expect(setRes.status).toBe(200);
+      expect(setRes.body.startDate).toBe("2020-01-01");
+      expect(setRes.body.endDate).toBe("2020-06-01");
+      expect(setRes.body.state.isOpen).toBe(false); // that semester is long over
+
+      const clearRes = await request(app)
+        .patch(`/api/attendance-sessions/${id}`)
+        .set("Authorization", `Bearer ${companyAdminToken}`)
+        .send({ startDate: null, endDate: null });
+      expect(clearRes.status).toBe(200);
+      expect(clearRes.body.startDate).toBeNull();
+      expect(clearRes.body.endDate).toBeNull();
+      expect(clearRes.body.state.reason).toBe("no_schedule"); // unrestricted again
+    });
+  });
+
   describe("attendance modes: check-in only / check-out only / once / free", () => {
     async function newHolderAndCard(uid: string): Promise<string> {
       const holderRes = await request(app)
