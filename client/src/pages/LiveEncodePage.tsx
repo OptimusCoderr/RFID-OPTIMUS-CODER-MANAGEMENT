@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Badge } from "@/components/ui/Badge";
 import { CardDataPanel } from "@/components/CardDataPanel";
 import { CitizenDataPanel } from "@/components/CitizenDataPanel";
+import { CardKeysPanel } from "@/components/CardKeysPanel";
 import { useSocket } from "@/context/SocketContext";
 import { useAuth } from "@/context/AuthContext";
 import { hasModule } from "@/lib/modules";
@@ -346,6 +347,7 @@ export default function LiveEncodePage() {
         <div className="lg:col-span-2">
           {matchedCard ? (
             <div className="space-y-6">
+              <CardKeysPanel card={matchedCard} onCardUpdated={setMatchedCard} />
               <CardDataPanel
                 card={matchedCard}
                 socket={socket}

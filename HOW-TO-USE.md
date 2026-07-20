@@ -485,18 +485,26 @@ card still reads back as a valid (just empty) record afterward instead of
 **Random per-card keys.** By default, new cards use whatever Key A/B the
 template specifies (often the MIFARE factory default,
 `FFFFFFFFFFFF`, until you change it) — fine for testing, but every card
-sharing one key means a single leaked card exposes all of them. From a
-card's detail page, `SUPER_ADMIN`/`COMPANY_ADMIN`/`MANAGER` users get a
-**Sector keys** panel:
+sharing one key means a single leaked card exposes all of them.
+`SUPER_ADMIN`/`COMPANY_ADMIN`/`MANAGER` users get a key panel in two places
+that both call the same server-side generation — a card's detail page
+(**Sector keys**) and, for a MIFARE Classic card currently on the reader,
+Live Encode itself (**Card key**, right above Card data) so the choice is
+available the moment a card is tapped, without navigating away:
 
-- **Generate random keys** replaces this card's stored keys with a fresh
-  random Key A/B per sector the template defines, encrypted at rest exactly
-  like any other stored key ([11](#11-security-notes)). Live Encode and the
-  Card data panel automatically pick up the new keys for that card — nothing
-  else to configure.
-- **View keys** re-displays the currently stored keys for that card at any
-  time — useful if you need to key them into another system or verify what
-  was generated.
+- A badge shows at a glance whether this card has a key on file yet
+  ("Key on file") or is still on the factory default ("Factory default").
+- **Use previous key** re-displays the key already stored for this card —
+  confirms what Card data/Encrypted citizen data below will actually read
+  and write with, without changing anything. Disabled when there's no key
+  on file yet.
+- **Generate new key** (labeled **Generate random keys** on the card detail
+  page) replaces this card's stored keys with a fresh random Key A/B per
+  sector the template defines, encrypted at rest exactly like any other
+  stored key ([11](#11-security-notes)). Live Encode and the Card data panel
+  automatically pick up the new key for that card — nothing else to
+  configure. Asks for confirmation first if a key is already on file, since
+  it's about to replace one that may already be in use.
 
 Regenerating invalidates the previous keys immediately — expect this to be a
 deliberate, occasional action (e.g. re-keying a batch before issuing them),
