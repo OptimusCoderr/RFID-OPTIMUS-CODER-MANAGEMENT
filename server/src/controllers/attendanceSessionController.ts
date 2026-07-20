@@ -117,3 +117,84 @@ export const deleteAttendanceSession = asyncHandler(async (req: Request, res: Re
   await prisma.attendanceSession.delete({ where: { id: existing.id } });
   res.status(204).send();
 });
+
+// A "session occurrence" is one specific meeting of a recurring schedule
+// (this Monday's class vs. next Monday's) — see recordAttendance's
+// auto-open-or-reuse logic in attendanceService.ts, which is what normally
+// creates these. The three actions below give an operator manual control
+// over that lifecycle: Close ends the current meeting early (so DAILY_CHECK_IN
+// stops treating the room as "already in session" and the very next tap
+// starts a fresh occurrence automatically); Create does the same but also
+// opens the new occurrence right away instead of waiting for the next tap;
+// Reopen un-closes a past occurrence so late taps attach to the meeting they
+// actually belong to instead of starting a new one.
+function serializeOccurrence(o: { id: string; attendanceSessionId: string; openedAt: Date; closedAt: Date | null }) {
+  return {
+    id: o.id,
+    attendanceSessionId: o.attendanceSessionId,
+    openedAt: o.openedAt,
+    closedAt: o.closedAt,
+    isOpen: o.closedAt === null,
+  };
+}
+
+export const listSessionOccurrences = asyncHandler(async (req: Request, res: Response) => {
+  const session = await loadSession(req, req.params.id);
+  const occurrences = await prisma.sessionOccurrence.findMany({
+    where: { attendanceSessionId: session.id },
+    orderBy: { openedAt: "desc" },
+    take: 100,
+    include: { _count: { select: { records: true } } },
+  });
+  res.json(
+    occurrences.map((o) => ({ ...serializeOccurrence(o), recordCount: o._count.records }))
+  );
+});
+
+export const createSessionOccurrence = asyncHandler(async (req: Request, res: Response) => {
+  const session = await loadSession(req, req.params.id);
+  const occurrence = await prisma.$transaction(async (tx) => {
+    await tx.sessionOccurrence.updateMany({
+      where: { attendanceSessionId: session.id, closedAt: null },
+      data: { closedAt: new Date() },
+    });
+    return tx.sessionOccurrence.create({
+      data: { companyId: session.companyId, attendanceSessionId: session.id },
+    });
+  });
+  res.status(201).json(serializeOccurrence(occurrence));
+});
+
+export const closeSessionOccurrence = asyncHandler(async (req: Request, res: Response) => {
+  const session = await loadSession(req, req.params.id);
+  const open = await prisma.sessionOccurrence.findFirst({
+    where: { attendanceSessionId: session.id, closedAt: null },
+    orderBy: { openedAt: "desc" },
+  });
+  if (!open) {
+    throw ApiError.badRequest("This schedule has no open session to close");
+  }
+  const closed = await prisma.sessionOccurrence.update({
+    where: { id: open.id },
+    data: { closedAt: new Date() },
+  });
+  res.json(serializeOccurrence(closed));
+});
+
+export const reopenSessionOccurrence = asyncHandler(async (req: Request, res: Response) => {
+  const session = await loadSession(req, req.params.id);
+  const target = await prisma.sessionOccurrence.findUnique({ where: { id: req.params.occurrenceId } });
+  if (!target || target.attendanceSessionId !== session.id) {
+    throw ApiError.notFound("Session occurrence not found");
+  }
+  const reopened = await prisma.$transaction(async (tx) => {
+    // At most one open occurrence per schedule — close any other open one
+    // (e.g. a newer one auto-created since) before reopening this one.
+    await tx.sessionOccurrence.updateMany({
+      where: { attendanceSessionId: session.id, closedAt: null, id: { not: target.id } },
+      data: { closedAt: new Date() },
+    });
+    return tx.sessionOccurrence.update({ where: { id: target.id }, data: { closedAt: null } });
+  });
+  res.json(serializeOccurrence(reopened));
+});

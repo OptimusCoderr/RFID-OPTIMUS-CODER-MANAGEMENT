@@ -80,7 +80,6 @@ export async function recordAttendance(params: {
   // applies for any general (no-encoder) tap, and for an encoder whose open
   // schedule doesn't set a stricter mode.
   let mode: AttendanceMode = "FREE";
-  let occurrenceStartedAt: Date | null = null;
   if (params.encoderId) {
     const sessions = await prisma.attendanceSession.findMany({ where: { encoderId: params.encoderId } });
     const state = computeEncoderOpenState(sessions);
@@ -92,25 +91,12 @@ export async function recordAttendance(params: {
       sessionId = state.openSessionId;
       sessionLabel = openSession?.label ?? null;
       mode = openSession?.mode ?? "FREE";
-      occurrenceStartedAt = state.occurrenceStartedAt;
     }
   }
 
   const zoneId = params.zoneId ?? null;
   const cardId = card.id;
   const holderId = card.holderId;
-
-  // FREE stays zone-scoped — a continuous physical-presence toggle shared by
-  // every general/FREE-schedule tap in that zone (or "General" if none),
-  // which is what the hotel-style access log and "currently present"
-  // dashboard stat rely on. Every other mode is inherently schedule-bounded
-  // (a single scan, one in/out cycle, one check-in per day) rather than a
-  // continuous presence signal, so it's scoped to *this* schedule
-  // (sessionId) instead — otherwise two unrelated schedules that happen to
-  // share a zone (or both leave it as "General") would corrupt each other's
-  // count, and a brand-new schedule would inherit a stale "already checked
-  // in" state left over from a completely different schedule.
-  const toggleScope = mode === "FREE" ? { zoneId } : { sessionId };
 
   // The read-then-decide-then-write toggle below is a classic check-then-act
   // race: two near-simultaneous taps for the same holder+scope (plausible
@@ -121,11 +107,46 @@ export async function recordAttendance(params: {
   return withSerializableRetry(() =>
     prisma.$transaction(
       async (tx) => {
+        // Which specific meeting of the schedule this tap belongs to — only
+        // meaningful once a schedule is actually governing the tap. Reuses
+        // whichever occurrence is still open (closedAt: null); if none is
+        // (first tap since ever, or since the last Close/reopen-elsewhere),
+        // one is opened automatically so a schedule that never bothers with
+        // explicit session management still just works. Done inside this
+        // same serializable transaction so two near-simultaneous first taps
+        // can't each open their own occurrence.
+        let occurrenceId: string | null = null;
+        if (sessionId) {
+          const openOccurrence = await tx.sessionOccurrence.findFirst({
+            where: { attendanceSessionId: sessionId, closedAt: null },
+            orderBy: { openedAt: "desc" },
+          });
+          occurrenceId = openOccurrence
+            ? openOccurrence.id
+            : (await tx.sessionOccurrence.create({ data: { companyId: params.companyId, attendanceSessionId: sessionId } })).id;
+        }
+
+        // FREE stays zone-scoped — a continuous physical-presence toggle
+        // shared by every general/FREE-schedule tap in that zone (or
+        // "General" if none), which is what the hotel-style access log and
+        // "currently present" dashboard stat rely on. CHECK_IN_ONLY/
+        // CHECK_OUT_ONLY/ONCE are scoped to *this* schedule (sessionId) —
+        // "once" for the schedule's whole lifetime, spanning every occurrence
+        // — since they model a single-scan/one-way event, not something that
+        // should reset every meeting. DAILY_CHECK_IN is scoped to *this*
+        // occurrence specifically, since resetting every meeting (while
+        // never resetting mid-meeting) is its entire point. Without this
+        // split, two unrelated schedules sharing a zone (or both left as
+        // "General") would corrupt each other's count, and a new schedule —
+        // or a new week's occurrence — would inherit stale state left over
+        // from something unrelated.
+        const toggleScope = mode === "FREE" ? { zoneId } : mode === "DAILY_CHECK_IN" ? { occurrenceId } : { sessionId };
+
         const last = await tx.attendanceRecord.findFirst({
           where: { companyId: params.companyId, holderId, ...toggleScope },
           orderBy: { recordedAt: "desc" },
         });
-        const decision = nextAttendanceType(mode, last ? { type: last.type, recordedAt: last.recordedAt } : null, occurrenceStartedAt);
+        const decision = nextAttendanceType(mode, last ? { type: last.type } : null);
         if ("rejected" in decision) {
           throw ApiError.badRequest(decision.reason);
         }
@@ -139,6 +160,7 @@ export async function recordAttendance(params: {
             encoderId: params.encoderId ?? undefined,
             sessionId: sessionId ?? undefined,
             sessionLabel: sessionLabel ?? undefined,
+            occurrenceId: occurrenceId ?? undefined,
             type: decision.type,
           },
           include: ATTENDANCE_INCLUDE,
@@ -184,7 +206,7 @@ export async function recordManualAttendance(params: {
           where: { companyId: params.companyId, holderId, zoneId },
           orderBy: { recordedAt: "desc" },
         });
-        const decision = nextAttendanceType("FREE", last ? { type: last.type, recordedAt: last.recordedAt } : null);
+        const decision = nextAttendanceType("FREE", last ? { type: last.type } : null);
         if ("rejected" in decision) {
           throw ApiError.badRequest(decision.reason);
         }

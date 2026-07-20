@@ -415,15 +415,26 @@ export default function CardDetailPage() {
                 Random per-card keys mean a lost card doesn't expose every other card's key. Generating replaces the
                 stored keys — commands sent from Live Encode will need the new values.
               </p>
+              {card.writeProtected && (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+                  This card is write-protected, so a new key can't be generated — the app would remember the new key
+                  while the physical card still has the old one, locking itself out of it. Remove write protection
+                  above first.
+                </p>
+              )}
               <div className="flex gap-2">
                 <button className="btn-secondary" disabled={viewKeys.isPending} onClick={() => viewKeys.mutate()}>
                   View keys
                 </button>
                 <button
                   className="btn-secondary"
-                  disabled={generateKeys.isPending}
+                  disabled={generateKeys.isPending || card.writeProtected}
+                  title={card.writeProtected ? "Remove write protection first" : undefined}
                   onClick={() => {
-                    if (confirm("Generate new random keys for this card? Any previously stored key stops working.")) {
+                    const message = card.hasStoredKeys
+                      ? "This card already has a key stored. Generating a new one replaces it — you'll need to re-write the card's sectors (and re-encrypt any citizen data) with the new key before this app can read/write it again. Continue?"
+                      : "Generate new random keys for this card?";
+                    if (confirm(message)) {
                       generateKeys.mutate();
                     }
                   }}

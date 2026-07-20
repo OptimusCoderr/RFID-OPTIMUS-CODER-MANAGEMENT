@@ -1,7 +1,21 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
-import { Download, Radio, Play, Square, RotateCcw, Plus, Pencil, Trash2, Save, UserCog, Eraser } from "lucide-react";
+import {
+  Download,
+  Radio,
+  Play,
+  Square,
+  RotateCcw,
+  Plus,
+  Pencil,
+  Trash2,
+  Save,
+  UserCog,
+  Eraser,
+  History,
+  CalendarPlus,
+} from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage, downloadCsv } from "@/lib/api";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -21,6 +35,7 @@ import type {
   Encoder,
   ManualOverride,
   PaginatedResponse,
+  SessionOccurrence,
 } from "@/types";
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -210,6 +225,52 @@ export default function AttendancePage() {
     e.preventDefault();
     saveSchedule.mutate();
   }
+
+  // --- Session lifecycle: close / reopen / start a new occurrence ---
+  // A recurring schedule (e.g. "MCT101", meeting every Monday) reuses one
+  // open SessionOccurrence per meeting under DAILY_CHECK_IN — closing it is
+  // what lets next week's meeting start fresh instead of reading last
+  // week's check-ins as "already checked in".
+  const [occurrencesSchedule, setOccurrencesSchedule] = useState<AttendanceSession | null>(null);
+
+  const { data: occurrences, isLoading: occurrencesLoading } = useQuery({
+    queryKey: ["session-occurrences", occurrencesSchedule?.id],
+    queryFn: async () =>
+      (await api.get<SessionOccurrence[]>(`/attendance-sessions/${occurrencesSchedule!.id}/occurrences`)).data,
+    enabled: Boolean(occurrencesSchedule),
+  });
+
+  function invalidateOccurrences() {
+    queryClient.invalidateQueries({ queryKey: ["session-occurrences", occurrencesSchedule?.id] });
+  }
+
+  const closeOccurrence = useMutation({
+    mutationFn: async () => api.post(`/attendance-sessions/${occurrencesSchedule!.id}/occurrences/close`),
+    onSuccess: () => {
+      toast.success("Session closed");
+      invalidateOccurrences();
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not close the session")),
+  });
+
+  const createOccurrence = useMutation({
+    mutationFn: async () => api.post(`/attendance-sessions/${occurrencesSchedule!.id}/occurrences`),
+    onSuccess: () => {
+      toast.success("New session started");
+      invalidateOccurrences();
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not start a new session")),
+  });
+
+  const reopenOccurrence = useMutation({
+    mutationFn: async (occurrenceId: string) =>
+      api.post(`/attendance-sessions/${occurrencesSchedule!.id}/occurrences/${occurrenceId}/reopen`),
+    onSuccess: () => {
+      toast.success("Session reopened");
+      invalidateOccurrences();
+    },
+    onError: (err) => toast.error(apiErrorMessage(err, "Could not reopen that session")),
+  });
 
   function toggleDay(day: number) {
     setScheduleForm((f) => ({
@@ -572,6 +633,13 @@ export default function AttendancePage() {
                           <RotateCcw size={15} />
                         </button>
                       )}
+                      <button
+                        className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                        title="Manage sessions — close today's, reopen a past one, or start a new one"
+                        onClick={() => setOccurrencesSchedule(s)}
+                      >
+                        <History size={15} />
+                      </button>
                       <button
                         className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                         title={`Export "${s.label}"'s attendance as its own CSV — combines every schedule row sharing this label`}
@@ -1000,6 +1068,79 @@ export default function AttendancePage() {
               new type still makes sense next to this holder's other records in this zone.
             </p>
           </form>
+        )}
+      </Modal>
+
+      <Modal
+        open={Boolean(occurrencesSchedule)}
+        onClose={() => setOccurrencesSchedule(null)}
+        title={occurrencesSchedule ? `Sessions — ${occurrencesSchedule.label}` : "Sessions"}
+      >
+        {occurrencesSchedule && (
+          <div className="space-y-3">
+            <p className="text-xs text-slate-400">
+              Each recurring meeting (e.g. this Monday's class) is its own session. Close the current one when it ends
+              so the next tap starts fresh, reopen a past one to record a late arrival against it, or start a new one
+              right away instead of waiting for the next tap.
+            </p>
+            <button
+              type="button"
+              className="btn-secondary w-full"
+              disabled={createOccurrence.isPending}
+              onClick={() => createOccurrence.mutate()}
+            >
+              {createOccurrence.isPending ? <Spinner className="h-4 w-4" /> : <CalendarPlus size={16} />}
+              Start new session
+            </button>
+
+            {occurrencesLoading ? (
+              <div className="flex justify-center py-6">
+                <Spinner className="h-5 w-5" />
+              </div>
+            ) : (
+              <div className="max-h-80 space-y-1 overflow-y-auto">
+                {occurrences?.map((o) => (
+                  <div
+                    key={o.id}
+                    className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm dark:border-slate-800"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Badge tone={o.isOpen ? "ACTIVE" : undefined}>{o.isOpen ? "Open" : "Closed"}</Badge>
+                        <span className="text-slate-500">{format(new Date(o.openedAt), "MMM d, HH:mm")}</span>
+                      </div>
+                      <p className="mt-0.5 text-xs text-slate-400">
+                        {o.recordCount} record{o.recordCount === 1 ? "" : "s"}
+                        {o.closedAt ? ` · closed ${format(new Date(o.closedAt), "MMM d, HH:mm")}` : ""}
+                      </p>
+                    </div>
+                    {o.isOpen ? (
+                      <button
+                        className="btn-secondary px-2 py-1 text-xs"
+                        disabled={closeOccurrence.isPending}
+                        onClick={() => closeOccurrence.mutate()}
+                      >
+                        Close
+                      </button>
+                    ) : (
+                      <button
+                        className="btn-secondary px-2 py-1 text-xs"
+                        disabled={reopenOccurrence.isPending}
+                        onClick={() => reopenOccurrence.mutate(o.id)}
+                      >
+                        Reopen
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {occurrences?.length === 0 && (
+                  <p className="py-4 text-center text-sm text-slate-400">
+                    No sessions yet — one opens automatically on the first tap.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </Modal>
     </div>

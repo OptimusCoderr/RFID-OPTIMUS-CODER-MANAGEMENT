@@ -9,6 +9,7 @@ import {
   updateAttendanceSessionBody,
   setOverrideBody,
   attendanceSessionListQuery,
+  sessionOccurrenceParams,
 } from "../validators/attendanceSession.js";
 
 const router = Router();
@@ -41,6 +42,30 @@ router.delete(
   requireRole(...OPERATOR_UP),
   validate({ params: idParams }),
   attendanceSessionController.deleteAttendanceSession
+);
+
+router.get(
+  "/:id/occurrences",
+  validate({ params: idParams }),
+  attendanceSessionController.listSessionOccurrences
+);
+router.post(
+  "/:id/occurrences",
+  requireRole(...OPERATOR_UP),
+  validate({ params: idParams }),
+  attendanceSessionController.createSessionOccurrence
+);
+router.post(
+  "/:id/occurrences/close",
+  requireRole(...OPERATOR_UP),
+  validate({ params: idParams }),
+  attendanceSessionController.closeSessionOccurrence
+);
+router.post(
+  "/:id/occurrences/:occurrenceId/reopen",
+  requireRole(...OPERATOR_UP),
+  validate({ params: sessionOccurrenceParams }),
+  attendanceSessionController.reopenSessionOccurrence
 );
 
 export default router;

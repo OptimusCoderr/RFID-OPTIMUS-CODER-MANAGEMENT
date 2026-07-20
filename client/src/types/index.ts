@@ -302,6 +302,7 @@ export interface AttendanceRecord {
   encoder?: { id: string; name: string } | null;
   sessionId?: string | null;
   sessionLabel?: string | null;
+  occurrenceId?: string | null;
   type: AttendanceType;
   recordedAt: string;
   manualEntry: boolean;
@@ -336,6 +337,17 @@ export interface AttendanceSession {
   createdAt: string;
   updatedAt: string;
   state: SessionState;
+}
+
+// One specific meeting of a recurring schedule (this Monday's class vs.
+// next Monday's) — see attendanceSessionController.ts's occurrence actions.
+export interface SessionOccurrence {
+  id: string;
+  attendanceSessionId: string;
+  openedAt: string;
+  closedAt: string | null;
+  isOpen: boolean;
+  recordCount: number;
 }
 
 export type MaintenanceStatus = "OPEN" | "IN_PROGRESS" | "RESOLVED";

@@ -500,7 +500,16 @@ card's detail page, `SUPER_ADMIN`/`COMPANY_ADMIN`/`MANAGER` users get a
 
 Regenerating invalidates the previous keys immediately — expect this to be a
 deliberate, occasional action (e.g. re-keying a batch before issuing them),
-not something run on every read.
+not something run on every read. Generating only replaces what this app has
+*stored* — it never touches the physical card by itself, so you'll need to
+re-write the card's sectors (and re-encrypt/re-write any citizen data) with
+the new key afterward. Because of that, a **write-protected card can't have
+its key regenerated at all** — that follow-up write is exactly what
+write-protect blocks, and skipping it would leave the app remembering a new
+key the card itself never received, locking this app out of its own
+sectors/citizen data. Remove write protection first. If the card already
+has a key stored, generating asks you to confirm, since it's about to
+replace one that may already be in use.
 
 **Encrypted citizen data (national ID, sensitive PII).** The plain labeled
 blocks above are readable by anyone who knows the sector key — fine for a
@@ -920,11 +929,11 @@ the **Saved schedules** table below the tap panel:
    without touching any other schedule on the same encoder. The override
    holds until you click **Resume schedule**, which clears it and goes back
    to following that schedule's saved days/times.
-4. The download, pencil, and trash icons **export**, **edit**, or **delete**
-   a schedule in place. Export downloads that one schedule's full attendance
-   history as its own CSV file (see "Exporting" above). Editing is a partial
-   update — you only need to touch the fields you're changing, and it never
-   affects any other schedule.
+4. The history, download, pencil, and trash icons **manage sessions**,
+   **export**, **edit**, or **delete** a schedule in place. Export downloads
+   that one schedule's full attendance history as its own CSV file (see
+   "Exporting" above). Editing is a partial update — you only need to touch
+   the fields you're changing, and it never affects any other schedule.
 5. An encoder with **no saved schedules at all is unrestricted** — attendance
    works at any time, exactly like before this feature existed. Schedules
    are entirely opt-in, per encoder, and there's no limit on how many one
@@ -968,6 +977,33 @@ the **Saved schedules** table below the tap panel:
    exception, by design: it's meant to be a continuous, zone-wide presence
    signal, not something scoped to a single schedule. A general tap with no
    schedule open always behaves as Free.
+
+**Sessions — closing, reopening, and starting a new meeting (`OPERATOR`+).**
+Under **Daily check-in** (and any other non-Free mode), each specific
+meeting of a recurring schedule is tracked as its own **session**: the first
+tap on a given day opens one automatically, and every tap after that on the
+same day is checked against it. Click the **history icon** on a schedule's
+row to open its **Sessions** panel:
+
+- **Close** ends the current session right there, instead of waiting for
+  the clock to roll over to the next calendar day — useful for ending a
+  class early, or for a schedule that meets more than once in the same day
+  (two shifts, a morning and afternoon section). The very next tap after
+  closing opens a brand-new session automatically, so nobody needs to
+  remember to do anything else before the next meeting.
+- **Start new session** does the same thing immediately and explicitly —
+  closes whatever's currently open (if anything) and opens a fresh one right
+  away, without waiting for a tap. Use this to pre-open today's session
+  before anyone arrives.
+- **Reopen** brings a past (closed) session back to active, closing whatever
+  session is currently open first — there's always at most one open session
+  per schedule. Use this when a card holder shows up late and needs to be
+  recorded against the meeting they actually attended (e.g. this morning's
+  class) rather than starting a new one for them.
+
+Each entry in the list also shows how many attendance records it holds, so
+you can tell at a glance which past session a late arrival belongs to before
+reopening it.
 
 Whether an encoder is currently open is always computed live — the OR of
 every one of its schedules' own live states at the moment of the tap (or
@@ -1393,6 +1429,7 @@ they're `SUPER_ADMIN`.
 | Cards | `GET/POST /cards`, `GET/PATCH/DELETE /cards/:id`, `GET /cards/:id/keys`, `POST /cards/:id/keys/generate`, `POST /cards/:id/citizen-data/prepare-write`, `POST /cards/:id/citizen-data/decode-read`, `POST /cards/:id/assign`, `POST /cards/:id/unassign`, `POST /cards/:id/block`, `POST /cards/:id/unblock`, `POST /cards/:id/lost`, `POST /cards/:id/retire`, `POST /cards/:id/write-protect`, `POST /cards/:id/write-unprotect`, `POST /cards/:id/encoders/grant`, `POST /cards/:id/encoders/revoke`, `GET /cards/export`, `POST /cards/bulk-import` |
 | Access zones | `GET/POST /zones`, `PATCH/DELETE /zones/:id`, `POST /zones/:id/grant`, `POST /zones/:id/revoke` |
 | Attendance | `GET /attendance`, `GET /attendance/export`, `POST /attendance`, `POST /attendance/manual` (manual entry for a lost/unavailable card), `PATCH /attendance/:id` (correct type/recordedAt), `DELETE /attendance` (bulk-clear whatever the query filters match; requires at least one filter) |
+| Attendance sessions | `GET/POST /attendance-sessions`, `PATCH/DELETE /attendance-sessions/:id`, `PATCH /attendance-sessions/:id/override` (force open/closed/resume), `GET /attendance-sessions/:id/occurrences` (session history), `POST /attendance-sessions/:id/occurrences` (start a new session), `POST /attendance-sessions/:id/occurrences/close` (close the currently open one), `POST /attendance-sessions/:id/occurrences/:occurrenceId/reopen` |
 | Maintenance | `GET /maintenance`, `POST /maintenance`, `PATCH /maintenance/:id` |
 | Notifications | `GET /notifications`, `POST /notifications/:id/read`, `POST /notifications/read-all` |
 | Dashboard | `GET /dashboard/stats` |

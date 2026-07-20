@@ -48,3 +48,8 @@ export const attendanceSessionListQuery = z.object({
   companyId: z.string().uuid().optional(),
   encoderId: z.string().uuid().optional(),
 });
+
+export const sessionOccurrenceParams = z.object({
+  id: z.string().uuid(),
+  occurrenceId: z.string().uuid(),
+});

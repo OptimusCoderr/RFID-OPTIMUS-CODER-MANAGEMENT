@@ -228,6 +228,7 @@ model Company {
   notifications      Notification[]
   attendanceRecords  AttendanceRecord[]
   attendanceSessions AttendanceSession[]
+  sessionOccurrences SessionOccurrence[]
   maintenanceRecords MaintenanceRecord[]
 
   @@map("companies")
@@ -596,6 +597,14 @@ model AttendanceRecord {
   session      AttendanceSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
   sessionLabel String?
 
+  // Which specific meeting of that schedule this tap belongs to — e.g. this
+  // Monday's occurrence of a recurring "MCT101" schedule, as opposed to last
+  // Monday's. Null for taps recorded before this field existed, and for any
+  // tap not covered by an open schedule (general/manual taps have no
+  // occurrence concept at all). See SessionOccurrence.
+  occurrenceId String?
+  occurrence   SessionOccurrence? @relation(fields: [occurrenceId], references: [id], onDelete: SetNull)
+
   type       AttendanceType
   recordedAt DateTime       @default(now())
 
@@ -613,6 +622,7 @@ model AttendanceRecord {
   @@index([zoneId])
   @@index([encoderId])
   @@index([sessionId])
+  @@index([occurrenceId])
   @@index([recordedAt])
   @@index([recordedByUserId])
   @@map("attendance_records")
@@ -670,11 +680,44 @@ model AttendanceSession {
   // Back-relation for AttendanceRecord.sessionId — records aren't navigated
   // from here anywhere in the app (exports/filters query AttendanceRecord
   // directly), but Prisma requires the field to declare the relation.
-  records AttendanceRecord[]
+  records     AttendanceRecord[]
+  occurrences SessionOccurrence[]
 
   @@index([companyId])
   @@index([encoderId])
   @@map("attendance_sessions")
+}
+
+// One specific meeting of a recurring AttendanceSession — e.g. "MCT101"'s
+// Monday-the-7th class, as distinct from Monday-the-14th's. Exists so a
+// schedule that meets every week can have each week's attendance closed out
+// on its own (a mistaken late-arrival correction on last week's occurrence
+// doesn't touch this week's), instead of relying purely on wall-clock date
+// math to decide where one class ends and the next begins.
+//
+// At most one occurrence per schedule is expected to have closedAt: null
+// (the "current" one new taps attach to) — enforced in
+// attendanceOccurrenceController.ts, not a DB constraint, since Postgres has
+// no easy partial-uniqueness syntax for "at most one NULL per group" in
+// Prisma's schema DSL. recordAttendance auto-opens one on the first tap of a
+// schedule that doesn't already have one open, so schedules that don't care
+// about explicit session management still "just work".
+model SessionOccurrence {
+  id        String  @id @default(uuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  attendanceSessionId String
+  attendanceSession    AttendanceSession @relation(fields: [attendanceSessionId], references: [id], onDelete: Cascade)
+
+  openedAt DateTime  @default(now())
+  closedAt DateTime?
+
+  records AttendanceRecord[]
+
+  @@index([companyId])
+  @@index([attendanceSessionId])
+  @@map("session_occurrences")
 }
 
 // A service/repair ticket against a card representing a physical asset
