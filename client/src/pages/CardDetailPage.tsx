@@ -25,6 +25,7 @@ import { Modal } from "@/components/ui/Modal";
 import { useAuth } from "@/context/AuthContext";
 import { formatEnum } from "@/lib/constants";
 import { formatKeyLabel } from "@/lib/mifare";
+import { writeProtectTitle } from "@/lib/writeProtect";
 import type { Card, CardHolder, CardTemplate, Encoder, OperationLog, PaginatedResponse } from "@/types";
 
 const MIFARE_CLASSIC_TYPES = new Set(["MIFARE_CLASSIC_1K", "MIFARE_CLASSIC_4K", "MIFARE_CLASSIC_MINI"]);
@@ -430,7 +431,7 @@ export default function CardDetailPage() {
                 <button
                   className="btn-secondary"
                   disabled={generateKeys.isPending || card.writeProtected}
-                  title={card.writeProtected ? "Remove write protection first" : undefined}
+                  title={writeProtectTitle(card.writeProtected)}
                   onClick={() => {
                     const message = card.hasStoredKeys
                       ? "This card already has a key stored. Generating a new one replaces it — you'll need to re-write the card's sectors (and re-encrypt any citizen data) with the new key before this app can read/write it again. Continue?"

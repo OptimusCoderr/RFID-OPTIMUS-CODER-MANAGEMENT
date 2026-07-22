@@ -4,6 +4,7 @@ import { KeyRound, Eye, EyeOff } from "lucide-react";
 import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
 import { formatKeyLabel } from "@/lib/mifare";
+import { writeProtectTitle } from "@/lib/writeProtect";
 import { Badge } from "@/components/ui/Badge";
 import { useAuth } from "@/context/AuthContext";
 import type { Card } from "@/types";
@@ -88,7 +89,7 @@ export function CardKeysPanel({ card, onCardUpdated }: { card: Card; onCardUpdat
           type="button"
           className="btn-secondary"
           disabled={generateKeys.isPending || card.writeProtected}
-          title={card.writeProtected ? "Remove write protection first" : undefined}
+          title={writeProtectTitle(card.writeProtected)}
           onClick={handleGenerate}
         >
           <KeyRound size={14} /> {generateKeys.isPending ? "Generating..." : "Generate new key"}

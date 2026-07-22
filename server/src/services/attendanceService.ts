@@ -1,7 +1,7 @@
 import type { AttendanceMode } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../utils/ApiError.js";
-import { withSerializableRetry } from "../utils/serializableRetry.js";
+import { runSerializable } from "../utils/serializableRetry.js";
 import { LIFECYCLE_LOCKED_STATUSES } from "../utils/cardStatus.js";
 import { computeEncoderOpenState, isSameLocalDay, nextAttendanceType } from "./attendanceSessionService.js";
 
@@ -104,82 +104,80 @@ export async function recordAttendance(params: {
   // read the same "last" record and both insert CHECK_IN, breaking the
   // alternation. Serializable isolation + retry (see serializableRetry.ts)
   // closes that.
-  return withSerializableRetry(() =>
-    prisma.$transaction(
-      async (tx) => {
-        // Which specific meeting of the schedule this tap belongs to — only
-        // tracked for DAILY_CHECK_IN, the only mode whose toggle scope reads
-        // occurrenceId below; other modes would just accumulate occurrence
-        // rows nothing ever closes. Reuses whichever occurrence is still
-        // open (closedAt: null) AND from today — a still-open occurrence
-        // left over from a previous meeting (nobody clicked Close) is
-        // auto-closed and replaced with a fresh one, so day-to-day reset
-        // doesn't depend on an operator remembering to close the old one
-        // first; the manual Close/Reopen/Start-new-session actions remain
-        // available for early-close, late-arrival, and multiple-meetings-
-        // in-one-day cases. Done inside this same serializable transaction
-        // so two near-simultaneous first taps can't each open their own
-        // occurrence for the same meeting.
-        let occurrenceId: string | null = null;
-        if (sessionId && mode === "DAILY_CHECK_IN") {
-          const now = new Date();
-          const openOccurrence = await tx.sessionOccurrence.findFirst({
-            where: { attendanceSessionId: sessionId, closedAt: null },
-            orderBy: { openedAt: "desc" },
-          });
-          if (openOccurrence && isSameLocalDay(openOccurrence.openedAt, now)) {
-            occurrenceId = openOccurrence.id;
-          } else {
-            if (openOccurrence) {
-              await tx.sessionOccurrence.update({ where: { id: openOccurrence.id }, data: { closedAt: now } });
-            }
-            occurrenceId = (await tx.sessionOccurrence.create({ data: { companyId: params.companyId, attendanceSessionId: sessionId } })).id;
-          }
+  // The only mode whose toggle scope reads occurrenceId below — other modes
+  // would just accumulate occurrence rows nothing ever closes, so this flag
+  // gates both whether one gets computed and how the toggle is scoped,
+  // instead of two independent "DAILY_CHECK_IN" checks that could drift.
+  const isDailyCheckIn = mode === "DAILY_CHECK_IN";
+
+  return runSerializable(async (tx) => {
+    // Which specific meeting of the schedule this tap belongs to. Reuses
+    // whichever occurrence is still open (closedAt: null) AND from today —
+    // a still-open occurrence left over from a previous meeting (nobody
+    // clicked Close) is auto-closed and replaced with a fresh one, so
+    // day-to-day reset doesn't depend on an operator remembering to close
+    // the old one first; the manual Close/Reopen/Start-new-session actions
+    // remain available for early-close, late-arrival, and
+    // multiple-meetings-in-one-day cases. Done inside this same
+    // serializable transaction so two near-simultaneous first taps can't
+    // each open their own occurrence for the same meeting.
+    let occurrenceId: string | null = null;
+    if (sessionId && isDailyCheckIn) {
+      const now = new Date();
+      const openOccurrence = await tx.sessionOccurrence.findFirst({
+        where: { attendanceSessionId: sessionId, closedAt: null },
+        orderBy: { openedAt: "desc" },
+      });
+      if (openOccurrence && isSameLocalDay(openOccurrence.openedAt, now)) {
+        occurrenceId = openOccurrence.id;
+      } else {
+        if (openOccurrence) {
+          await tx.sessionOccurrence.update({ where: { id: openOccurrence.id }, data: { closedAt: now } });
         }
+        occurrenceId = (await tx.sessionOccurrence.create({ data: { companyId: params.companyId, attendanceSessionId: sessionId } })).id;
+      }
+    }
 
-        // FREE stays zone-scoped — a continuous physical-presence toggle
-        // shared by every general/FREE-schedule tap in that zone (or
-        // "General" if none), which is what the hotel-style access log and
-        // "currently present" dashboard stat rely on. CHECK_IN_ONLY/
-        // CHECK_OUT_ONLY/ONCE are scoped to *this* schedule (sessionId) —
-        // "once" for the schedule's whole lifetime, spanning every occurrence
-        // — since they model a single-scan/one-way event, not something that
-        // should reset every meeting. DAILY_CHECK_IN is scoped to *this*
-        // occurrence specifically, since resetting every meeting (while
-        // never resetting mid-meeting) is its entire point. Without this
-        // split, two unrelated schedules sharing a zone (or both left as
-        // "General") would corrupt each other's count, and a new schedule —
-        // or a new week's occurrence — would inherit stale state left over
-        // from something unrelated.
-        const toggleScope = mode === "FREE" ? { zoneId } : mode === "DAILY_CHECK_IN" ? { occurrenceId } : { sessionId };
+    // FREE stays zone-scoped — a continuous physical-presence toggle
+    // shared by every general/FREE-schedule tap in that zone (or
+    // "General" if none), which is what the hotel-style access log and
+    // "currently present" dashboard stat rely on. CHECK_IN_ONLY/
+    // CHECK_OUT_ONLY/ONCE are scoped to *this* schedule (sessionId) —
+    // "once" for the schedule's whole lifetime, spanning every occurrence
+    // — since they model a single-scan/one-way event, not something that
+    // should reset every meeting. DAILY_CHECK_IN is scoped to *this*
+    // occurrence specifically, since resetting every meeting (while
+    // never resetting mid-meeting) is its entire point. Without this
+    // split, two unrelated schedules sharing a zone (or both left as
+    // "General") would corrupt each other's count, and a new schedule —
+    // or a new week's occurrence — would inherit stale state left over
+    // from something unrelated.
+    const toggleScope = mode === "FREE" ? { zoneId } : isDailyCheckIn ? { occurrenceId } : { sessionId };
 
-        const last = await tx.attendanceRecord.findFirst({
-          where: { companyId: params.companyId, holderId, ...toggleScope },
-          orderBy: { recordedAt: "desc" },
-        });
-        const decision = nextAttendanceType(mode, last ? { type: last.type } : null);
-        if ("rejected" in decision) {
-          throw ApiError.badRequest(decision.reason);
-        }
+    const last = await tx.attendanceRecord.findFirst({
+      where: { companyId: params.companyId, holderId, ...toggleScope },
+      orderBy: { recordedAt: "desc" },
+    });
+    const decision = nextAttendanceType(mode, last ? { type: last.type } : null);
+    if ("rejected" in decision) {
+      throw ApiError.badRequest(decision.reason);
+    }
 
-        return tx.attendanceRecord.create({
-          data: {
-            companyId: params.companyId,
-            cardId,
-            holderId,
-            zoneId: zoneId ?? undefined,
-            encoderId: params.encoderId ?? undefined,
-            sessionId: sessionId ?? undefined,
-            sessionLabel: sessionLabel ?? undefined,
-            occurrenceId: occurrenceId ?? undefined,
-            type: decision.type,
-          },
-          include: ATTENDANCE_INCLUDE,
-        });
+    return tx.attendanceRecord.create({
+      data: {
+        companyId: params.companyId,
+        cardId,
+        holderId,
+        zoneId: zoneId ?? undefined,
+        encoderId: params.encoderId ?? undefined,
+        sessionId: sessionId ?? undefined,
+        sessionLabel: sessionLabel ?? undefined,
+        occurrenceId: occurrenceId ?? undefined,
+        type: decision.type,
       },
-      { isolationLevel: "Serializable" }
-    )
-  );
+      include: ATTENDANCE_INCLUDE,
+    });
+  });
 }
 
 // A staff override for when a holder's physical card is lost/unavailable —
@@ -210,33 +208,28 @@ export async function recordManualAttendance(params: {
   const zoneId = params.zoneId ?? null;
   const holderId = params.holderId;
 
-  return withSerializableRetry(() =>
-    prisma.$transaction(
-      async (tx) => {
-        const last = await tx.attendanceRecord.findFirst({
-          where: { companyId: params.companyId, holderId, zoneId },
-          orderBy: { recordedAt: "desc" },
-        });
-        const decision = nextAttendanceType("FREE", last ? { type: last.type } : null);
-        if ("rejected" in decision) {
-          throw ApiError.badRequest(decision.reason);
-        }
+  return runSerializable(async (tx) => {
+    const last = await tx.attendanceRecord.findFirst({
+      where: { companyId: params.companyId, holderId, zoneId },
+      orderBy: { recordedAt: "desc" },
+    });
+    const decision = nextAttendanceType("FREE", last ? { type: last.type } : null);
+    if ("rejected" in decision) {
+      throw ApiError.badRequest(decision.reason);
+    }
 
-        return tx.attendanceRecord.create({
-          data: {
-            companyId: params.companyId,
-            holderId,
-            zoneId: zoneId ?? undefined,
-            manualEntry: true,
-            recordedByUserId: params.recordedByUserId,
-            type: decision.type,
-          },
-          include: ATTENDANCE_INCLUDE,
-        });
+    return tx.attendanceRecord.create({
+      data: {
+        companyId: params.companyId,
+        holderId,
+        zoneId: zoneId ?? undefined,
+        manualEntry: true,
+        recordedByUserId: params.recordedByUserId,
+        type: decision.type,
       },
-      { isolationLevel: "Serializable" }
-    )
-  );
+      include: ATTENDANCE_INCLUDE,
+    });
+  });
 }
 
 export { ATTENDANCE_INCLUDE };

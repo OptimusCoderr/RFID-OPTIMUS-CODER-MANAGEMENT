@@ -1,3 +1,6 @@
+import type { Prisma } from "@prisma/client";
+import { prisma } from "../lib/prisma.js";
+
 // A check-then-act sequence (read the current state, decide, write) run
 // inside a Prisma Serializable transaction is safe against concurrent
 // requests racing each other — Postgres detects the conflict and aborts one
@@ -18,4 +21,11 @@ export async function withSerializableRetry<T>(fn: () => Promise<T>, maxAttempts
     }
   }
   throw new Error("unreachable"); // the loop above always returns or throws
+}
+
+// Every check-then-act transaction in this codebase pairs Serializable
+// isolation with the retry above — this is that pairing as one call instead
+// of each call site re-nesting withSerializableRetry(() => prisma.$transaction(...)).
+export function runSerializable<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>, maxAttempts = 8): Promise<T> {
+  return withSerializableRetry(() => prisma.$transaction(fn, { isolationLevel: "Serializable" }), maxAttempts);
 }

@@ -4,7 +4,8 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { assertCompanyAccess, scopedCompanyId } from "../middleware/rbac.js";
 import { computeSessionState } from "../services/attendanceSessionService.js";
-import { withSerializableRetry } from "../utils/serializableRetry.js";
+import { isValidDateRange } from "../validators/attendanceSession.js";
+import { runSerializable } from "../utils/serializableRetry.js";
 
 const SESSION_INCLUDE = {
   encoder: { select: { id: true, name: true } },
@@ -100,7 +101,7 @@ export const updateAttendanceSession = asyncHandler(async (req: Request, res: Re
   // then read as "permanently closed" with no error ever surfaced).
   const mergedStartDate = startDate === undefined ? existing.startDate : startDate;
   const mergedEndDate = endDate === undefined ? existing.endDate : endDate;
-  if (mergedStartDate && mergedEndDate && mergedStartDate > mergedEndDate) {
+  if (!isValidDateRange(mergedStartDate, mergedEndDate)) {
     throw ApiError.badRequest("endDate must be on or after startDate");
   }
 
@@ -176,8 +177,8 @@ export const listSessionOccurrences = asyncHandler(async (req: Request, res: Res
   );
 });
 
-// All three mutations below share the "at most one open occurrence per
-// schedule" invariant with recordAttendance's own occurrence handling
+// create/reopen below share the "at most one open occurrence per schedule"
+// invariant with recordAttendance's own occurrence handling
 // (attendanceService.ts) — run under the same Serializable isolation +
 // retry so an operator clicking one of these at the same moment as a real
 // tap can't leave two occurrences simultaneously open (Postgres's
@@ -186,65 +187,54 @@ export const listSessionOccurrences = asyncHandler(async (req: Request, res: Res
 // race).
 export const createSessionOccurrence = asyncHandler(async (req: Request, res: Response) => {
   const session = await loadSession(req, req.params.id);
-  const occurrence = await withSerializableRetry(() =>
-    prisma.$transaction(
-      async (tx) => {
-        await tx.sessionOccurrence.updateMany({
-          where: { attendanceSessionId: session.id, closedAt: null },
-          data: { closedAt: new Date() },
-        });
-        return tx.sessionOccurrence.create({
-          data: { companyId: session.companyId, attendanceSessionId: session.id },
-        });
-      },
-      { isolationLevel: "Serializable" }
-    )
-  );
+  const occurrence = await runSerializable(async (tx) => {
+    await tx.sessionOccurrence.updateMany({
+      where: { attendanceSessionId: session.id, closedAt: null },
+      data: { closedAt: new Date() },
+    });
+    return tx.sessionOccurrence.create({
+      data: { companyId: session.companyId, attendanceSessionId: session.id },
+    });
+  });
   res.status(201).json(serializeOccurrence(occurrence));
 });
 
+// Unlike its siblings, this one never races against recordAttendance's own
+// occurrence handling in a way that matters: it only ever touches an
+// occurrence that's already open, and closing an already-closed one twice
+// is harmless (idempotent). It's also the rarest of the three — an operator
+// manually ending a meeting early — so it isn't worth Serializable
+// isolation's retry/backoff overhead the other two need.
 export const closeSessionOccurrence = asyncHandler(async (req: Request, res: Response) => {
   const session = await loadSession(req, req.params.id);
-  const closed = await withSerializableRetry(() =>
-    prisma.$transaction(
-      async (tx) => {
-        const open = await tx.sessionOccurrence.findFirst({
-          where: { attendanceSessionId: session.id, closedAt: null },
-          orderBy: { openedAt: "desc" },
-        });
-        if (!open) {
-          throw ApiError.badRequest("This schedule has no open session to close");
-        }
-        return tx.sessionOccurrence.update({
-          where: { id: open.id },
-          data: { closedAt: new Date() },
-        });
-      },
-      { isolationLevel: "Serializable" }
-    )
-  );
+  const open = await prisma.sessionOccurrence.findFirst({
+    where: { attendanceSessionId: session.id, closedAt: null },
+    orderBy: { openedAt: "desc" },
+  });
+  if (!open) {
+    throw ApiError.badRequest("This schedule has no open session to close");
+  }
+  const closed = await prisma.sessionOccurrence.update({
+    where: { id: open.id },
+    data: { closedAt: new Date() },
+  });
   res.json(serializeOccurrence(closed));
 });
 
 export const reopenSessionOccurrence = asyncHandler(async (req: Request, res: Response) => {
   const session = await loadSession(req, req.params.id);
-  const reopened = await withSerializableRetry(() =>
-    prisma.$transaction(
-      async (tx) => {
-        const target = await tx.sessionOccurrence.findUnique({ where: { id: req.params.occurrenceId } });
-        if (!target || target.attendanceSessionId !== session.id) {
-          throw ApiError.notFound("Session occurrence not found");
-        }
-        // At most one open occurrence per schedule — close any other open
-        // one (e.g. a newer one auto-created since) before reopening this one.
-        await tx.sessionOccurrence.updateMany({
-          where: { attendanceSessionId: session.id, closedAt: null, id: { not: target.id } },
-          data: { closedAt: new Date() },
-        });
-        return tx.sessionOccurrence.update({ where: { id: target.id }, data: { closedAt: null } });
-      },
-      { isolationLevel: "Serializable" }
-    )
-  );
+  const reopened = await runSerializable(async (tx) => {
+    const target = await tx.sessionOccurrence.findUnique({ where: { id: req.params.occurrenceId } });
+    if (!target || target.attendanceSessionId !== session.id) {
+      throw ApiError.notFound("Session occurrence not found");
+    }
+    // At most one open occurrence per schedule — close any other open
+    // one (e.g. a newer one auto-created since) before reopening this one.
+    await tx.sessionOccurrence.updateMany({
+      where: { attendanceSessionId: session.id, closedAt: null, id: { not: target.id } },
+      data: { closedAt: new Date() },
+    });
+    return tx.sessionOccurrence.update({ where: { id: target.id }, data: { closedAt: null } });
+  });
   res.json(serializeOccurrence(reopened));
 });

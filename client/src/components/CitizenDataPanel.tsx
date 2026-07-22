@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 import { api, apiErrorMessage } from "@/lib/api";
 import { sendCommandAwait } from "@/lib/encoderCommand";
 import { citizenRecordCapacityBytes, citizenRecordPlaintextBytes } from "@/lib/citizenRecord";
+import { writeProtectTitle } from "@/lib/writeProtect";
 import { useAuth } from "@/context/AuthContext";
 import type { Card, CardTemplate } from "@/types";
 
@@ -161,7 +162,7 @@ export function CitizenDataPanel({
             type="button"
             className="btn-primary"
             disabled={disabled || Boolean(busy) || overCapacity || !card.hasStoredKeys || card.writeProtected}
-            title={card.writeProtected ? "This card is write-protected — remove write protection first" : undefined}
+            title={writeProtectTitle(card.writeProtected)}
             onClick={() => writeToCard()}
           >
             <Upload size={14} /> {busy === "write" ? "Encrypting..." : "Encrypt & write"}
@@ -170,11 +171,7 @@ export function CitizenDataPanel({
             <button
               type="button"
               className="btn-danger"
-              title={
-                card.writeProtected
-                  ? "This card is write-protected — remove write protection first"
-                  : "Overwrite the encrypted record with blank field values"
-              }
+              title={writeProtectTitle(card.writeProtected, "Overwrite the encrypted record with blank field values")}
               disabled={disabled || Boolean(busy) || !card.hasStoredKeys || card.writeProtected}
               onClick={deleteData}
             >
@@ -200,7 +197,7 @@ export function CitizenDataPanel({
             type="button"
             className="btn-secondary whitespace-nowrap"
             disabled={generateKeys.isPending || card.writeProtected}
-            title={card.writeProtected ? "Remove write protection first" : undefined}
+            title={writeProtectTitle(card.writeProtected)}
             onClick={() => generateKeys.mutate()}
           >
             <KeyRound size={13} /> {generateKeys.isPending ? "Generating..." : "Generate keys"}

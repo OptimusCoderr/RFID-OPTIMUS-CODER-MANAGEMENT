@@ -20,6 +20,15 @@ const labelSchema = z.string().trim().min(1, "A label is required").max(200);
 // attendanceSessionService.ts for what the other modes reject.
 const modeSchema = z.enum(["FREE", "CHECK_IN_ONLY", "CHECK_OUT_ONLY", "ONCE", "DAILY_CHECK_IN"]);
 
+// Shared by both .refine() calls below (which only ever see the fields
+// present in a single request) and updateAttendanceSession's merged-value
+// check in the controller (existing + incoming, since a PATCH touching just
+// one side can't otherwise see a conflict with the other side's already-
+// stored value) — one rule, so the two can't drift apart.
+export function isValidDateRange(startDate?: string | null, endDate?: string | null): boolean {
+  return !startDate || !endDate || startDate <= endDate;
+}
+
 export const createAttendanceSessionBody = z
   .object({
     companyId: z.string().uuid().optional(),
@@ -34,7 +43,7 @@ export const createAttendanceSessionBody = z
     endDate: dateOnlyString.nullable().optional(),
     mode: modeSchema.default("FREE"),
   })
-  .refine((data) => !data.startDate || !data.endDate || data.startDate <= data.endDate, {
+  .refine((data) => isValidDateRange(data.startDate, data.endDate), {
     message: "endDate must be on or after startDate",
     path: ["endDate"],
   });
@@ -56,7 +65,7 @@ export const updateAttendanceSessionBody = z
     endDate: dateOnlyString.nullable().optional(),
     mode: modeSchema.optional(),
   })
-  .refine((data) => !data.startDate || !data.endDate || data.startDate <= data.endDate, {
+  .refine((data) => isValidDateRange(data.startDate, data.endDate), {
     message: "endDate must be on or after startDate",
     path: ["endDate"],
   });
