@@ -14,8 +14,19 @@
       "package": "com.optimuscoderr.rfidoptimus",
       "adaptiveIcon": {
         "backgroundColor": "#0f172a"
-      }
+      },
+      "permissions": ["android.permission.NFC"]
     },
+    "plugins": [
+      [
+        "react-native-nfc-manager",
+        {
+          "nfcPermission": "Used to tap RFID/NFC cards for attendance check-in.",
+          "selectIdentifiers": [],
+          "systemCodes": []
+        }
+      ]
+    ],
     "extra": {
       "apiUrl": "http://localhost:4000"
     }

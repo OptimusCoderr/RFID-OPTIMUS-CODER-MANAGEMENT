@@ -1,8 +1,9 @@
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { LayoutDashboard, CreditCard, Users, ClipboardList, Bell, UserCircle } from "lucide-react-native";
+import { LayoutDashboard, CreditCard, Users, Nfc, ClipboardList, Bell, UserCircle } from "lucide-react-native";
 import { DashboardScreen } from "@/screens/DashboardScreen";
 import { CardsScreen } from "@/screens/CardsScreen";
 import { HoldersScreen } from "@/screens/HoldersScreen";
+import { TapInScreen } from "@/screens/TapInScreen";
 import { AttendanceScreen } from "@/screens/AttendanceScreen";
 import { NotificationsScreen } from "@/screens/NotificationsScreen";
 import { ProfileScreen } from "@/screens/ProfileScreen";
@@ -34,6 +35,11 @@ export function MainTabs() {
         name="Holders"
         component={HoldersScreen}
         options={{ tabBarIcon: ({ color, size }) => <Users color={color} size={size} /> }}
+      />
+      <Tab.Screen
+        name="Tap In"
+        component={TapInScreen}
+        options={{ tabBarIcon: ({ color, size }) => <Nfc color={color} size={size} /> }}
       />
       <Tab.Screen
         name="Attendance"
