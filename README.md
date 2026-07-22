@@ -99,6 +99,7 @@ walkthrough.
 server/           Express + TypeScript API, Prisma schema, websocket layer,
                    PC/SC hardware bridge, standalone agent script
 client/            React + TypeScript + Vite + Tailwind dashboard
+mobile/            Expo/React Native companion app (same backend, read-mostly — see mobile/README.md)
 docker-compose.yml Postgres + API + client for local/dev deployment
 ```
 

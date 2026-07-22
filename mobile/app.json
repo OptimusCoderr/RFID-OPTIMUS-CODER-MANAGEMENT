@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "RFID Optimus",
+    "slug": "rfid-optimus-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.optimuscoderr.rfidoptimus"
+    },
+    "android": {
+      "package": "com.optimuscoderr.rfidoptimus",
+      "adaptiveIcon": {
+        "backgroundColor": "#0f172a"
+      }
+    },
+    "extra": {
+      "apiUrl": "http://localhost:4000"
+    }
+  }
+}
