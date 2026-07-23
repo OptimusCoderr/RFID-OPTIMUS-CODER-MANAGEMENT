@@ -39,9 +39,17 @@ void AgentClient::handleWsEvent(WStype_t type, uint8_t *payload, size_t length) 
       Serial.println("[agent] websocket disconnected");
       nsConnected = false;
       break;
-    case WStype_TEXT:
-      handleEngineIoPacket(String(reinterpret_cast<char *>(payload)).substring(0, length));
+    case WStype_TEXT: {
+      // Built via concat(ptr, length), NOT the String(const char*) ctor —
+      // `payload` is a raw length-delimited buffer from the WebSocket
+      // frame, not guaranteed to be null-terminated. Constructing a String
+      // from it as a C-string would scan past the buffer looking for a
+      // terminator that might not be there.
+      String packet;
+      packet.concat(reinterpret_cast<const char *>(payload), length);
+      handleEngineIoPacket(packet);
       break;
+    }
     default:
       break; // binary/ping/pong/error frames at the WS layer — not used by this protocol
   }

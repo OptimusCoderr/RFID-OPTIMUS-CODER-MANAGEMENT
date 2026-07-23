@@ -33,6 +33,17 @@ bool NfcReader::poll(DetectedCard &out) {
     return false;
   }
 
+  // IRQ says a card is present. If we already know about it (hasCurrentCard
+  // still true from a previous poll), this is the same ongoing tap — the
+  // card hasn't been lifted, so there's nothing new to read or report.
+  // This is the primary debounce: edge-triggered on presence, not
+  // time-based, so a card left resting on the reader fires card:detected
+  // exactly once, not every CARD_DEBOUNCE_MS for as long as it sits there
+  // (a time-based re-fire would mean an access-control tap toggles
+  // check-in/check-out repeatedly just from someone resting their badge on
+  // the reader, which defeats the point of a debounce).
+  if (hasCurrentCard) return false;
+
   DetectedCard card;
   uint8_t success = pn532.readPassiveTargetID(PN532_MIFARE_ISO14443A, card.uidBytes, &card.uidLength,
                                                /*timeout ms*/ 50);
@@ -40,20 +51,17 @@ bool NfcReader::poll(DetectedCard &out) {
 
   card.uidHex = Hex::encode(card.uidBytes, card.uidLength);
 
-  // Debounce: the same card sitting on the reader re-reads successfully on
-  // every poll — only report it as "detected" again after either a
-  // different UID shows up or CARD_DEBOUNCE_MS has passed since the last
-  // report of this same UID (covers "tapped, lifted, tapped again quickly"
-  // without needing the IRQ's rising edge to have been observed in between,
-  // which a slow poll loop could miss).
-  const bool isSameCardStillPresent = hasCurrentCard && card.uidHex == current.uidHex;
-  if (isSameCardStillPresent && now - lastDetectAt < Timing::CARD_DEBOUNCE_MS) {
-    current = card;
-    return false;
-  }
-
+  // Secondary guard: IRQ chatter right at the edge of a lift-then-immediate-
+  // retap of the SAME card (electrical/mechanical bounce), not a
+  // continuously-resting card — that case is already handled by the
+  // hasCurrentCard check above. Only suppresses a re-report if it's the
+  // same UID as last time AND within the debounce window; a different card
+  // tapped quickly after another is never suppressed.
+  const bool bounceOfSameCard = card.uidHex == current.uidHex && now - lastDetectAt < Timing::CARD_DEBOUNCE_MS;
   current = card;
   hasCurrentCard = true;
+  if (bounceOfSameCard) return false;
+
   lastDetectAt = now;
   out = card;
   return true;

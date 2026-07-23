@@ -61,7 +61,8 @@ static void handleCommand(const String &commandId, const String &command, JsonOb
   } else if (command == "READ_BLOCK") {
     const int block = args["block"] | -1;
     const String keyHex = args["key"] | "";
-    const bool keyB = (String((const char *)(args["keyType"] | "A")) == "B");
+    const char *keyType = args["keyType"] | "A";
+    const bool keyB = String(keyType) == "B";
     uint8_t key[6];
     uint8_t blockData[16];
     if (block < 0 || !Hex::decode(keyHex, key, 6)) {
@@ -81,7 +82,8 @@ static void handleCommand(const String &commandId, const String &command, JsonOb
     const int block = args["block"] | -1;
     const String dataHex = args["data"] | "";
     const String keyHex = args["key"] | "";
-    const bool keyB = (String((const char *)(args["keyType"] | "A")) == "B");
+    const char *keyType = args["keyType"] | "A";
+    const bool keyB = String(keyType) == "B";
     uint8_t key[6];
     uint8_t blockData[16];
     if (block < 0 || !Hex::decode(keyHex, key, 6) || !Hex::decode(dataHex, blockData, 16)) {
