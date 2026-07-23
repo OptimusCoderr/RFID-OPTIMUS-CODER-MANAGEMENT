@@ -15,7 +15,7 @@ except where noted.
 | J1 | USB-C receptacle (USB 2.0, power+data only) | Power + programming | 1 |
 | J2 | 2-pin 5.08mm screw terminal | 12-24V DC input (alternative to USB-C) | 1 |
 | J3 | 2.54mm 8-pin header (female) | PN532 NFC module socket — see `pinout.md` | 1 |
-| J4 | 2.54mm 6-pin header | Expansion (I2C + 2 spare GPIO + 3V3/GND) | 1 |
+| J4 | 2.54mm 5-pin header | Expansion (3 spare input-only GPIOs — 35/36/39 — + 3V3/GND). I2C is no longer available here — see U6 below, which now owns GPIO21/22. | 1 |
 | J5 | RJ45 with integrated magnetics — HanRun HR911105A | Ethernet jack for W5500 | 1 |
 | J6 | 3-pin 5.08mm screw terminal | Relay NO/COM/NC — external lock/strike circuit | 1 |
 | K1 | SRD-05VDC-SL-C (or equiv. 5V-coil SPDT relay) | Door-strike/lock switching | 1 |
@@ -46,6 +46,30 @@ except where noted.
 | C5-C8 | 100nF ceramic | Local decoupling: U1, U2, U5, K1-driver area (one each) | 4 |
 | — | 2.54mm pin headers, various | J3/J4 mating headers, not populated on this board | — |
 
+### Battery power system (see `pinout.md`'s "Battery power system")
+
+| Ref | Part | Description | Qty |
+|---|---|---|---|
+| BATT1 | 18650 Li-ion cell holder w/ spring contacts (e.g. Keystone 1042) | Replaceable cell, sourced/sold separately (or as a kit) — see `../PRODUCTION.md` on why this is a holder, not a soldered pouch cell | 1 |
+| U6 | MAX17048G (or MAX17049 for 2-cell — not used here) | Fuel gauge, I2C (`BATT_SDA`/`BATT_SCL`) | 1 |
+| U7 | DW01A | Single-cell Li-ion protection IC (overcharge/over-discharge/overcurrent) | 1 |
+| Q4 | FS8205A (dual N-MOSFET, SOT-23-6) | Charge/discharge path switch, driven by U7 | 1 |
+| U8 | MCP73871 | Li-ion charge management + power-path (system runs from whichever of {5V rail, battery} is present, charges from the 5V rail when present) | 1 |
+| U9 | MT3608 (boost converter module or equivalent discrete design) | Boosts U8's system output (3.0–4.2V on battery alone) back up to a clean 5V | 1 |
+| D4 | SS14 (Schottky, 1A) | OR-ing diode: battery-boost 5V into the existing 5V rail, alongside D1/D2 | 1 |
+| C9, C10 | 10µF ceramic | U8/U9 input/output decoupling | 2 |
+| C11 | 22µF ceramic | U9 boost output bulk cap | 1 |
+
+### Input protection (see `pinout.md`'s "Input protection")
+
+| Ref | Part | Description | Qty |
+|---|---|---|---|
+| Q5 | P-channel MOSFET (e.g. AO3401A, SOT-23) | Reverse-polarity protection on J2's 12–24V DC input | 1 |
+| R15 | 10kΩ | Q5 gate reference to ground | 1 |
+| F1 | Resettable PTC fuse (size to actual max board current + headroom — e.g. 1.1A hold current as a starting point, confirm against real measured draw) | Overcurrent/short protection, J2 input | 1 |
+| D5 | Bidirectional TVS diode (e.g. SMBJ24CA, rated above the 12-24V input's max) | ESD/surge protection, J2 input | 1 |
+| D6 | Bidirectional TVS diode (e.g. SMBJ5.0CA, rated for 5V USB) | ESD/surge protection, J1 USB-C VBUS | 1 |
+
 ## Explicitly not on this BOM
 
 - **PN532 module itself** — sourced separately as a pre-tuned breakout
@@ -55,3 +79,8 @@ except where noted.
   it), so no separate part is needed.
 - **Enclosure** — out of scope for the schematic; SW2 (tamper) assumes
   whatever enclosure is used has a lid-actuated microswitch point.
+- **The 18650 cell itself** — BATT1 is the holder only. Shipping
+  lithium cells (loose, or installed in a product) has its own
+  regulatory requirements (UN38.3, IATA/DOT rules for air/ground
+  freight) that are a business/logistics decision, not a BOM line —
+  see `../PRODUCTION.md`.

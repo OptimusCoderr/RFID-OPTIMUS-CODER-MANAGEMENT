@@ -3,8 +3,13 @@
 > **Setting this up on a real Windows/Linux machine, or want to actually
 > compile, flash, and test it? See [`TESTING.md`](./TESTING.md)** — full
 > toolchain install (PlatformIO, drivers), build/flash steps, and a
-> 23-point bring-up checklist. This file covers design decisions and
-> what's (not) implemented; that one covers "how do I actually run this."
+> bring-up checklist. This file covers design decisions and what's (not)
+> implemented; that one covers "how do I actually run this."
+>
+> **Planning to sell this to other people? Read
+> [`PRODUCTION.md`](./PRODUCTION.md) first** — certification requirements
+> (FCC/CE/battery safety/UL) you can't skip, enclosure and manufacturing
+> guidance, and what a design review here can't substitute for.
 
 A custom ESP32-based NFC encoder board with WiFi + Ethernet, designed to
 speak the same `/agent` protocol the desktop USB agent
@@ -32,7 +37,9 @@ hardware/
       AgentClient.h/.cpp         — hand-built Socket.IO v4 client for /agent
       StatusIndicator.h/.cpp     — WS2812 LED + buzzer feedback
       RelayControl.h/.cpp        — door-strike/lock output
+      BatteryMonitor.h/.cpp      — MAX17048 fuel gauge, low-battery LED state
       Hex.h                      — hex encode/decode (matches the server's convention)
+  PRODUCTION.md                  — selling this: certification, safety, enclosure, manufacturing
 ```
 
 ## Read this before trusting any of it blindly
@@ -149,6 +156,20 @@ This board decides nothing about whether a tapped card is "known" or
   vs. "couldn't report it or a command failed,"** never "recognized" vs.
   "unrecognized" — see `StatusIndicator.h`'s comment for why that
   distinction doesn't exist at this layer.
+
+### Battery power + input protection
+
+Added on request — full circuit description in `schematic/pinout.md`'s
+"Battery power system" and "Input protection" sections, parts in
+`schematic/BOM.md`, firmware in `firmware/src/BatteryMonitor.h`/`.cpp`.
+Short version: a replaceable 18650 cell with dedicated protection
+circuitry (not reliant on the cell itself being pre-protected), a
+charge/power-path IC so the board runs seamlessly from whichever of
+{input power, battery} is present, a boost converter to keep the existing
+3.3V rail design unchanged, and a fuel gauge driving a real
+`Status::LOW_BATTERY` LED state below 15% charge. Runtime hasn't been
+measured against a physical unit — see `PRODUCTION.md` for an honest,
+rough estimate instead of a fabricated one.
 
 ### Other known gaps (documented, not silently missing)
 

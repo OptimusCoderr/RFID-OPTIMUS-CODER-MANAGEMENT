@@ -20,6 +20,9 @@ constexpr int BUZZER = 17;
 constexpr int RELAY_DRIVE = 32;
 constexpr int TAMPER_SW = 34;
 constexpr int BOOT_BTN = 0;
+
+constexpr int BATT_SDA = 21; // MAX17048 fuel gauge — see pinout.md's "Battery power system"
+constexpr int BATT_SCL = 22;
 } // namespace Pins
 
 namespace Timing {
@@ -30,7 +33,16 @@ constexpr unsigned long RELAY_PULSE_MS = 3'000;     // door-strike hold time aft
 constexpr unsigned long FACTORY_RESET_HOLD_MS = 5'000; // BOOT_BTN long-press duration
 constexpr unsigned long ETH_LINK_CHECK_MS = 2'000;
 constexpr unsigned long WIFI_RETRY_MS = 5'000;
+constexpr unsigned long BATTERY_POLL_MS = 10'000;   // how often to re-read the fuel gauge
 } // namespace Timing
+
+namespace Battery {
+// Below this state-of-charge percentage, StatusIndicator shows LOW_BATTERY
+// instead of whatever it would otherwise show. Not a hard cutoff — U7
+// (DW01A) on the board is what actually disconnects the cell at a much
+// lower, protection-grade threshold; this is just an earlier heads-up.
+constexpr float LOW_PERCENT = 15.0f;
+} // namespace Battery
 
 // agentKey / WiFi credentials / server address are secrets, not something to
 // commit — see Secrets.h.example. Copy it to Secrets.h (gitignored) and fill

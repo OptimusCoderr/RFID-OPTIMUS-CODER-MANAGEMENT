@@ -18,10 +18,10 @@ void StatusIndicator::applyColor(uint8_t r, uint8_t g, uint8_t b) {
 }
 
 void StatusIndicator::set(Status status) {
-  // BOOTING/CONNECTING/IDLE are persistent states; TAP_OK/TAP_ERROR are
-  // transient flashes layered on top without replacing whichever
-  // persistent state was active underneath them.
-  if (status == Status::BOOTING || status == Status::CONNECTING || status == Status::IDLE) {
+  // BOOTING/CONNECTING/IDLE/LOW_BATTERY are persistent states; TAP_OK/
+  // TAP_ERROR are transient flashes layered on top without replacing
+  // whichever persistent state was active underneath them.
+  if (status != Status::TAP_OK && status != Status::TAP_ERROR) {
     baseStatus = status;
   }
   applyStatus(status);
@@ -39,6 +39,9 @@ void StatusIndicator::applyStatus(Status status) {
       break;
     case Status::IDLE:
       applyColor(0, 0, 80);
+      break;
+    case Status::LOW_BATTERY:
+      applyColor(200, 130, 0); // solid amber — not pulsed, not a flash: stays until BatteryMonitor says otherwise
       break;
     case Status::TAP_OK:
       applyColor(0, 180, 0);

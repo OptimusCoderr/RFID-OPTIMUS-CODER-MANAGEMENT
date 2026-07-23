@@ -23,6 +23,11 @@ restrictions apply.
 - A MIFARE Classic and/or NTAG/Ultralight card or two to tap for testing.
   A MIFARE DESFire card is useful for confirming the "unsupported, not
   crashed" behavior (see `README.md`).
+- If testing the battery subsystem: an 18650 Li-ion cell and a
+  multimeter. See `schematic/BOM.md`/`schematic/pinout.md`'s "Battery
+  power system" for the full circuit, and `PRODUCTION.md` before
+  shipping any unit with a battery installed — Li-ion cells have real
+  handling/shipping requirements that aren't optional.
 - The RFID Optimus server running and reachable from the board's network
   (see the repo root `README.md`'s "Getting started" section) — you'll
   need this before step 4 below (registering the encoder to get an
@@ -256,6 +261,12 @@ serial monitor for the whole thing.
 | T21 | Disconnect/reconnect | Stop the server process (or block the port) while the board is connected | Dashboard flips the encoder to **OFFLINE** (and, per `notifyCompanyAdmins`, a notification fires for company admins). Restart the server — board reconnects and dashboard flips back to ONLINE without a manual restart |
 | T22 | Ethernet unplug mid-session | With Ethernet active and the agent connected, unplug the cable | `NetworkManager` falls back to WiFi within `ETH_LINK_CHECK_MS`-ish; the agent connection recovers (WebSocketsClient's own reconnect logic, since the underlying interface changed under it) |
 | T23 | No NFC module attached | Boot with J3 unpopulated | Firmware doesn't crash — logs `[nfc] PN532 not responding` and `[boot] continuing without a working NFC reader`, network/agent still come up normally |
+| T24 | Fuel gauge detected | Boot with BATT1 + U6 populated | Serial logs `[batt] MAX17048 found — NN%, X.XXV` |
+| T25 | No battery populated | Boot on a board built without the battery subsystem (or with BATT1 removed) | Serial logs `[batt] MAX17048 not responding...` — firmware continues normally, no crash, `Status::LOW_BATTERY` never triggers (see `BatteryMonitor::isPresent()`) |
+| T26 | Charges when input present | Plug in USB-C/DC power with BATT1 installed and at partial charge | Cell voltage rises over time (check via `[batt]` logs, or a multimeter on BATT1 directly) — confirms U8 (MCP73871) is actually charging, not just powering the load |
+| T27 | Runs on battery alone | With BATT1 charged, unplug both USB-C and DC input | Board keeps running with no reboot/brownout — confirms U8's power-path switch-over and U9's boost to 5V are both working. Agent connection may briefly drop and recover if the momentary switch-over causes a network hiccup; a full reboot would indicate a real problem (see `README.md`'s "not built or run against real hardware" note — this specific transition is the least-tested part of the whole design) |
+| T28 | Low-battery LED | Let BATT1 discharge (or, faster: temporarily lower `Battery::LOW_PERCENT` in `Config.h` to a value above your cell's actual charge, reflash, then revert) | LED goes solid amber (`Status::LOW_BATTERY`) once below threshold; reverts to blue/idle once charged back above it |
+| T29 | Reverse-polarity protection (J2) | **Verify with a multimeter first — don't wire it backwards on a hunch.** With a current-limited bench supply if you have one, deliberately reverse J2's polarity at a safe low current | Board draws no current and shows no damage — Q5 blocks it. If you don't have a current-limited supply, skip the deliberate-reversal test and just trust the topology (a P-MOSFET reverse-polarity circuit is a standard, well-understood pattern) rather than risk the board to prove it |
 
 ## Automated testing status
 

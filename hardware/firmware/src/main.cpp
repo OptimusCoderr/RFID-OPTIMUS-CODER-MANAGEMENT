@@ -28,6 +28,7 @@
 #include "AgentClient.h"
 #include "StatusIndicator.h"
 #include "RelayControl.h"
+#include "BatteryMonitor.h"
 #include "Hex.h"
 
 static NetworkManager network;
@@ -35,12 +36,19 @@ static NfcReader nfc;
 static AgentClient agent;
 static StatusIndicator led;
 static RelayControl relay;
+static BatteryMonitor battery;
 
 static bool agentStarted = false;
 static unsigned long bootBtnPressedAt = 0;
-static bool tamperOpen = false;       // last-reported state, so this only logs on change
-static bool lastAgentConnected = false; // so the idle/connecting LED only updates on an actual change,
-                                         // instead of stomping a TAP_OK/TAP_ERROR flash every single loop()
+static bool tamperOpen = false; // last-reported state, so this only logs on change
+
+// Tracks the persistent LED state we last actually applied, so the
+// idle/connecting/low-battery LED only updates on a real change instead of
+// stomping a TAP_OK/TAP_ERROR flash every single loop() — computed fresh
+// each iteration from network+battery state, then compared here rather
+// than driven by a single boolean edge-trigger, since it now depends on
+// two independent conditions (connectivity, battery) instead of one.
+static Status lastPersistentStatus = Status::BOOTING;
 
 static void handleCommand(const String &commandId, const String &command, JsonObjectConst args) {
   JsonDocument resultDoc;
@@ -158,6 +166,8 @@ void setup() {
     Serial.println("[boot] continuing without a working NFC reader — check J3 (see README's bring-up checklist)");
   }
 
+  battery.begin(); // fine if absent — see BatteryMonitor.h
+
   network.begin();
   agent.onCommand(handleCommand);
 
@@ -168,6 +178,7 @@ void loop() {
   network.loop();
   led.loop();
   relay.loop();
+  battery.loop();
 
   // AgentClient needs an active network link before ws.begin()'s internal
   // reconnect logic can do anything useful — starting it before then just
@@ -180,13 +191,19 @@ void loop() {
   }
   if (agentStarted) agent.loop();
 
-  // Edge-triggered on purpose — see lastAgentConnected's declaration. A
-  // flash from a tap below still briefly overrides whichever of these was
-  // last set; StatusIndicator::loop() reverts to it once the flash ends.
-  const bool nowConnected = agent.isConnected();
-  if (nowConnected != lastAgentConnected) {
-    lastAgentConnected = nowConnected;
-    led.set(nowConnected ? Status::IDLE : Status::CONNECTING);
+  // Recomputed fresh every loop() from current network+battery state, and
+  // only re-applied to the LED when it actually changed — see
+  // lastPersistentStatus's declaration. Not connected takes priority over
+  // low battery (a device that isn't even talking to the server has the
+  // more fundamental problem); a flash from a tap below still briefly
+  // overrides whichever of these was last set, and StatusIndicator::loop()
+  // reverts to it once the flash ends.
+  const Status wantPersistent = !agent.isConnected()                    ? Status::CONNECTING
+                                 : (battery.isPresent() && battery.isLow()) ? Status::LOW_BATTERY
+                                                                            : Status::IDLE;
+  if (wantPersistent != lastPersistentStatus) {
+    lastPersistentStatus = wantPersistent;
+    led.set(wantPersistent);
   }
 
   DetectedCard card;

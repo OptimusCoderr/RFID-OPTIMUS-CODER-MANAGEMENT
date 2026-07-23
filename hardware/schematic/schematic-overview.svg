@@ -1,11 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1700 1180" font-family="'DejaVu Sans Mono', 'Courier New', monospace">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2120 1180" font-family="'DejaVu Sans Mono', 'Courier New', monospace">
   <defs>
     <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
       <path d="M0,0 L6,3 L0,6 Z" fill="#334155"/>
     </marker>
   </defs>
 
-  <rect x="0" y="0" width="1700" height="1180" fill="#0b1220"/>
+  <rect x="0" y="0" width="2120" height="1180" fill="#0b1220"/>
   <text x="24" y="34" fill="#e2e8f0" font-size="22" font-weight="bold">RFID Optimus Encoder — Board Schematic Overview (block/net level)</text>
   <text x="24" y="56" fill="#64748b" font-size="12">Reference designators match BOM.md. Exact pin numbers: pinout.md. Not a KiCad export — a hand-authored reference diagram (see hardware/README.md).</text>
 
@@ -208,9 +208,9 @@
     <!-- Expansion -->
     <rect x="300" y="628" width="200" height="70" rx="4" fill="#1e293b" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3 2"/>
     <text x="400" y="650" fill="#f1f5f9" font-size="11" text-anchor="middle">J4 expansion header</text>
-    <text x="400" y="666" fill="#cbd5e1" font-size="9" text-anchor="middle">3V3 / GND / EXP_SDA / EXP_SCL</text>
-    <text x="400" y="680" fill="#cbd5e1" font-size="9" text-anchor="middle">+ 2 spare input-only GPIOs</text>
-    <text x="400" y="692" fill="#cbd5e1" font-size="9" text-anchor="middle">(not populated by default)</text>
+    <text x="400" y="666" fill="#cbd5e1" font-size="9" text-anchor="middle">3V3 / GND</text>
+    <text x="400" y="680" fill="#cbd5e1" font-size="9" text-anchor="middle">+ 3 spare input-only GPIOs</text>
+    <text x="400" y="692" fill="#cbd5e1" font-size="9" text-anchor="middle">(GPIO21/22 now dedicated — see U6)</text>
   </g>
 
   <!-- wires from MCU down to I/O -->
@@ -239,6 +239,91 @@
     <line x1="1000" y1="775" x2="1030" y2="775" stroke="#f87171" stroke-width="2"/>
     <text x="1038" y="779" fill="#cbd5e1">relay / lock / tamper</text>
   </g>
+
+  <!-- ===================== INPUT PROTECTION ===================== -->
+  <g>
+    <rect x="1300" y="90" width="390" height="230" rx="8" fill="none" stroke="#475569" stroke-dasharray="4 3"/>
+    <text x="1312" y="112" fill="#94a3b8" font-size="13" font-weight="bold">INPUT PROTECTION (ahead of POWER section)</text>
+
+    <rect x="1320" y="130" width="160" height="52" rx="4" fill="#1e293b" stroke="#fda4af" stroke-width="1.5"/>
+    <text x="1400" y="150" fill="#f1f5f9" font-size="11" text-anchor="middle">Q5 P-MOSFET</text>
+    <text x="1400" y="166" fill="#cbd5e1" font-size="9" text-anchor="middle">reverse-polarity, J2 input</text>
+    <text x="1400" y="178" fill="#cbd5e1" font-size="9" text-anchor="middle">R15 gate ref to GND</text>
+
+    <rect x="1500" y="130" width="160" height="52" rx="4" fill="#1e293b" stroke="#fda4af" stroke-width="1.5"/>
+    <text x="1580" y="150" fill="#f1f5f9" font-size="11" text-anchor="middle">F1 PTC fuse</text>
+    <text x="1580" y="166" fill="#cbd5e1" font-size="9" text-anchor="middle">resettable overcurrent</text>
+    <text x="1580" y="178" fill="#cbd5e1" font-size="9" text-anchor="middle">protection, J2 input</text>
+
+    <rect x="1320" y="200" width="160" height="52" rx="4" fill="#1e293b" stroke="#fda4af" stroke-width="1.5"/>
+    <text x="1400" y="220" fill="#f1f5f9" font-size="11" text-anchor="middle">D5 TVS</text>
+    <text x="1400" y="236" fill="#cbd5e1" font-size="9" text-anchor="middle">ESD/surge, J2 (12-24V)</text>
+    <text x="1400" y="248" fill="#cbd5e1" font-size="9" text-anchor="middle">bidirectional</text>
+
+    <rect x="1500" y="200" width="160" height="52" rx="4" fill="#1e293b" stroke="#fda4af" stroke-width="1.5"/>
+    <text x="1580" y="220" fill="#f1f5f9" font-size="11" text-anchor="middle">D6 TVS</text>
+    <text x="1580" y="236" fill="#cbd5e1" font-size="9" text-anchor="middle">ESD/surge, J1 USB-C VBUS</text>
+    <text x="1580" y="248" fill="#cbd5e1" font-size="9" text-anchor="middle">bidirectional</text>
+
+    <text x="1312" y="278" fill="#fda4af" font-size="10">Not on a 1-off prototype for yourself — added because this board ships to</text>
+    <text x="1312" y="292" fill="#fda4af" font-size="10">someone else's install, wired by someone who isn't you. See ../PRODUCTION.md.</text>
+    <line x1="1300" y1="205" x2="1260" y2="205" stroke="#fda4af" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="1130" y="200" fill="#fda4af" font-size="10" text-anchor="end">into J1/J2 (POWER section, top-left)</text>
+  </g>
+
+  <!-- ===================== BATTERY POWER SYSTEM ===================== -->
+  <g>
+    <rect x="1300" y="340" width="390" height="470" rx="8" fill="none" stroke="#475569" stroke-dasharray="4 3"/>
+    <text x="1312" y="362" fill="#94a3b8" font-size="13" font-weight="bold">BATTERY POWER SYSTEM</text>
+
+    <rect x="1320" y="380" width="150" height="60" rx="4" fill="#1e293b" stroke="#2dd4bf" stroke-width="1.5"/>
+    <text x="1395" y="402" fill="#f1f5f9" font-size="11" text-anchor="middle">BATT1</text>
+    <text x="1395" y="418" fill="#cbd5e1" font-size="9" text-anchor="middle">18650 Li-ion</text>
+    <text x="1395" y="430" fill="#cbd5e1" font-size="9" text-anchor="middle">replaceable, in a holder</text>
+
+    <rect x="1510" y="380" width="150" height="60" rx="4" fill="#1e293b" stroke="#2dd4bf" stroke-width="1.5"/>
+    <text x="1585" y="400" fill="#f1f5f9" font-size="11" text-anchor="middle">U7 DW01A</text>
+    <text x="1585" y="414" fill="#cbd5e1" font-size="9" text-anchor="middle">+ Q4 FS8205A</text>
+    <text x="1585" y="428" fill="#cbd5e1" font-size="9" text-anchor="middle">cell protection (not optional)</text>
+
+    <line x1="1470" y1="410" x2="1510" y2="410" stroke="#2dd4bf" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="1320" y="460" width="340" height="60" rx="4" fill="#1e293b" stroke="#2dd4bf" stroke-width="1.5"/>
+    <text x="1490" y="480" fill="#f1f5f9" font-size="11" text-anchor="middle">U8 MCP73871 — charge management + power-path control</text>
+    <text x="1490" y="496" fill="#cbd5e1" font-size="9" text-anchor="middle">charges BATT1 from the 5V rail when present; SYS_OUT powers the board</text>
+    <text x="1490" y="510" fill="#cbd5e1" font-size="9" text-anchor="middle">from {input, battery} automatically, no firmware involvement</text>
+    <line x1="1585" y1="440" x2="1585" y2="460" stroke="#2dd4bf" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <rect x="1320" y="540" width="150" height="60" rx="4" fill="#1e293b" stroke="#2dd4bf" stroke-width="1.5"/>
+    <text x="1395" y="560" fill="#f1f5f9" font-size="11" text-anchor="middle">U9 MT3608</text>
+    <text x="1395" y="576" fill="#cbd5e1" font-size="9" text-anchor="middle">boost SYS_OUT</text>
+    <text x="1395" y="588" fill="#cbd5e1" font-size="9" text-anchor="middle">(3.0-4.2V) → 5V</text>
+
+    <rect x="1510" y="540" width="150" height="60" rx="4" fill="#1e293b" stroke="#2dd4bf" stroke-width="1.5"/>
+    <text x="1585" y="560" fill="#f1f5f9" font-size="11" text-anchor="middle">D4 SS14</text>
+    <text x="1585" y="576" fill="#cbd5e1" font-size="9" text-anchor="middle">OR-ing diode into the</text>
+    <text x="1585" y="588" fill="#cbd5e1" font-size="9" text-anchor="middle">existing 5V rail (with D1/D2)</text>
+
+    <line x1="1490" y1="520" x2="1395" y2="540" stroke="#2dd4bf" stroke-width="2"/>
+    <line x1="1470" y1="570" x2="1510" y2="570" stroke="#2dd4bf" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="1300" y1="570" x2="1260" y2="570" stroke="#2dd4bf" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="1130" y="565" fill="#2dd4bf" font-size="10" text-anchor="end">joins 5V rail (POWER section, top-left)</text>
+
+    <rect x="1320" y="640" width="340" height="70" rx="4" fill="#1e293b" stroke="#2dd4bf" stroke-width="1.5"/>
+    <text x="1490" y="662" fill="#f1f5f9" font-size="11" text-anchor="middle">U6 MAX17048 — fuel gauge</text>
+    <text x="1490" y="678" fill="#cbd5e1" font-size="9" text-anchor="middle">reads BATT1 directly, reports SOC% + voltage over I2C</text>
+    <text x="1490" y="694" fill="#cbd5e1" font-size="9" text-anchor="middle">a gauge only — U7/Q4 above are what actually protect the cell</text>
+
+    <line x1="1490" y1="640" x2="1490" y2="600" stroke="#2dd4bf" stroke-width="1.5" stroke-dasharray="2 2"/>
+    <line x1="1320" y1="670" x2="890" y2="335" stroke="#2dd4bf" stroke-width="1.5"/>
+    <text x="900" y="750" fill="#2dd4bf" font-size="10">I2C (GPIO21/22, BATT_SDA/BATT_SCL) to U1 — see BatteryMonitor in firmware</text>
+  </g>
+
+  <!-- extend legend -->
+  <line x1="1000" y1="795" x2="1030" y2="795" stroke="#2dd4bf" stroke-width="2"/>
+  <text x="1038" y="799" fill="#cbd5e1">battery system</text>
+  <line x1="1000" y1="815" x2="1030" y2="815" stroke="#fda4af" stroke-width="2"/>
+  <text x="1038" y="819" fill="#cbd5e1">input protection</text>
 
   <text x="24" y="1050" fill="#475569" font-size="11">Full exact pin-for-pin mapping: pinout.md. Parts + reference designators: BOM.md.</text>
   <text x="24" y="1068" fill="#475569" font-size="11">This is a hand-authored reference diagram for recreating in KiCad/Eagle — see hardware/README.md for why (no EDA tooling available in the environment this was written in).</text>
