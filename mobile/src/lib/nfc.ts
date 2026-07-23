@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 import NfcManager, { NfcTech } from "react-native-nfc-manager";
+import { normalizeUid } from "./nfcUid";
 
 // Tap-in only needs the tag's UID, never its NDEF content or raw
 // sector/file data — unlike the desktop agent (which does full MIFARE/
@@ -43,15 +44,6 @@ export async function isNfcSupported(): Promise<boolean> {
     // rather than crashing the Tap In screen.
     return false;
   }
-}
-
-// tag.id is the UID as a hex string from the native layer. Casing varies by
-// platform/tag, so normalize to uppercase, no separators — matching the
-// format the desktop agent and server already use everywhere else (see
-// server/tests/api.test.ts's UID fixtures).
-function normalizeUid(id: string | undefined): string | null {
-  if (!id) return null;
-  return id.replace(/[^0-9a-fA-F]/g, "").toUpperCase() || null;
 }
 
 export class NfcCancelledError extends Error {

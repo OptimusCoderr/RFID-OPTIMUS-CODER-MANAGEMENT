@@ -1,5 +1,11 @@
 # RFID Optimus — Mobile (Expo)
 
+> **Setting this up on a real Windows/Linux machine, or want to actually
+> run it and test it end-to-end (including Tap In on a physical device)?
+> See [`TESTING.md`](./TESTING.md)** — full toolchain install, build, and
+> a manual QA checklist. This file covers architecture and design
+> decisions; that one covers "how do I actually run this."
+
 A companion/dashboard mobile app for the same backend the web client
 (`../client`) and desktop agent (`../server/agent`) talk to. It's a
 **separate, independent Expo/React Native project** — not a shared
@@ -178,6 +184,7 @@ mobile/
       config.ts               — runtime-configurable API base URL
       tokenStorage.ts         — SecureStore-backed token get/set/clear
       nfc.ts                  — NFC tag-UID read wrapper (Tap In screen)
+      nfcUid.ts               — pure UID-normalization logic, split out of nfc.ts so it's unit-testable (see nfcUid.test.ts, TESTING.md)
     context/AuthContext.tsx  — sign-in/sign-out, current user
     navigation/
       RootNavigator.tsx       — Login vs. main app stack

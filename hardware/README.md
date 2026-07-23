@@ -1,5 +1,11 @@
 # RFID Optimus Encoder — hardware + firmware
 
+> **Setting this up on a real Windows/Linux machine, or want to actually
+> compile, flash, and test it? See [`TESTING.md`](./TESTING.md)** — full
+> toolchain install (PlatformIO, drivers), build/flash steps, and a
+> 23-point bring-up checklist. This file covers design decisions and
+> what's (not) implemented; that one covers "how do I actually run this."
+
 A custom ESP32-based NFC encoder board with WiFi + Ethernet, designed to
 speak the same `/agent` protocol the desktop USB agent
 (`server/src/agent/agent.ts`) already speaks — so it shows up in the
