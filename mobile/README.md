@@ -65,54 +65,69 @@ package — a hand-copied subset of `client/src/types/index.ts` (see
 workspace's coordination overhead. If this app grows to need most of the
 web client's types, revisit that.
 
-## Setup
+## Setup: build a dev client (don't use Expo Go)
+
+This app includes `react-native-nfc-manager` for Tap In — a native module
+Expo Go's prebuilt binary doesn't (and can't) include, since Expo Go can
+only ever ship the fixed set of modules Expo bundled into it. Once a
+native module is in the dependency tree, **the project needs its own
+custom-built dev client, not Expo Go, even to run the screens that don't
+use NFC** — Expo Go would just be missing the module the JS bundle
+imports. `npm run android` / `npm run ios` below are wired to Expo's
+`expo run:*` commands for exactly this reason.
 
 ```bash
 cd mobile
 npm install
-npm start   # opens Expo Dev Tools — press "a"/"i"/"w" for Android/iOS/web,
-            # or scan the QR code with Expo Go on a physical device
+npx expo prebuild      # generates android/ + ios/ (gitignored — regenerated
+                        # from app.json + config plugins, never hand-edited
+                        # or committed) — expo run:* below does this
+                        # automatically if you skip it
+npm run android         # builds + installs a debug dev-client build on a
+                         # connected device/emulator (needs Android Studio /
+                         # the Android SDK installed locally)
+npm run ios              # same, for the simulator or a connected device
+                          # (needs Xcode — macOS only)
 ```
 
-Every screen *except* Tap In works fine in plain Expo Go this way.
-
-## Building a dev client (required for Tap In / NFC)
-
-`react-native-nfc-manager` is a native module — Expo Go's prebuilt binary
-doesn't include it, and can't (Expo Go can't include every possible native
-module, which is exactly what a custom dev-client build is for). Without
-one, the Tap In screen loads and correctly reports "NFC isn't available"
-(see `isNfcSupported()` in `src/lib/nfc.ts`, which treats a missing native
-module the same as no hardware) rather than crashing — but you won't get a
-real scan.
-
-To get a build that includes it:
-
-```bash
-npx expo install expo-dev-client   # already in package.json — just documenting why it's there
-npx expo prebuild                  # generates ios/ and android/ native projects from app.json
-npx expo run:android               # builds + installs on a connected device/emulator
-npx expo run:ios                   # builds + installs on the simulator or a connected device
-```
-
-Or, without a local Android Studio/Xcode setup, use an
+No local Android Studio/Xcode setup? Use an
 [EAS Build](https://docs.expo.dev/build/introduction/) development build
-instead of `expo run:*`. Either way, `npm start` still works afterward —
-point the resulting dev-client app at the same Metro server instead of
-Expo Go.
+instead — it builds in the cloud and gives you an installable app/APK.
+Either path, once the dev-client app is installed, `npm start` runs Metro
+as usual — the installed app has its own connect screen (branded
+"RFID Optimus", built from this project, not Expo Go) for pointing it at
+that Metro server.
 
 The `react-native-nfc-manager` config plugin (wired into `app.json`'s
 `expo.plugins`) handles the platform-specific wiring during `prebuild`:
 the iOS `NFCReaderUsageDescription` string + `nfc.readersession.formats`
 entitlement, and the Android `NFC` permission.
 
-**Not verified against physical hardware.** This code was written and
-bundle-verified (Metro resolves every import cleanly, `tsc` passes) in a
-sandboxed environment with no NFC reader attached, so the exact tag-tech
-list in `src/lib/nfc.ts` (`READ_TECH`) is based on the library's documented
-API rather than a confirmed real-device read against a MIFARE/DESFire
-card. If a tap doesn't resolve a UID on your device, that tech list is the
-first place to adjust.
+### Not built or run against real hardware here
+
+I attempted the actual `expo prebuild` + Gradle build in the sandboxed
+environment this app was developed in, to confirm this works rather than
+just documenting it from the library's README. `expo prebuild` itself
+succeeded (it's pure Node/config-plugin codegen, no SDK needed) — but the
+build past that point isn't something this environment can do:
+
+- No Android SDK is installed (no `ANDROID_HOME`, no `platform-tools`),
+  and the network policy here doesn't allow downloading one — the Gradle
+  wrapper's own distribution download came back `403`, and Gradle's plugin
+  repository resolution failed similarly even in offline mode against the
+  preinstalled system Gradle.
+- iOS builds need Xcode, which only runs on macOS — this environment is
+  Linux, so there's no path to an iOS build here at all, independent of
+  network access.
+
+None of that is fixable by trying harder in this environment — it needs
+an actual Android SDK (locally or via EAS Build's cloud builders) and, for
+iOS, an actual Mac. So: `tsc`, ESLint, and Metro's full bundle resolution
+are all verified clean (every import in the NFC code resolves, nothing
+references a nonexistent API), but the NFC read itself — the tag-tech
+list in `src/lib/nfc.ts` (`READ_TECH`), UID casing, session lifecycle —
+has never run against a real reader or a real card. Treat it as
+implemented-not-verified until it's been tapped against real hardware.
 
 ## Pointing it at your backend
 
@@ -123,7 +138,7 @@ host:port for the server:
 - **Android emulator**: the host machine is reachable at `10.0.2.2`, so
   `http://10.0.2.2:4000` if the server's running on your dev machine.
 - **iOS simulator**: `http://localhost:4000` works directly.
-- **Physical device (Expo Go)**: use your dev machine's LAN IP, e.g.
+- **Physical device**: use your dev machine's LAN IP, e.g.
   `http://192.168.1.10:4000` — the phone and server must be on the same
   network (or reachable via a tunnel like `ngrok`).
 
