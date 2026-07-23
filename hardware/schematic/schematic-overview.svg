@@ -1,0 +1,245 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1700 1180" font-family="'DejaVu Sans Mono', 'Courier New', monospace">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#334155"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1700" height="1180" fill="#0b1220"/>
+  <text x="24" y="34" fill="#e2e8f0" font-size="22" font-weight="bold">RFID Optimus Encoder — Board Schematic Overview (block/net level)</text>
+  <text x="24" y="56" fill="#64748b" font-size="12">Reference designators match BOM.md. Exact pin numbers: pinout.md. Not a KiCad export — a hand-authored reference diagram (see hardware/README.md).</text>
+
+  <!-- ===================== POWER SECTION ===================== -->
+  <g>
+    <rect x="24" y="90" width="470" height="230" rx="8" fill="none" stroke="#475569" stroke-dasharray="4 3"/>
+    <text x="36" y="112" fill="#94a3b8" font-size="13" font-weight="bold">POWER</text>
+
+    <!-- USB-C -->
+    <rect x="44" y="130" width="110" height="50" rx="4" fill="#1e293b" stroke="#f97316" stroke-width="1.5"/>
+    <text x="99" y="150" fill="#f1f5f9" font-size="12" text-anchor="middle">J1</text>
+    <text x="99" y="166" fill="#cbd5e1" font-size="11" text-anchor="middle">USB-C (5V)</text>
+
+    <!-- DC jack -->
+    <rect x="44" y="200" width="110" height="50" rx="4" fill="#1e293b" stroke="#f97316" stroke-width="1.5"/>
+    <text x="99" y="220" fill="#f1f5f9" font-size="12" text-anchor="middle">J2</text>
+    <text x="99" y="236" fill="#cbd5e1" font-size="11" text-anchor="middle">12–24V DC IN</text>
+
+    <!-- buck -->
+    <rect x="190" y="200" width="90" height="50" rx="4" fill="#1e293b" stroke="#f97316" stroke-width="1.5"/>
+    <text x="235" y="220" fill="#f1f5f9" font-size="12" text-anchor="middle">U4</text>
+    <text x="235" y="236" fill="#cbd5e1" font-size="10" text-anchor="middle">Buck → 5V</text>
+    <line x1="154" y1="225" x2="190" y2="225" stroke="#f97316" stroke-width="2"/>
+
+    <!-- diode OR -->
+    <text x="330" y="160" fill="#f97316" font-size="11">D1</text>
+    <path d="M310,152 L310,168 L326,160 Z" fill="none" stroke="#f97316" stroke-width="1.5"/>
+    <line x1="154" y1="155" x2="310" y2="155" stroke="#f97316" stroke-width="2"/>
+    <line x1="310" y1="155" x2="310" y2="160" stroke="#f97316" stroke-width="2"/>
+
+    <text x="330" y="230" fill="#f97316" font-size="11">D2</text>
+    <path d="M310,222 L310,238 L326,230 Z" fill="none" stroke="#f97316" stroke-width="1.5"/>
+    <line x1="280" y1="225" x2="310" y2="225" stroke="#f97316" stroke-width="2"/>
+    <line x1="310" y1="225" x2="310" y2="230" stroke="#f97316" stroke-width="2"/>
+
+    <line x1="326" y1="160" x2="360" y2="160" stroke="#f97316" stroke-width="2"/>
+    <line x1="326" y1="230" x2="360" y2="230" stroke="#f97316" stroke-width="2"/>
+    <line x1="360" y1="160" x2="360" y2="230" stroke="#f97316" stroke-width="2"/>
+    <line x1="360" y1="195" x2="400" y2="195" stroke="#f97316" stroke-width="2.5" marker-end="url(#arrow)"/>
+    <text x="404" y="190" fill="#fb923c" font-size="12" font-weight="bold">5V rail</text>
+
+    <!-- LDO -->
+    <rect x="44" y="270" width="110" height="42" rx="4" fill="#1e293b" stroke="#22c55e" stroke-width="1.5"/>
+    <text x="99" y="288" fill="#f1f5f9" font-size="12" text-anchor="middle">U3 AMS1117-3.3</text>
+    <text x="99" y="303" fill="#cbd5e1" font-size="10" text-anchor="middle">5V → 3V3 LDO</text>
+    <line x1="99" y1="180" x2="99" y2="270" stroke="#f97316" stroke-width="2"/>
+    <line x1="154" y1="291" x2="220" y2="291" stroke="#22c55e" stroke-width="2.5" marker-end="url(#arrow)"/>
+    <text x="224" y="296" fill="#4ade80" font-size="12" font-weight="bold">3V3 rail</text>
+
+    <text x="44" y="335" fill="#64748b" font-size="10">D1/D2 = SS14 Schottky OR-ing so USB-C and the DC input never back-feed each other.</text>
+  </g>
+
+  <!-- ===================== MCU ===================== -->
+  <g>
+    <rect x="560" y="90" width="330" height="420" rx="8" fill="#111827" stroke="#38bdf8" stroke-width="2"/>
+    <text x="725" y="118" fill="#7dd3fc" font-size="15" font-weight="bold" text-anchor="middle">U1 — ESP32-WROOM-32E</text>
+    <text x="725" y="136" fill="#64748b" font-size="10" text-anchor="middle">main.cpp / AgentClient / NfcReader / NetworkManager</text>
+
+    <!-- left pins -->
+    <g font-size="11" fill="#e2e8f0">
+      <text x="572" y="170">3V3 ◄</text>
+      <text x="572" y="190">GND</text>
+      <text x="572" y="220">GPIO1  (UART0_TX) ►</text>
+      <text x="572" y="240">GPIO3  (UART0_RX) ◄</text>
+      <text x="572" y="270">EN (RESET) ◄</text>
+      <text x="572" y="290">GPIO0 (BOOT_BTN) ◄</text>
+      <text x="572" y="320">GPIO34 (TAMPER_SW) ◄</text>
+      <text x="572" y="350">GPIO21/22 (EXP I2C) ►◄</text>
+    </g>
+
+    <!-- right pins -->
+    <g font-size="11" fill="#e2e8f0" text-anchor="end">
+      <text x="878" y="170">GPIO18 (SPI_SCK) ►</text>
+      <text x="878" y="190">GPIO23 (SPI_MOSI) ►</text>
+      <text x="878" y="210">GPIO19 (SPI_MISO) ◄</text>
+      <text x="878" y="240">GPIO4  (PN532_CS) ►</text>
+      <text x="878" y="260">GPIO33 (PN532_IRQ) ◄</text>
+      <text x="878" y="280">GPIO25 (PN532_RSTPDN) ►</text>
+      <text x="878" y="310">GPIO5  (ETH_CS) ►</text>
+      <text x="878" y="330">GPIO26 (ETH_RST) ►</text>
+      <text x="878" y="350">GPIO27 (ETH_INT) ◄</text>
+      <text x="878" y="380">GPIO16 (LED_DATA) ►</text>
+      <text x="878" y="400">GPIO17 (BUZZER) ►</text>
+      <text x="878" y="420">GPIO32 (RELAY_DRIVE) ►</text>
+    </g>
+  </g>
+
+  <!-- power to MCU -->
+  <line x1="99" y1="291" x2="99" y2="480" stroke="#22c55e" stroke-width="2"/>
+  <line x1="99" y1="480" x2="560" y2="480" stroke="#22c55e" stroke-width="2"/>
+  <line x1="560" y1="480" x2="560" y2="160" stroke="#22c55e" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="120" y="475" fill="#4ade80" font-size="11">3V3 → U1, U2, U5, J3 (feeds every logic IC on the board)</text>
+
+  <!-- ===================== PROGRAMMING ===================== -->
+  <g>
+    <rect x="960" y="90" width="330" height="150" rx="8" fill="none" stroke="#475569" stroke-dasharray="4 3"/>
+    <text x="972" y="112" fill="#94a3b8" font-size="13" font-weight="bold">USB PROGRAMMING / CONSOLE</text>
+
+    <rect x="980" y="130" width="130" height="60" rx="4" fill="#1e293b" stroke="#a78bfa" stroke-width="1.5"/>
+    <text x="1045" y="150" fill="#f1f5f9" font-size="12" text-anchor="middle">U5 CP2102N</text>
+    <text x="1045" y="166" fill="#cbd5e1" font-size="10" text-anchor="middle">USB ⇄ UART0</text>
+    <text x="1045" y="182" fill="#cbd5e1" font-size="9" text-anchor="middle">DTR/RTS out</text>
+
+    <rect x="1150" y="130" width="120" height="60" rx="4" fill="#1e293b" stroke="#a78bfa" stroke-width="1.5"/>
+    <text x="1210" y="150" fill="#f1f5f9" font-size="12" text-anchor="middle">Q2 + R3/R4</text>
+    <text x="1210" y="166" fill="#cbd5e1" font-size="10" text-anchor="middle">auto-reset</text>
+    <text x="1210" y="182" fill="#cbd5e1" font-size="9" text-anchor="middle">DTR/RTS → EN/GPIO0</text>
+
+    <line x1="1110" y1="150" x2="1150" y2="150" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="890" y1="220" x2="960" y2="150" stroke="#a78bfa" stroke-width="1.5"/>
+    <text x="905" y="205" fill="#c4b5fd" font-size="10">UART0 (TX/RX)</text>
+
+    <line x1="1210" y1="190" x2="1210" y2="270" stroke="#a78bfa" stroke-width="1.5"/>
+    <line x1="1210" y1="270" x2="890" y2="270" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow)"/>
+    <text x="1000" y="264" fill="#c4b5fd" font-size="10">to EN (SW1 reset also here) and GPIO0 (BOOT_SW also here)</text>
+  </g>
+
+  <!-- ===================== NFC HEADER ===================== -->
+  <g>
+    <rect x="960" y="270" width="330" height="150" rx="8" fill="none" stroke="#475569" stroke-dasharray="4 3"/>
+    <text x="972" y="292" fill="#94a3b8" font-size="13" font-weight="bold">NFC FRONT-END (pluggable, not on-board)</text>
+
+    <rect x="980" y="310" width="150" height="90" rx="4" fill="#1e293b" stroke="#f472b6" stroke-width="1.5"/>
+    <text x="1055" y="332" fill="#f1f5f9" font-size="12" text-anchor="middle">J3 — 8-pin header</text>
+    <text x="1055" y="350" fill="#cbd5e1" font-size="10" text-anchor="middle">3V3 / GND</text>
+    <text x="1055" y="366" fill="#cbd5e1" font-size="10" text-anchor="middle">SPI_SCK/MISO/MOSI</text>
+    <text x="1055" y="382" fill="#cbd5e1" font-size="10" text-anchor="middle">PN532_CS/IRQ/RSTPDN</text>
+
+    <rect x="1160" y="310" width="110" height="90" rx="4" fill="#1e293b" stroke="#f472b6" stroke-width="1.5" stroke-dasharray="3 2"/>
+    <text x="1215" y="335" fill="#f1f5f9" font-size="11" text-anchor="middle">PN532 module</text>
+    <text x="1215" y="352" fill="#cbd5e1" font-size="9" text-anchor="middle">(3rd-party</text>
+    <text x="1215" y="366" fill="#cbd5e1" font-size="9" text-anchor="middle">breakout,</text>
+    <text x="1215" y="380" fill="#cbd5e1" font-size="9" text-anchor="middle">set to SPI mode)</text>
+
+    <line x1="1130" y1="355" x2="1160" y2="355" stroke="#f472b6" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="890" y1="240" x2="980" y2="330" stroke="#f472b6" stroke-width="1.5"/>
+    <text x="900" y="410" fill="#fbcfe8" font-size="10">Antenna matching/tuning lives on the plugged-in module, not this board — see README "Why a pluggable PN532 module."</text>
+  </g>
+
+  <!-- ===================== ETHERNET ===================== -->
+  <g>
+    <rect x="960" y="450" width="330" height="150" rx="8" fill="none" stroke="#475569" stroke-dasharray="4 3"/>
+    <text x="972" y="472" fill="#94a3b8" font-size="13" font-weight="bold">ETHERNET</text>
+
+    <rect x="980" y="490" width="130" height="60" rx="4" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5"/>
+    <text x="1045" y="510" fill="#f1f5f9" font-size="12" text-anchor="middle">U2 W5500</text>
+    <text x="1045" y="526" fill="#cbd5e1" font-size="10" text-anchor="middle">SPI MAC+PHY</text>
+    <text x="1045" y="542" fill="#cbd5e1" font-size="9" text-anchor="middle">CS/RST/INT</text>
+
+    <rect x="1150" y="490" width="120" height="60" rx="4" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5"/>
+    <text x="1210" y="514" fill="#f1f5f9" font-size="12" text-anchor="middle">J5 RJ45</text>
+    <text x="1210" y="532" fill="#cbd5e1" font-size="10" text-anchor="middle">HR911105A</text>
+    <text x="1210" y="546" fill="#cbd5e1" font-size="9" text-anchor="middle">(integrated magnetics)</text>
+
+    <line x1="1110" y1="520" x2="1150" y2="520" stroke="#38bdf8" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="890" y1="260" x2="980" y2="500" stroke="#38bdf8" stroke-width="1.5"/>
+    <text x="900" y="580" fill="#7dd3fc" font-size="10">Shares SPI_SCK/MISO/MOSI bus with J3 — separate CS lines, same bus.</text>
+  </g>
+
+  <!-- ===================== I/O SECTION ===================== -->
+  <g>
+    <rect x="24" y="420" width="500" height="600" rx="8" fill="none" stroke="#475569" stroke-dasharray="4 3"/>
+    <text x="36" y="442" fill="#94a3b8" font-size="13" font-weight="bold">FEEDBACK + ACCESS-CONTROL I/O</text>
+
+    <!-- LED -->
+    <rect x="44" y="460" width="130" height="56" rx="4" fill="#1e293b" stroke="#facc15" stroke-width="1.5"/>
+    <text x="109" y="482" fill="#f1f5f9" font-size="11" text-anchor="middle">LED1 WS2812B</text>
+    <text x="109" y="498" fill="#cbd5e1" font-size="9" text-anchor="middle">status (idle/ok/err)</text>
+    <text x="109" y="510" fill="#cbd5e1" font-size="9" text-anchor="middle">via R10 series</text>
+
+    <!-- Buzzer -->
+    <rect x="44" y="536" width="130" height="70" rx="4" fill="#1e293b" stroke="#facc15" stroke-width="1.5"/>
+    <text x="109" y="558" fill="#f1f5f9" font-size="11" text-anchor="middle">BZ1 piezo</text>
+    <text x="109" y="574" fill="#cbd5e1" font-size="9" text-anchor="middle">Q3 (BC847) driver</text>
+    <text x="109" y="588" fill="#cbd5e1" font-size="9" text-anchor="middle">base via R13 from GPIO17</text>
+    <text x="109" y="600" fill="#cbd5e1" font-size="9" text-anchor="middle">tap/error tones</text>
+
+    <!-- Relay -->
+    <rect x="44" y="628" width="220" height="120" rx="4" fill="#1e293b" stroke="#f87171" stroke-width="1.5"/>
+    <text x="154" y="650" fill="#f1f5f9" font-size="11" text-anchor="middle">K1 relay (SRD-05VDC-SL-C)</text>
+    <text x="154" y="666" fill="#cbd5e1" font-size="9" text-anchor="middle">Q1 driver (GPIO32 via R11)</text>
+    <text x="154" y="680" fill="#cbd5e1" font-size="9" text-anchor="middle">D3 flyback diode across coil</text>
+    <text x="154" y="694" fill="#cbd5e1" font-size="9" text-anchor="middle">R12 gate pull-down (off at boot)</text>
+    <rect x="70" y="706" width="170" height="30" rx="4" fill="#1e293b" stroke="#f87171"/>
+    <text x="154" y="726" fill="#fca5a5" font-size="10" text-anchor="middle">J6: NO / COM / NC → external lock</text>
+
+    <!-- Tamper -->
+    <rect x="300" y="460" width="200" height="56" rx="4" fill="#1e293b" stroke="#f87171" stroke-width="1.5"/>
+    <text x="400" y="482" fill="#f1f5f9" font-size="11" text-anchor="middle">SW2 tamper (N.C.)</text>
+    <text x="400" y="498" fill="#cbd5e1" font-size="9" text-anchor="middle">GPIO34, R5 pull-up (external)</text>
+    <text x="400" y="510" fill="#cbd5e1" font-size="9" text-anchor="middle">enclosure lid switch</text>
+
+    <!-- Boot / reset -->
+    <rect x="300" y="536" width="200" height="70" rx="4" fill="#1e293b" stroke="#93c5fd" stroke-width="1.5"/>
+    <text x="400" y="558" fill="#f1f5f9" font-size="11" text-anchor="middle">SW1 (EN) / BOOT_SW (GPIO0)</text>
+    <text x="400" y="574" fill="#cbd5e1" font-size="9" text-anchor="middle">manual reset / flash-mode</text>
+    <text x="400" y="588" fill="#cbd5e1" font-size="9" text-anchor="middle">hold BOOT_SW 5s at runtime</text>
+    <text x="400" y="600" fill="#cbd5e1" font-size="9" text-anchor="middle">= clean restart (no NVS provisioning yet)</text>
+
+    <!-- Expansion -->
+    <rect x="300" y="628" width="200" height="70" rx="4" fill="#1e293b" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3 2"/>
+    <text x="400" y="650" fill="#f1f5f9" font-size="11" text-anchor="middle">J4 expansion header</text>
+    <text x="400" y="666" fill="#cbd5e1" font-size="9" text-anchor="middle">3V3 / GND / EXP_SDA / EXP_SCL</text>
+    <text x="400" y="680" fill="#cbd5e1" font-size="9" text-anchor="middle">+ 2 spare input-only GPIOs</text>
+    <text x="400" y="692" fill="#cbd5e1" font-size="9" text-anchor="middle">(not populated by default)</text>
+  </g>
+
+  <!-- wires from MCU down to I/O -->
+  <path d="M878,380 C 700,380 700,486 174,486" fill="none" stroke="#facc15" stroke-width="1.5"/>
+  <path d="M878,400 C 720,400 720,566 174,566" fill="none" stroke="#facc15" stroke-width="1.5"/>
+  <path d="M878,420 C 740,420 740,690 264,690" fill="none" stroke="#f87171" stroke-width="1.5"/>
+  <path d="M572,320 C 480,320 480,486 500,486" fill="none" stroke="#f87171" stroke-width="1.5"/>
+  <path d="M572,350 C 480,350 480,660 500,660" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="3 2"/>
+  <path d="M572,290 C 520,290 520,560 500,560" fill="none" stroke="#93c5fd" stroke-width="1.5"/>
+
+  <!-- legend -->
+  <g font-size="11">
+    <text x="1000" y="640" fill="#94a3b8" font-weight="bold">Legend</text>
+    <line x1="1000" y1="655" x2="1030" y2="655" stroke="#f97316" stroke-width="2.5"/>
+    <text x="1038" y="659" fill="#cbd5e1">5V rail</text>
+    <line x1="1000" y1="675" x2="1030" y2="675" stroke="#22c55e" stroke-width="2.5"/>
+    <text x="1038" y="679" fill="#cbd5e1">3V3 rail</text>
+    <line x1="1000" y1="695" x2="1030" y2="695" stroke="#38bdf8" stroke-width="2"/>
+    <text x="1038" y="699" fill="#cbd5e1">SPI / Ethernet</text>
+    <line x1="1000" y1="715" x2="1030" y2="715" stroke="#f472b6" stroke-width="2"/>
+    <text x="1038" y="719" fill="#cbd5e1">NFC bus</text>
+    <line x1="1000" y1="735" x2="1030" y2="735" stroke="#a78bfa" stroke-width="2"/>
+    <text x="1038" y="739" fill="#cbd5e1">USB / programming</text>
+    <line x1="1000" y1="755" x2="1030" y2="755" stroke="#facc15" stroke-width="2"/>
+    <text x="1038" y="759" fill="#cbd5e1">feedback I/O</text>
+    <line x1="1000" y1="775" x2="1030" y2="775" stroke="#f87171" stroke-width="2"/>
+    <text x="1038" y="779" fill="#cbd5e1">relay / lock / tamper</text>
+  </g>
+
+  <text x="24" y="1050" fill="#475569" font-size="11">Full exact pin-for-pin mapping: pinout.md. Parts + reference designators: BOM.md.</text>
+  <text x="24" y="1068" fill="#475569" font-size="11">This is a hand-authored reference diagram for recreating in KiCad/Eagle — see hardware/README.md for why (no EDA tooling available in the environment this was written in).</text>
+</svg>
